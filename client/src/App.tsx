@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 function App() {
   const { data: message, isLoading } = useQuery({
     queryKey: ["message"],
-    queryFn: () => fetch('http://localhost:3000/hello').then(res => res.json())
+    queryFn: () => fetch(`${import.meta.env.VITE_API_URL}/hello`).then(res => res.json())
   });
 
   if (isLoading) {
