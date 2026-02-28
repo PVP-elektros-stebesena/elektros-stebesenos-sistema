@@ -1,6 +1,7 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import "dotenv/config";
+import { voltageRoutes } from './routes/voltage.js';
 
 const fastify = Fastify({ logger: true });
 
@@ -11,6 +12,9 @@ fastify.register(cors, {
 fastify.get('/hello', async() => {
     return { message: 'Hello, World!' };
 });
+
+// Voltage analysis & grid quality endpoints
+fastify.register(voltageRoutes);
 
 const start = async () => {
     try {
