@@ -9,3 +9,137 @@ generator client {
 datasource db {
   provider = "sqlite"
 }
+
+model Device {
+  id          Int      @id @default(autoincrement())
+  name        String
+  deviceIp    String?
+  mqttBroker  String?
+  mqttPort    Int?
+  mqttTopic   String?
+  pollInterval Int     @default(10)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+
+  readings    Reading[]
+  aggregated  AggregatedData[]
+  weeklyReports WeeklyReport[]
+  anomalies   Anomaly[]
+
+  @@map("devices")
+}
+
+model Reading {
+  deviceId Int
+  timestamp DateTime
+
+  electricityDelivered1 Float?
+  electricityReturned1  Float?
+  electricityDelivered2 Float?
+  electricityReturned2  Float?
+
+  powerDelivered Float?
+  powerReturned  Float?
+
+  powerDeliveredL1 Float?
+  powerDeliveredL2 Float?
+  powerDeliveredL3 Float?
+
+  powerReturnedL1 Float?
+  powerReturnedL2 Float?
+  powerReturnedL3 Float?
+
+  voltageL1 Float?
+  voltageL2 Float?
+  voltageL3 Float?
+
+  currentL1 Float?
+  currentL2 Float?
+  currentL3 Float?
+
+  frequency Float?
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@id([deviceId, timestamp])
+  @@index([deviceId, timestamp])
+  @@map("readings")
+}
+
+model AggregatedData {
+  id        Int      @id @default(autoincrement())
+  deviceId  Int
+
+  startsAt  DateTime
+  endsAt    DateTime
+
+  voltageL1 Float?
+  voltageL2 Float?
+  voltageL3 Float?
+
+  outOfBoundsSecondsL1 Int @default(0)
+  outOfBoundsSecondsL2 Int @default(0)
+  outOfBoundsSecondsL3 Int @default(0)
+
+  compliantL1 Boolean @default(true)
+  compliantL2 Boolean @default(true)
+  compliantL3 Boolean @default(true)
+
+  sampleCount Int @default(0)
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceId, startsAt, endsAt])
+  @@index([deviceId, startsAt])
+  @@map("aggregated_data")
+}
+
+model WeeklyReport {
+  id        Int      @id @default(autoincrement())
+  deviceId  Int
+
+  startsAt  DateTime
+  endsAt    DateTime
+
+  totalWindows Int
+
+  compliantWindowsL1 Int @default(0)
+  compliantWindowsL2 Int @default(0)
+  compliantWindowsL3 Int @default(0)
+
+  compliantPctL1 Float @default(0)
+  compliantPctL2 Float @default(0)
+  compliantPctL3 Float @default(0)
+
+  overallCompliant Boolean @default(false)
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceId, startsAt, endsAt])
+  @@index([deviceId, startsAt])
+  @@map("weekly_report")
+}
+
+model Anomaly {
+  id        Int @id @default(autoincrement())
+  deviceId  Int
+
+  startsAt  DateTime
+  endsAt    DateTime?
+
+  phase     String
+  type      String
+  severity  Int      @default(1)
+
+  minVoltage Float?
+  maxVoltage Float?
+
+  duration  Int?
+  description String?
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId, startsAt])
+  @@map("anomalies")
+}

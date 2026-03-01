@@ -20,12 +20,12 @@
   "dependencies": {
     "@fastify/cors": "^11.2.0",
     "@prisma/client": "^7.4.0",
-    "dotenv": "^17.3.1",
     "fastify": "^5.7.4"
   },
   "devDependencies": {
-    "@types/node": "^25.3.0",
-    "prisma": "^7.4.0",
+    "@types/node": "^25.3.3",
+    "dotenv": "^17.3.1",
+    "prisma": "^7.4.2",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "vitest": "^4.0.18"
