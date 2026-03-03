@@ -9,3 +9,190 @@ generator client {
 datasource db {
   provider = "sqlite"
 }
+
+model Device {
+  id          Int      @id @default(autoincrement())
+  name        String
+  deviceIp    String?
+  mqttBroker  String?
+  mqttPort    Int?
+  mqttTopic   String?
+  pollInterval Int     @default(10)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+
+  readings    Reading[]
+  aggregated  AggregatedData[]
+  weeklyReports WeeklyReport[]
+  anomalies   Anomaly[]
+
+  @@map("devices")
+}
+
+model Reading {
+  deviceId  Int
+  timestamp DateTime
+
+  electricityTariff Int?
+
+  energyDelivered         Float?
+  energyReturned          Float?
+  reactiveEnergyDelivered Float?
+  reactiveEnergyReturned  Float?
+
+  energyDeliveredTariff1 Float?
+  energyDeliveredTariff2 Float?
+  energyDeliveredTariff3 Float?
+  energyDeliveredTariff4 Float?
+
+  energyReturnedTariff1  Float?
+  energyReturnedTariff2  Float?
+  energyReturnedTariff3  Float?
+  energyReturnedTariff4  Float?
+
+  reactiveEnergyDeliveredTariff1 Float?
+  reactiveEnergyDeliveredTariff2 Float?
+  reactiveEnergyDeliveredTariff3 Float?
+  reactiveEnergyDeliveredTariff4 Float?
+
+  reactiveEnergyReturnedTariff1  Float? 
+  reactiveEnergyReturnedTariff2  Float?
+  reactiveEnergyReturnedTariff3  Float?
+  reactiveEnergyReturnedTariff4  Float?
+
+  instantaneousVoltageL1 Float?
+  voltageL1              Float?
+  instantaneousCurrentL1 Float?
+  currentL1              Float?
+
+  instantaneousVoltageL2 Float?
+  voltageL2              Float?
+  instantaneousCurrentL2 Float?
+  currentL2              Float?
+
+  instantaneousVoltageL3 Float?
+  voltageL3              Float?
+  instantaneousCurrentL3 Float?
+  currentL3              Float?
+
+  instantaneousVoltage        Float?
+  instantaneousCurrent        Float?
+  instantaneousCurrentNeutral Float?
+  currentNeutral              Float?
+
+  frequency Float?
+
+  activeInstantaneousPowerDelivered   Float?
+  activeInstantaneousPowerDeliveredL1 Float?
+  activeInstantaneousPowerDeliveredL2 Float?
+  activeInstantaneousPowerDeliveredL3 Float?
+
+  activeInstantaneousPowerReturnedL1 Float?
+  activeInstantaneousPowerReturnedL2 Float?
+  activeInstantaneousPowerReturnedL3 Float?
+
+  reactiveInstantaneousPowerDeliveredL1 Float?
+  reactiveInstantaneousPowerDeliveredL2 Float?
+  reactiveInstantaneousPowerDeliveredL3 Float?
+
+  reactiveInstantaneousPowerReturnedL1 Float?
+  reactiveInstantaneousPowerReturnedL2 Float?
+  reactiveInstantaneousPowerReturnedL3 Float?
+
+  apparentInstantaneousPower   Float?
+  apparentInstantaneousPowerL1 Float?
+  apparentInstantaneousPowerL2 Float?
+  apparentInstantaneousPowerL3 Float?
+
+  powerDeliveredTotal Float?
+  powerReturnedTotal  Float?
+
+  reactiveEnergyDeliveredCurrentPeriod Float?
+  reactiveEnergyReturnedCurrentPeriod  Float?
+
+  powerDeliveredNetto Float?
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@id([deviceId, timestamp])
+  @@index([deviceId, timestamp])
+  @@map("readings")
+}
+
+model AggregatedData {
+  id        Int      @id @default(autoincrement())
+  deviceId  Int
+
+  startsAt  DateTime
+  endsAt    DateTime
+
+  voltageL1 Float?
+  voltageL2 Float?
+  voltageL3 Float?
+
+  outOfBoundsSecondsL1 Int @default(0)
+  outOfBoundsSecondsL2 Int @default(0)
+  outOfBoundsSecondsL3 Int @default(0)
+
+  compliantL1 Boolean @default(true)
+  compliantL2 Boolean @default(true)
+  compliantL3 Boolean @default(true)
+
+  sampleCount Int @default(0)
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceId, startsAt, endsAt])
+  @@index([deviceId, startsAt])
+  @@map("aggregated_data")
+}
+
+model WeeklyReport {
+  id        Int      @id @default(autoincrement())
+  deviceId  Int
+
+  startsAt  DateTime
+  endsAt    DateTime
+
+  totalWindows Int
+
+  compliantWindowsL1 Int @default(0)
+  compliantWindowsL2 Int @default(0)
+  compliantWindowsL3 Int @default(0)
+
+  compliantPctL1 Float @default(0)
+  compliantPctL2 Float @default(0)
+  compliantPctL3 Float @default(0)
+
+  overallCompliant Boolean @default(false)
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceId, startsAt, endsAt])
+  @@index([deviceId, startsAt])
+  @@map("weekly_report")
+}
+
+model Anomaly {
+  id        Int @id @default(autoincrement())
+  deviceId  Int
+
+  startsAt  DateTime
+  endsAt    DateTime?
+
+  phase     String
+  type      String
+  severity  Int      @default(1)
+
+  minVoltage Float?
+  maxVoltage Float?
+
+  duration  Int?
+  description String?
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId, startsAt])
+  @@map("anomalies")
+}
