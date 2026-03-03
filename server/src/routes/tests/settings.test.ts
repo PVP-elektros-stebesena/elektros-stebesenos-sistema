@@ -18,6 +18,9 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
+  await prisma.anomaly.deleteMany();
+  await prisma.aggregatedData.deleteMany();
+  await prisma.reading.deleteMany();
   await prisma.device.deleteMany();
 });
 
