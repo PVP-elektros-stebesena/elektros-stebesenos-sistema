@@ -1,10 +1,12 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { voltageRoutes } from '../voltage.js';
-import { voltageState } from '../../services/voltageState.js';
-import type { VoltageReading } from '../../services/voltageAnalysis.js';
+import prisma from '../../lib/prisma.js';
 
 let app: FastifyInstance;
+
+// Each test gets its own device to avoid conflicts with parallel settings tests
+let testDeviceId: number;
 
 beforeAll(async () => {
   app = Fastify();
@@ -16,31 +18,45 @@ afterAll(async () => {
   await app.close();
 });
 
+// Create a fresh device before each test so parallel deleteMany() in settings tests can't break us
+beforeEach(async () => {
+  const device = await prisma.device.create({
+    data: { name: 'VoltageTestDevice', pollInterval: 10, isActive: true },
+  });
+  testDeviceId = device.id;
+});
+
+afterEach(async () => {
+  // Clean up in correct order; use deleteMany to avoid "not found" errors
+  await prisma.anomaly.deleteMany({ where: { deviceId: testDeviceId } });
+  await prisma.aggregatedData.deleteMany({ where: { deviceId: testDeviceId } });
+  await prisma.reading.deleteMany({ where: { deviceId: testDeviceId } });
+  await prisma.device.deleteMany({ where: { id: testDeviceId } });
+});
+
 function injectGet(url: string) {
   return app.inject({ method: 'GET', url });
 }
 
 describe('GET /api/voltage/latest', () => {
   it('returns 503 when no data exists', async () => {
-    voltageState.reset();
-
-    const res = await injectGet('/api/voltage/latest');
+    const res = await injectGet(`/api/voltage/latest?deviceId=${testDeviceId}`);
     expect(res.statusCode).toBe(503);
     expect(res.json().error).toBe('NO_DATA');
   });
 
   it('returns latest reading with phase analysis after data is pushed', async () => {
-    voltageState.reset();
+    await prisma.reading.create({
+      data: {
+        deviceId: testDeviceId,
+        timestamp: new Date('2025-06-01T12:00:00Z'),
+        voltageL1: 232.5,
+        voltageL2: 228.0,
+        voltageL3: 241.0,
+      },
+    });
 
-    const reading: VoltageReading = {
-      timestamp: new Date('2025-06-01T12:00:00Z'),
-      voltage_l1: 232.5,
-      voltage_l2: 228.0,
-      voltage_l3: 241.0,
-    };
-    voltageState.pushReading(reading);
-
-    const res = await injectGet('/api/voltage/latest');
+    const res = await injectGet(`/api/voltage/latest?deviceId=${testDeviceId}`);
     const body = res.json();
 
     expect(res.statusCode).toBe(200);
@@ -62,20 +78,21 @@ describe('GET /api/voltage/latest', () => {
 
 describe('GET /api/voltage/history', () => {
   it('returns raw readings within time range', async () => {
-    voltageState.reset();
-
     const base = new Date('2025-06-01T12:00:00Z');
     for (let i = 0; i < 10; i++) {
-      voltageState.pushReading({
-        timestamp: new Date(base.getTime() + i * 10_000),
-        voltage_l1: 230 + i * 0.1,
-        voltage_l2: 230,
-        voltage_l3: 230,
+      await prisma.reading.create({
+        data: {
+          deviceId: testDeviceId,
+          timestamp: new Date(base.getTime() + i * 10_000),
+          voltageL1: 230 + i * 0.1,
+          voltageL2: 230,
+          voltageL3: 230,
+        },
       });
     }
 
     const res = await injectGet(
-      '/api/voltage/history?from=2025-06-01T12:00:00Z&to=2025-06-01T12:02:00Z&interval=raw'
+      `/api/voltage/history?deviceId=${testDeviceId}&from=2025-06-01T12:00:00Z&to=2025-06-01T12:02:00Z&interval=raw`
     );
     const body = res.json();
 
@@ -98,27 +115,29 @@ describe('GET /api/voltage/history', () => {
   });
 
   it('returns 10min aggregated windows', async () => {
-    voltageState.reset();
-
     const ws = new Date('2025-06-01T13:00:00Z');
-    for (let i = 0; i < 60; i++) {
-      voltageState.pushReading({
-        timestamp: new Date(ws.getTime() + i * 10_000),
-        voltage_l1: 231,
-        voltage_l2: 229,
-        voltage_l3: 230,
-      });
-    }
-    // Trigger window close
-    voltageState.pushReading({
-      timestamp: new Date(ws.getTime() + 600_000),
-      voltage_l1: 230,
-      voltage_l2: 230,
-      voltage_l3: 230,
+    const we = new Date('2025-06-01T13:10:00Z');
+
+    await prisma.aggregatedData.create({
+      data: {
+        deviceId: testDeviceId,
+        startsAt: ws,
+        endsAt: we,
+        voltageL1: 231,
+        voltageL2: 229,
+        voltageL3: 230,
+        sampleCount: 60,
+        compliantL1: true,
+        compliantL2: true,
+        compliantL3: true,
+        outOfBoundsSecondsL1: 0,
+        outOfBoundsSecondsL2: 0,
+        outOfBoundsSecondsL3: 0,
+      },
     });
 
     const res = await injectGet(
-      '/api/voltage/history?from=2025-06-01T13:00:00Z&to=2025-06-01T13:15:00Z&interval=10min'
+      `/api/voltage/history?deviceId=${testDeviceId}&from=2025-06-01T13:00:00Z&to=2025-06-01T13:15:00Z&interval=10min`
     );
     const body = res.json();
 
@@ -133,20 +152,21 @@ describe('GET /api/voltage/history', () => {
   });
 
   it('respects points parameter for downsampling', async () => {
-    voltageState.reset();
-
     const base = new Date('2025-06-01T12:00:00Z');
     for (let i = 0; i < 100; i++) {
-      voltageState.pushReading({
-        timestamp: new Date(base.getTime() + i * 10_000),
-        voltage_l1: 230,
-        voltage_l2: 230,
-        voltage_l3: 230,
+      await prisma.reading.create({
+        data: {
+          deviceId: testDeviceId,
+          timestamp: new Date(base.getTime() + i * 10_000),
+          voltageL1: 230,
+          voltageL2: 230,
+          voltageL3: 230,
+        },
       });
     }
 
     const res = await injectGet(
-      '/api/voltage/history?from=2025-06-01T12:00:00Z&to=2025-06-01T14:00:00Z&points=5'
+      `/api/voltage/history?deviceId=${testDeviceId}&from=2025-06-01T12:00:00Z&to=2025-06-01T14:00:00Z&points=5`
     );
     const body = res.json();
 
@@ -157,33 +177,43 @@ describe('GET /api/voltage/history', () => {
 
 describe('GET /api/voltage/anomalies', () => {
   it('returns anomalies list', async () => {
-    voltageState.reset();
-
-    voltageState.pushReading({
-      timestamp: new Date('2025-06-01T15:00:00Z'),
-      voltage_l1: 250,
-      voltage_l2: 230,
-      voltage_l3: 230,
+    await prisma.anomaly.create({
+      data: {
+        deviceId: testDeviceId,
+        startsAt: new Date('2025-06-01T15:00:00Z'),
+        endsAt: new Date('2025-06-01T15:00:10Z'),
+        phase: 'L1',
+        type: 'VOLTAGE_DEVIATION',
+        severity: 1,
+        minVoltage: 250,
+        maxVoltage: 250,
+        duration: 10,
+      },
     });
-    voltageState.pushReading({
-      timestamp: new Date('2025-06-01T15:00:10Z'),
-      voltage_l1: 230,
-      voltage_l2: 230,
-      voltage_l3: 230,
-    });
 
-    const res = await injectGet('/api/voltage/anomalies');
+    const res = await injectGet(`/api/voltage/anomalies?deviceId=${testDeviceId}`);
     const body = res.json();
 
     expect(res.statusCode).toBe(200);
     expect(body.count).toBeGreaterThan(0);
     expect(body.data[0]).toHaveProperty('type');
     expect(body.data[0]).toHaveProperty('phase');
-    expect(body.data[0]).toHaveProperty('startedAt');
+    expect(body.data[0]).toHaveProperty('startsAt');
   });
 
   it('filters by type', async () => {
-    const res = await injectGet('/api/voltage/anomalies?type=VOLTAGE_DEVIATION');
+    await prisma.anomaly.create({
+      data: {
+        deviceId: testDeviceId,
+        startsAt: new Date('2025-06-01T15:00:00Z'),
+        endsAt: new Date('2025-06-01T15:00:10Z'),
+        phase: 'L1',
+        type: 'VOLTAGE_DEVIATION',
+        severity: 1,
+      },
+    });
+
+    const res = await injectGet(`/api/voltage/anomalies?deviceId=${testDeviceId}&type=VOLTAGE_DEVIATION`);
     const body = res.json();
 
     expect(res.statusCode).toBe(200);
@@ -193,7 +223,18 @@ describe('GET /api/voltage/anomalies', () => {
   });
 
   it('filters by phase', async () => {
-    const res = await injectGet('/api/voltage/anomalies?phase=L1');
+    await prisma.anomaly.create({
+      data: {
+        deviceId: testDeviceId,
+        startsAt: new Date('2025-06-01T15:00:00Z'),
+        endsAt: new Date('2025-06-01T15:00:10Z'),
+        phase: 'L1',
+        type: 'VOLTAGE_DEVIATION',
+        severity: 1,
+      },
+    });
+
+    const res = await injectGet(`/api/voltage/anomalies?deviceId=${testDeviceId}&phase=L1`);
     const body = res.json();
 
     expect(res.statusCode).toBe(200);
@@ -205,9 +246,7 @@ describe('GET /api/voltage/anomalies', () => {
 
 describe('GET /api/voltage/anomalies/active', () => {
   it('returns currently active anomalies', async () => {
-    voltageState.reset();
-
-    const res = await injectGet('/api/voltage/anomalies/active');
+    const res = await injectGet(`/api/voltage/anomalies/active?deviceId=${testDeviceId}`);
     const body = res.json();
 
     expect(res.statusCode).toBe(200);
@@ -220,9 +259,7 @@ describe('GET /api/voltage/anomalies/active', () => {
 
 describe('GET /api/voltage/compliance/weekly', () => {
   it('returns weekly compliance report', async () => {
-    voltageState.reset();
-
-    const res = await injectGet('/api/voltage/compliance/weekly');
+    const res = await injectGet(`/api/voltage/compliance/weekly?deviceId=${testDeviceId}`);
     const body = res.json();
 
     expect(res.statusCode).toBe(200);
@@ -249,16 +286,17 @@ describe('GET /api/voltage/compliance/weekly', () => {
 
 describe('GET /api/voltage/summary', () => {
   it('returns dashboard summary', async () => {
-    voltageState.reset();
-
-    voltageState.pushReading({
-      timestamp: new Date(),
-      voltage_l1: 230,
-      voltage_l2: 230,
-      voltage_l3: 230,
+    await prisma.reading.create({
+      data: {
+        deviceId: testDeviceId,
+        timestamp: new Date(),
+        voltageL1: 230,
+        voltageL2: 230,
+        voltageL3: 230,
+      },
     });
 
-    const res = await injectGet('/api/voltage/summary');
+    const res = await injectGet(`/api/voltage/summary?deviceId=${testDeviceId}`);
     const body = res.json();
 
     expect(res.statusCode).toBe(200);
