@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyError } from 'fastify';
 import prisma from '../lib/prisma.js';
+import { devicePoller } from '../services/devicePoller.js';
 
 // JSON Schemas
 
@@ -109,6 +110,11 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
       },
     });
 
+    // Trigger poller to pick up the new device immediately
+    devicePoller.syncDevices().catch((err) =>
+      req.log.error(err, 'Failed to sync poller after device creation'),
+    );
+
     return reply.code(201).send(device);
   });
 
@@ -135,6 +141,11 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
 
     const updated = await prisma.device.update({ where: { id }, data });
 
+    // Trigger poller to reconcile changes immediately
+    devicePoller.syncDevices().catch((err) =>
+      req.log.error(err, 'Failed to sync poller after device update'),
+    );
+
     return reply.send(updated);
   });
 
@@ -149,6 +160,11 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
     }
 
     await prisma.device.delete({ where: { id } });
+
+    // Trigger poller to stop polling the deleted device
+    devicePoller.syncDevices().catch((err) =>
+      req.log.error(err, 'Failed to sync poller after device deletion'),
+    );
 
     return reply.code(204).send();
   });
