@@ -27,3 +27,53 @@ export async function apiFetch<TData>(endpoint: string): Promise<TData> {
 
   return response.json() as Promise<TData>;
 }
+
+export async function apiPost<TData, TBody = unknown>(
+  endpoint: string,
+  body: TBody,
+): Promise<TData> {
+  const url = endpoint.startsWith('http') ? endpoint : `${BASE_URL}${endpoint}`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    throw new ApiError(
+      response.status,
+      response.statusText,
+      `Request failed: ${response.status} ${response.statusText} — ${url}`,
+    );
+  }
+
+  return response.json() as Promise<TData>;
+}
+
+export async function apiPatch<TData, TBody = unknown>(
+  endpoint: string,
+  body: TBody,
+): Promise<TData> {
+  const url = endpoint.startsWith('http') ? endpoint : `${BASE_URL}${endpoint}`;
+
+  const response = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    throw new ApiError(
+      response.status,
+      response.statusText,
+      `Request failed: ${response.status} ${response.statusText} — ${url}`,
+    );
+  }
+
+  return response.json() as Promise<TData>;
+}
