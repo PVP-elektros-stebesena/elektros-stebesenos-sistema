@@ -8,7 +8,8 @@ import { devicePoller } from './services/devicePoller.js';
 const fastify = Fastify({ logger: true });
 
 fastify.register(cors, {
-    origin: "http://localhost:5173"
+    origin: "http://localhost:5173",
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 });
 
 fastify.get('/hello', async() => {

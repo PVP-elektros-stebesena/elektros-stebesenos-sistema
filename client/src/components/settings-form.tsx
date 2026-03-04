@@ -1,5 +1,3 @@
-"use client"
-
 import { Button, Card, Stack, TextInput, NumberInput, Switch, Text } from '@mantine/core'
 import { useState, useEffect } from 'react'
 import type { AppSettings } from '../types/energy'
@@ -34,7 +32,7 @@ const inputStyles = {
   input: {
     backgroundColor: '#404040',
     border: '1px solid #4A4A4A',
-    color: '#E8E0D0',
+    color: '#EBEBEB',
     borderRadius: '12px',
     height: '44px',
     fontSize: '16px',
@@ -95,45 +93,27 @@ export function SettingsForm() {
     const hasMqttTopic = s.mqtt_topic && s.mqtt_topic.trim();
     const hasMqttPort = s.mqtt_port !== null && s.mqtt_port !== undefined;
 
-    const hasMqttConfig = hasMqttBroker && hasMqttTopic && hasMqttPort;
-
-    if (!hasDeviceIp && !hasMqttConfig) {
+    if (!hasDeviceIp && !hasMqttBroker && !hasMqttTopic) {
       setMessage({ 
         type: 'error', 
-        text: 'Please provide either Device IP or complete MQTT configuration (broker, port, and topic).' 
+        text: 'Please provide either a device endpoint or complete MQTT configuration (broker, port, and topic).' 
       });
       return;
     }
 
-    if (hasDeviceIp) {
-      const ipPattern = /^(\d{1,3}\.){3}\d{1,3}$/;
-      if (!ipPattern.test(s.device_ip.trim())) {
-        setMessage({ type: 'error', text: 'Invalid IP address format.' });
-        return;
-      }
-      const parts = s.device_ip.split('.');
-      if (parts.some(part => parseInt(part) > 255)) {
-        setMessage({ type: 'error', text: 'Invalid IP address. Each part must be 0-255.' });
-        return;
-      }
-    }
-
-    if (hasMqttBroker || hasMqttTopic || hasMqttPort) {
+    if (!hasDeviceIp) {
       if (!hasMqttBroker) {
-        setMessage({ type: 'error', text: 'MQTT broker is required when configuring MQTT.' });
+        setMessage({ type: 'error', text: 'MQTT broker is required when no Device IP is provided.' });
         return;
       }
       if (!hasMqttTopic) {
-        setMessage({ type: 'error', text: 'MQTT topic is required when configuring MQTT.' });
+        setMessage({ type: 'error', text: 'MQTT topic is required when no Device IP is provided.' });
         return;
       }
       if (!hasMqttPort) {
-        setMessage({ type: 'error', text: 'MQTT port is required when configuring MQTT.' });
+        setMessage({ type: 'error', text: 'MQTT port is required when no Device IP is provided.' });
         return;
       }
-    }
-
-    if (hasMqttPort) {
       if (s.mqtt_port < 1 || s.mqtt_port > 65535) {
         setMessage({ type: 'error', text: 'MQTT port must be between 1 and 65535.' });
         return;
@@ -189,7 +169,7 @@ export function SettingsForm() {
           border: '1px solid #4A4A4A',
         }}
       >
-        <Text fw={700} mb="sm" c="#E8E0D0">
+        <Text fw={400} mb="sm" c="#EBEBEB">
           Connection
         </Text>
 
@@ -202,7 +182,8 @@ export function SettingsForm() {
             styles={inputStyles}
           />
           <TextInput
-            label="Gateway IP"
+            label="Device endpoint"
+            placeholder="e.g., 192.168.1.142 or http://gateway.local"
             value={s.device_ip}
             onChange={(e) => setS({ ...s, device_ip: e.target.value })}
             styles={inputStyles}
@@ -243,7 +224,7 @@ export function SettingsForm() {
           border: '1px solid #4A4A4A',
         }}
       >
-        <Text fw={700} mb="sm" c="#E8E0D0">
+        <Text fw={400} mb="sm" c="#EBEBEB">
           Alerts
         </Text>
 
@@ -255,16 +236,16 @@ export function SettingsForm() {
             size="md"
             styles={{
               track: {
-                backgroundColor: s.notifications_enabled ? '#F5A623' : '#404040',
-                borderColor: s.notifications_enabled ? '#F5A623' : '#4A4A4A',
+                backgroundColor: s.notifications_enabled ? '#FFCC59' : '#404040',
+                borderColor: s.notifications_enabled ? '#FFCC59' : '#4A4A4A',
                 cursor: 'pointer',
               },
               thumb: {
                 backgroundColor: '#FFFFFF',
-                borderColor: s.notifications_enabled ? '#F5A623' : '#4A4A4A',
+                borderColor: s.notifications_enabled ? '#FFCC59' : '#4A4A4A',
               },
               label: {
-                color: '#E8E0D0',
+                color: '#EBEBEB',
                 fontSize: '14px',
                 fontWeight: 400,
                 cursor: 'pointer',
@@ -282,9 +263,9 @@ export function SettingsForm() {
         loading={loading}
         styles={{
           root: {
-            backgroundColor: '#F5A623',
-            color: '#1A1A1A',
-            fontWeight: 500,
+            backgroundColor: '#FFCC59',
+            color: '#000000',
+            fontWeight: 400,
             fontSize: '16px',
             height: '48px',
           },

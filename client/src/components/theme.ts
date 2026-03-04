@@ -66,10 +66,10 @@ export const theme = createTheme({
     fontFamily: "'Roboto', sans-serif",
     fontWeight: '400',
     sizes: {
-      h1: { fontSize: '2.5rem',  lineHeight: '1.2' },
-      h2: { fontSize: '2.25rem', lineHeight: '1.2' },
-      h3: { fontSize: '2rem',    lineHeight: '1.2' },
-      h4: { fontSize: '1.5rem',  lineHeight: '1.3' },
+      h1: { fontSize: '2.5rem',  lineHeight: '1' },
+      h2: { fontSize: '2.25rem', lineHeight: '1' },
+      h3: { fontSize: '2rem',    lineHeight: '1' },
+      h4: { fontSize: '1.5rem',  lineHeight: '1' },
     },
   },
 
