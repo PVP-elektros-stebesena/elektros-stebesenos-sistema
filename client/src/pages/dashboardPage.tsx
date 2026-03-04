@@ -1,11 +1,14 @@
 import { Card, SimpleGrid, Stack, Table, Text, Group, Divider } from '@mantine/core';
 import type { LiveData } from '../types/energy';
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ label, value, unit }: { label: string; value: string; unit: string }) {
   return (
     <Card p="md">
       <Text size="xs" c="dimmed">{label}</Text>
-      <Text fw={800} size="lg">{value}</Text>
+      <Group gap={4} wrap="nowrap">
+        <Text fw={700} size="lg">{value}</Text>
+        <Text size="sm" c="dimmed">{unit}</Text>
+      </Group>
     </Card>
   );
 }
@@ -37,15 +40,17 @@ export function DashboardPage({ data }: { data: LiveData }) {
 
   return (
     <Stack p="lg" gap="md">
+      <Text fw={700} size="xl" c="white">Energy analytics</Text>
+
       <SimpleGrid cols={{ base: 1, sm: 3 }}>
-        <Stat label="Power delivered" value={`${data.power_delivered.toFixed(3)} kW`} />
-        <Stat label="Power returned" value={`${data.power_returned.toFixed(3)} kW`} />
-        <Stat label="Gas flow" value={`${data.gas_flow.toFixed(3)} m³/h`} />
+        <Stat label="Power delivered" value={data.power_delivered.toFixed(3)} unit="kW" />
+        <Stat label="Power returned" value={data.power_returned.toFixed(3)} unit="kW" />
+        <Stat label="Gas flow" value={data.gas_flow.toFixed(3)} unit="m³/h" />
       </SimpleGrid>
 
       <Card p="md">
         <Group justify="space-between" mb="sm">
-          <Text fw={800}>Per phase</Text>
+          <Text fw={700}>Per phase</Text>
           <Text size="sm" c="dimmed">
             Tariff: {data.tariff} • {data.timestamp.toLocaleString()}
           </Text>
@@ -84,22 +89,22 @@ export function DashboardPage({ data }: { data: LiveData }) {
       </Card>
 
       <SimpleGrid cols={{ base: 1, sm: 4 }}>
-        <Stat label="Import T1" value={`${data.total_t1_import.toFixed(3)} kWh`} />
-        <Stat label="Import T2" value={`${data.total_t2_import.toFixed(3)} kWh`} />
-        <Stat label="Export T1" value={`${data.total_t1_export.toFixed(3)} kWh`} />
-        <Stat label="Export T2" value={`${data.total_t2_export.toFixed(3)} kWh`} />
+        <Stat label="Import T1" value={data.total_t1_import.toFixed(3)} unit="kWh" />
+        <Stat label="Import T2" value={data.total_t2_import.toFixed(3)} unit="kWh" />
+        <Stat label="Export T1" value={data.total_t1_export.toFixed(3)} unit="kWh" />
+        <Stat label="Export T2" value={data.total_t2_export.toFixed(3)} unit="kWh" />
       </SimpleGrid>
 
       <SimpleGrid cols={{ base: 1, sm: 3 }}>
-        <Stat label="Total import" value={`${totalImport.toFixed(3)} kWh`} />
-        <Stat label="Total export" value={`${totalExport.toFixed(3)} kWh`} />
-        <Stat label="Total gas" value={`${data.total_gas.toFixed(3)} m³`} />
+        <Stat label="Total import" value={totalImport.toFixed(3)} unit="kWh" />
+        <Stat label="Total export" value={totalExport.toFixed(3)} unit="kWh" />
+        <Stat label="Total gas" value={data.total_gas.toFixed(3)} unit="m³" />
       </SimpleGrid>
 
       <Divider />
 
       <Card p="md">
-        <Text fw={800} mb="sm">All raw fields</Text>
+        <Text fw={700} mb="sm">All raw fields</Text>
         <KeyValueTable data={data as unknown as Record<string, unknown>} />
       </Card>
     </Stack>

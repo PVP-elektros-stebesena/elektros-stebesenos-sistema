@@ -1,32 +1,134 @@
-import { Group, Button, Text, Badge } from '@mantine/core';
+import { Group, UnstyledButton, Text, ActionIcon, Box } from "@mantine/core"
 import type { Page } from '../types/energy';
 
-export function Navbar({
-  page,
-  onNavigate,
-  connected,
-}: {
-  page: Page;
-  onNavigate: (p: Page) => void;
-  connected: boolean;
-}) {
-  return (
-    <Group justify="space-between" p="md">
-      <Text fw={700}>P1 Monitor</Text>
+/* ── Inline SVG icons (no icon library needed) ─────────────── */
 
-      <Group gap="xs">
-        <Button variant={page === 'dashboard' ? 'filled' : 'subtle'} onClick={() => onNavigate('dashboard')}>
-          Dashboard
-        </Button>
-        <Button variant={page === 'history' ? 'filled' : 'subtle'} onClick={() => onNavigate('history')}>
-          History
-        </Button>
-        <Button variant={page === 'settings' ? 'filled' : 'subtle'} onClick={() => onNavigate('settings')}>
-          Settings
-        </Button>
+function IconBolt({ size = 20, color = "currentColor" }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill={color} xmlns="http://www.w3.org/2000/svg">
+      <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+    </svg>
+  );
+}
+
+function IconBell({ size = 20, color = "currentColor" }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" xmlns="http://www.w3.org/2000/svg">
+      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+    </svg>
+  );
+}
+
+function IconBellFilled({ size = 20, color = "currentColor" }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill={color} xmlns="http://www.w3.org/2000/svg">
+      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+    </svg>
+  );
+}
+
+const navItems: { label: string; page: Page }[] = [
+  { label: "Dashboard", page: "dashboard" },
+  { label: "Voltage", page: "voltage" },
+  { label: "Settings", page: "settings" },
+]
+
+interface NavbarProps {
+  page: Page;
+  onNavigate: (page: Page) => void;
+  connected?: boolean;
+}
+
+export function Navbar({ page, onNavigate }: NavbarProps) {
+  return (
+    <Box
+      px="lg"
+      py="sm"
+      mx="md"
+      mt="md"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+      }}
+    >
+      <Group gap="sm">
+        <Box
+          style={{
+            width: 32,
+            height: 32,
+            borderRadius: "50%",
+            backgroundColor: "#FFCC59",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <IconBolt size={18} color="#000000" />
+        </Box>
+        <Text fw={500} size="xl" c="white">
+          P1 Monitor
+        </Text>
       </Group>
 
-      <Badge color={connected ? 'green' : 'red'}>{connected ? 'LIVE' : 'OFFLINE'}</Badge>
-    </Group>
-  );
+      <Group
+        gap={4}
+        p={4}
+        style={{
+          backgroundColor: "#515151",
+          borderRadius: "34px",
+        }}
+      >
+        {navItems.map((item) => (
+          <UnstyledButton
+            key={item.label}
+            onClick={() => onNavigate(item.page)}
+            px="lg"
+            py={8}
+            style={{
+              borderRadius: "44px",
+              backgroundColor: page === item.page ? "#FFCC59" : "#515151",
+              color: page === item.page ? "#000000" : "#EBEBEB",
+              fontWeight: 500,
+              fontSize: "14px",
+              transition: "all 150ms ease",
+              cursor: "pointer",
+            }}
+          >
+            {item.label}
+          </UnstyledButton>
+        ))}
+      </Group>
+
+      <Group gap="xs">
+        <ActionIcon
+          variant="filled"
+          size="lg"
+          radius="xl"
+          style={{
+            backgroundColor: "#FFCC59",
+            color: "#000000",
+          }}
+          aria-label="Notifications"
+        >
+          <IconBellFilled size={18} color="#000000" />
+        </ActionIcon>
+        <ActionIcon
+          variant="outline"
+          size="lg"
+          radius="xl"
+          style={{
+            borderColor: "#EBEBEB",
+            color: "#EBEBEB",
+            backgroundColor: "transparent",
+          }}
+          aria-label="Notification preferences"
+        >
+          <IconBell size={18} color="#EBEBEB" />
+        </ActionIcon>
+      </Group>
+    </Box>
+  )
 }

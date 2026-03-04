@@ -27,3 +27,5 @@ server/generated
 *.sw?
 
 .env
+
+.dev.db

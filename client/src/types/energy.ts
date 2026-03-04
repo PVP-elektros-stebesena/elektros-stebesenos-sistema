@@ -47,4 +47,4 @@ export interface AppSettings {
   retain_days: number;
 }
 
-export type Page = 'dashboard' | 'history' | 'settings';
+export type Page = 'dashboard' | 'voltage' | 'settings';
