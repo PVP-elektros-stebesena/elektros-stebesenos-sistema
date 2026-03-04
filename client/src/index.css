@@ -2,3 +2,30 @@
   width: 100%;
   min-height: 100vh;
 }
+
+/* ── Recharts dark-theme overrides ─────────────────────────── */
+
+.recharts-default-tooltip {
+  background-color: #3E3E3E !important;
+  border-color: #656565 !important;
+  border-radius: 8px !important;
+  color: #EBEBEB !important;
+}
+
+.recharts-tooltip-item {
+  color: #EBEBEB !important;
+}
+
+.recharts-text,
+.recharts-cartesian-axis-tick-value {
+  fill: #EBEBEB !important;
+}
+
+.recharts-legend-item-text {
+  color: #EBEBEB !important;
+}
+
+.recharts-cartesian-grid-horizontal line,
+.recharts-cartesian-grid-vertical line {
+  stroke: #525252;
+}

@@ -143,6 +143,45 @@ export async function voltageRoutes(fastify: FastifyInstance): Promise<void> {
         };
       }
 
+      // "latest" mode: last N readings, no downsampling, no time-window needed
+      if (interval === 'latest') {
+        const readings = await prisma.reading.findMany({
+          where: deviceId ? { deviceId } : undefined,
+          orderBy: { timestamp: 'desc' },
+          take: maxPoints,
+          select: {
+            deviceId: true,
+            timestamp: true,
+            voltageL1: true,
+            voltageL2: true,
+            voltageL3: true,
+            instantaneousVoltageL1: true,
+            instantaneousVoltageL2: true,
+            instantaneousVoltageL3: true,
+          },
+        });
+
+        // Reverse to chronological order
+        readings.reverse();
+
+        return {
+          interval: 'latest',
+          count: readings.length,
+          data: readings.map((r) => ({
+            deviceId: r.deviceId,
+            timestamp: r.timestamp,
+            voltage_l1: r.voltageL1 ?? r.instantaneousVoltageL1 ?? 0,
+            voltage_l2: r.voltageL2 ?? r.instantaneousVoltageL2 ?? 0,
+            voltage_l3: r.voltageL3 ?? r.instantaneousVoltageL3 ?? 0,
+          })),
+          bounds: {
+            nominal: ESO.NOMINAL_VOLTAGE_1PH,
+            min: ESO.VOLTAGE_MIN_1PH,
+            max: ESO.VOLTAGE_MAX_1PH,
+          },
+        };
+      }
+
       // Default: raw readings, downsampled
       const readings = await prisma.reading.findMany({
         where: {

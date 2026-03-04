@@ -18,15 +18,15 @@ export function Navbar({
         <Button variant={page === 'dashboard' ? 'filled' : 'subtle'} onClick={() => onNavigate('dashboard')}>
           Dashboard
         </Button>
-        <Button variant={page === 'history' ? 'filled' : 'subtle'} onClick={() => onNavigate('history')}>
-          History
+        <Button variant={page === 'voltage' ? 'filled' : 'subtle'} onClick={() => onNavigate('voltage')}>
+          Voltage
         </Button>
         <Button variant={page === 'settings' ? 'filled' : 'subtle'} onClick={() => onNavigate('settings')}>
           Settings
         </Button>
       </Group>
 
-      <Badge color={connected ? 'green' : 'red'}>{connected ? 'LIVE' : 'OFFLINE'}</Badge>
+      <Badge color={connected ? 'secondary' : 'danger'}>{connected ? 'LIVE' : 'OFFLINE'}</Badge>
     </Group>
   );
 }

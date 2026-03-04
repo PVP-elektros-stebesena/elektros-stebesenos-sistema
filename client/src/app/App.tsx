@@ -4,7 +4,7 @@ import '@mantine/core/styles.css';
 import { theme } from '../components/theme';
 import { Navbar } from '../components/navbar';
 import { DashboardPage } from '../pages/dashboardPage';
-import { HistoryPage } from '../pages/historyPage';
+import { VoltagePage } from '../pages/voltagePage';
 import { SettingsPage } from '../pages/settingsPage';
 import { useLiveData } from '../hooks/useLiveData';
 import type { Page } from '../types/energy';
@@ -19,9 +19,9 @@ export default function App() {
         <Navbar page={page} onNavigate={setPage} connected />
 
         <Box component="main" p="md">
-          {page === 'dashboard' && <DashboardPage data={data} />}
-          {page === 'history' && <HistoryPage />}
-          {page === 'settings' && <SettingsPage />}
+          <Box display={page === 'dashboard' ? undefined : 'none'}><DashboardPage data={data} /></Box>
+          <Box display={page === 'voltage' ? undefined : 'none'}><VoltagePage /></Box>
+          <Box display={page === 'settings' ? undefined : 'none'}><SettingsPage /></Box>
         </Box>
       </Box>
     </MantineProvider>
