@@ -6,6 +6,7 @@ import { Navbar } from '../components/navbar';
 import { DashboardPage } from '../pages/dashboardPage';
 import { VoltagePage } from '../pages/voltagePage';
 import { SettingsPage } from '../pages/settingsPage';
+import { ReportsPage } from '../pages/reportsPage';
 import { useLiveData } from '../hooks/useLiveData';
 import type { Page } from '../types/energy';
 
@@ -21,6 +22,7 @@ export default function App() {
         <Box component="main" p="md">
           <Box display={page === 'dashboard' ? undefined : 'none'}><DashboardPage data={data} /></Box>
           <Box display={page === 'voltage' ? undefined : 'none'}><VoltagePage /></Box>
+          <Box display={page === 'reports' ? undefined : 'none'}><ReportsPage /></Box>
           <Box display={page === 'settings' ? undefined : 'none'}><SettingsPage /></Box>
         </Box>
       </Box>
