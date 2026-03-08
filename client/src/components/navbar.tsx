@@ -32,6 +32,7 @@ function IconBellFilled({ size = 20, color = "currentColor" }: { size?: number; 
 const navItems: { label: string; page: Page }[] = [
   { label: "Dashboard", page: "dashboard" },
   { label: "Voltage", page: "voltage" },
+  { label: "Reports", page: "reports" },
   { label: "Settings", page: "settings" },
 ]
 

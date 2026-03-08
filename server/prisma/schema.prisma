@@ -26,6 +26,7 @@ model Device {
   aggregated  AggregatedData[]
   weeklyReports WeeklyReport[]
   anomalies   Anomaly[]
+  reports     Report[]
 
   @@map("devices")
 }
@@ -195,4 +196,42 @@ model Anomaly {
 
   @@index([deviceId, startsAt])
   @@map("anomalies")
+}
+
+model Report {
+  id        Int      @id @default(autoincrement())
+  deviceId  Int
+
+  periodType String  // "weekly" or "monthly"
+  startsAt   DateTime
+  endsAt     DateTime
+
+  // Compliance
+  totalWindows       Int
+  compliantWindowsL1 Int @default(0)
+  compliantWindowsL2 Int @default(0)
+  compliantWindowsL3 Int @default(0)
+  compliancePctL1    Float @default(0)
+  compliancePctL2    Float @default(0)
+  compliancePctL3    Float @default(0)
+  overallCompliant   Boolean @default(false)
+
+  // Health score: "GREEN", "YELLOW", "RED"
+  healthScore String
+
+  // Anomaly summary (JSON string)
+  anomalySummary String @default("[]")
+
+  // Stats
+  totalAnomalies  Int @default(0)
+  criticalCount   Int @default(0)
+  warningCount    Int @default(0)
+
+  createdAt DateTime @default(now())
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceId, periodType, startsAt, endsAt])
+  @@index([deviceId, createdAt])
+  @@map("reports")
 }

@@ -3,7 +3,9 @@ import cors from '@fastify/cors';
 import "dotenv/config";
 import { voltageRoutes } from './routes/voltage.js';
 import { settingsRoutes } from './routes/settings.js';
+import { reportRoutes } from './routes/reports.js';
 import { devicePoller } from './services/devicePoller.js';
+import { startReportScheduler, stopReportScheduler } from './services/reportScheduler.js';
 
 const fastify = Fastify({ logger: true });
 
@@ -22,6 +24,9 @@ fastify.register(voltageRoutes);
 // Device settings CRUD endpoints
 fastify.register(settingsRoutes);
 
+// Report generation & retrieval endpoints
+fastify.register(reportRoutes);
+
 // Poller status endpoint
 fastify.get('/api/poller/status', async () => {
     return { devices: devicePoller.getStatus() };
@@ -34,6 +39,9 @@ const start = async () => {
 
         // Start polling all active devices
         await devicePoller.start();
+
+        // Start weekly report cron scheduler
+        startReportScheduler();
     } catch (err) {
         fastify.log.error(err);
         process.exit(1);
@@ -43,6 +51,7 @@ const start = async () => {
 // Graceful shutdown
 async function shutdown() {
     console.log('Shutting down…');
+    stopReportScheduler();
     await devicePoller.stop();
     await fastify.close();
     process.exit(0);
