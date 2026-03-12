@@ -5,7 +5,7 @@ import {
   Text, Title, Select, Divider, Box,
 } from '@mantine/core';
 import { usePolling } from '../hooks/usePolling';
-import { apiFetch, apiPost } from '../services/apiClient';
+import { apiPost } from '../services/apiClient';
 
 /* ── API response types ─────────────────────────────────────────── */
 
