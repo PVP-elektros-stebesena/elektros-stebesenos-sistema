@@ -1,10 +1,13 @@
 import type { FastifyInstance } from 'fastify';
 import prisma from '../lib/prisma.js';
 import {
-  generateWeeklyReport,
-  generateMonthlyReport,
+  generateReport,
+  resolvePresetPeriodRange,
+  saveReport,
   type PeriodType,
 } from '../services/reportGenerator.js';
+import { buildReportInsights } from '../services/reportInsights.js';
+import { buildPowerQualityAssessment } from '../services/reportQuality.js';
 import {
   startReportScheduler,
   stopReportScheduler,
@@ -23,6 +26,58 @@ function parseDate(val: string | undefined, fallback: Date): Date {
   if (!val) return fallback;
   const d = new Date(val);
   return isNaN(d.getTime()) ? fallback : d;
+}
+
+const MAX_CUSTOM_RANGE_DAYS = 62;
+const MS_PER_DAY = 24 * 3600_000;
+
+function isValidDate(value: string | undefined): value is string {
+  if (!value) return false;
+  return !Number.isNaN(new Date(value).getTime());
+}
+
+function parseCustomRange(startDate?: string, endDate?: string): {
+  startsAt: Date;
+  endsAt: Date;
+} | { error: { code: string; message: string } } {
+  if (!isValidDate(startDate) || !isValidDate(endDate)) {
+    return {
+      error: {
+        code: 'INVALID_CUSTOM_RANGE',
+        message: 'Custom period requires valid startDate and endDate',
+      },
+    };
+  }
+
+  const startsAt = new Date(startDate);
+  const endsAt = new Date(endDate);
+
+  if (endsAt <= startsAt) {
+    return {
+      error: {
+        code: 'INVALID_CUSTOM_RANGE',
+        message: 'endDate must be later than startDate',
+      },
+    };
+  }
+
+  const now = new Date();
+  if (endsAt.getTime() > now.getTime()) {
+    // Allow selecting "today" while report is generated before midnight.
+    endsAt.setTime(now.getTime());
+  }
+
+  const rangeDays = (endsAt.getTime() - startsAt.getTime()) / MS_PER_DAY;
+  if (rangeDays > MAX_CUSTOM_RANGE_DAYS) {
+    return {
+      error: {
+        code: 'CUSTOM_RANGE_TOO_LONG',
+        message: `Custom period must be at most ${MAX_CUSTOM_RANGE_DAYS} days`,
+      },
+    };
+  }
+
+  return { startsAt, endsAt };
 }
 
 // Plugin
@@ -113,6 +168,23 @@ export async function reportRoutes(fastify: FastifyInstance): Promise<void> {
       anomalySummary = JSON.parse(report.anomalySummary);
     } catch { /* empty */ }
 
+    const insights = await buildReportInsights(
+      report.deviceId,
+      report.startsAt,
+      report.endsAt,
+      anomalySummary,
+    );
+
+    const powerQuality = buildPowerQualityAssessment(
+      {
+        compliancePctL1: report.compliancePctL1,
+        compliancePctL2: report.compliancePctL2,
+        compliancePctL3: report.compliancePctL3,
+        overallCompliant: report.overallCompliant,
+      },
+      anomalySummary,
+    );
+
     return {
       id: report.id,
       deviceId: report.deviceId,
@@ -132,6 +204,8 @@ export async function reportRoutes(fastify: FastifyInstance): Promise<void> {
         overallCompliant: report.overallCompliant,
       },
       anomalySummary,
+      insights,
+      powerQuality,
       totalAnomalies: report.totalAnomalies,
       criticalCount: report.criticalCount,
       warningCount: report.warningCount,
@@ -141,11 +215,23 @@ export async function reportRoutes(fastify: FastifyInstance): Promise<void> {
 
   //  POST /api/reports/generate
   //  Manually trigger report generation
-  //  Body: { deviceId: number, periodType: "weekly"|"monthly", date?: string }
+  //  Body: {
+  //    deviceId: number,
+  //    periodType: "daily"|"weekly"|"biweekly"|"monthly"|"custom",
+  //    date?: string,
+  //    startDate?: string,
+  //    endDate?: string
+  //  }
   fastify.post<{
-    Body: { deviceId: number; periodType: PeriodType; date?: string };
+    Body: {
+      deviceId: number;
+      periodType: PeriodType;
+      date?: string;
+      startDate?: string;
+      endDate?: string;
+    };
   }>('/api/reports/generate', async (req, reply) => {
-    const { deviceId, periodType, date: dateStr } = req.body;
+    const { deviceId, periodType, date: dateStr, startDate, endDate } = req.body;
 
     if (!deviceId || !periodType) {
       return reply.code(400).send({
@@ -154,10 +240,10 @@ export async function reportRoutes(fastify: FastifyInstance): Promise<void> {
       });
     }
 
-    if (periodType !== 'weekly' && periodType !== 'monthly') {
+    if (!['daily', 'weekly', 'biweekly', 'monthly', 'custom'].includes(periodType)) {
       return reply.code(400).send({
         error: 'INVALID_PERIOD',
-        message: 'periodType must be "weekly" or "monthly"',
+        message: 'periodType must be one of: daily, weekly, biweekly, monthly, custom',
       });
     }
 
@@ -171,11 +257,45 @@ export async function reportRoutes(fastify: FastifyInstance): Promise<void> {
     }
 
     const targetDate = dateStr ? parseDate(dateStr, new Date()) : new Date();
+    let startsAt: Date;
+    let endsAt: Date;
 
-    const report =
-      periodType === 'weekly'
-        ? await generateWeeklyReport(deviceId, targetDate)
-        : await generateMonthlyReport(deviceId, targetDate);
+    if (periodType === 'custom') {
+      const parsed = parseCustomRange(startDate, endDate);
+      if ('error' in parsed) {
+        return reply.code(400).send({
+          error: parsed.error.code,
+          message: parsed.error.message,
+        });
+      }
+      startsAt = parsed.startsAt;
+      endsAt = parsed.endsAt;
+    } else {
+      const range = resolvePresetPeriodRange(periodType, targetDate);
+      startsAt = range.startsAt;
+      endsAt = range.endsAt;
+    }
+
+    if (startsAt >= endsAt) {
+      return reply.code(400).send({
+        error: 'INVALID_PERIOD_RANGE',
+        message: 'Resolved report range is invalid',
+      });
+    }
+
+    const report = await generateReport(deviceId, periodType, startsAt, endsAt);
+    await saveReport(report);
+
+    const insights = await buildReportInsights(deviceId, startsAt, endsAt, report.anomalies);
+    const powerQuality = buildPowerQualityAssessment(
+      {
+        compliancePctL1: report.compliance.compliancePctL1,
+        compliancePctL2: report.compliance.compliancePctL2,
+        compliancePctL3: report.compliance.compliancePctL3,
+        overallCompliant: report.compliance.overallCompliant,
+      },
+      report.anomalies,
+    );
 
     return {
       message: `${periodType} report generated successfully`,
@@ -192,6 +312,8 @@ export async function reportRoutes(fastify: FastifyInstance): Promise<void> {
         totalAnomalies: report.totalAnomalies,
         criticalCount: report.criticalCount,
         warningCount: report.warningCount,
+        insights,
+        powerQuality,
       },
     };
   });

@@ -7,6 +7,19 @@ import { type ScenarioOutput } from './scenarios.js';
  * at /smartmeter/api/read - all fields are strings, matching the actual device.
  */
 export function toP1Response(output: ScenarioOutput): Record<string, string> {
+  return toP1ResponseWithTotals(output, {
+    energyDeliveredKwh: 0,
+    energyReturnedKwh: 0,
+  });
+}
+
+export function toP1ResponseWithTotals(
+  output: ScenarioOutput,
+  totals: {
+    energyDeliveredKwh: number;
+    energyReturnedKwh: number;
+  },
+): Record<string, string> {
   const { l1, l2, l3, frequency } = output;
 
   const totalPowerDelivered = l1.powerDelivered + l2.powerDelivered + l3.powerDelivered;
@@ -28,8 +41,8 @@ export function toP1Response(output: ScenarioOutput): Record<string, string> {
     GasEquipment_Id: '',
 
     // Energy totals (cumulative, slowly incrementing)
-    EnergyDelivered: '0.000',
-    EnergyReturned: '0.000',
+    EnergyDelivered: totals.energyDeliveredKwh.toFixed(3),
+    EnergyReturned: totals.energyReturnedKwh.toFixed(3),
     ReactiveEnergyDelivered: '0.000',
     ReactiveEnergyReturned: '0.000',
 
