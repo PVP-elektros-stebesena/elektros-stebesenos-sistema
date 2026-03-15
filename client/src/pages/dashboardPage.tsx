@@ -28,9 +28,11 @@ function KeyValueTable({ data }: { data: Record<string, unknown> }) {
   ));
 
   return (
-    <Table striped highlightOnHover withTableBorder>
-      <Table.Tbody>{rows}</Table.Tbody>
-    </Table>
+    <Table.ScrollContainer minWidth={500}>
+      <Table striped highlightOnHover withTableBorder>
+        <Table.Tbody>{rows}</Table.Tbody>
+      </Table>
+    </Table.ScrollContainer>
   );
 }
 
@@ -56,36 +58,38 @@ export function DashboardPage({ data }: { data: LiveData }) {
           </Text>
         </Group>
 
-        <Table withTableBorder>
-          <Table.Thead>
-            <Table.Tr>
-              <Table.Th>Phase</Table.Th>
-              <Table.Th>Voltage (V)</Table.Th>
-              <Table.Th>Current (A)</Table.Th>
-              <Table.Th>Power (kW)</Table.Th>
-            </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>
-            <Table.Tr>
-              <Table.Td>L1</Table.Td>
-              <Table.Td>{data.voltage_l1}</Table.Td>
-              <Table.Td>{data.current_l1}</Table.Td>
-              <Table.Td>{data.power_l1.toFixed(3)}</Table.Td>
-            </Table.Tr>
-            <Table.Tr>
-              <Table.Td>L2</Table.Td>
-              <Table.Td>{data.voltage_l2}</Table.Td>
-              <Table.Td>{data.current_l2}</Table.Td>
-              <Table.Td>{data.power_l2.toFixed(3)}</Table.Td>
-            </Table.Tr>
-            <Table.Tr>
-              <Table.Td>L3</Table.Td>
-              <Table.Td>{data.voltage_l3}</Table.Td>
-              <Table.Td>{data.current_l3}</Table.Td>
-              <Table.Td>{data.power_l3.toFixed(3)}</Table.Td>
-            </Table.Tr>
-          </Table.Tbody>
-        </Table>
+        <Table.ScrollContainer minWidth={400}>
+          <Table withTableBorder>
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>Phase</Table.Th>
+                <Table.Th>Voltage (V)</Table.Th>
+                <Table.Th>Current (A)</Table.Th>
+                <Table.Th>Power (kW)</Table.Th>
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+              <Table.Tr>
+                <Table.Td>L1</Table.Td>
+                <Table.Td>{data.voltage_l1}</Table.Td>
+                <Table.Td>{data.current_l1}</Table.Td>
+                <Table.Td>{data.power_l1.toFixed(3)}</Table.Td>
+              </Table.Tr>
+              <Table.Tr>
+                <Table.Td>L2</Table.Td>
+                <Table.Td>{data.voltage_l2}</Table.Td>
+                <Table.Td>{data.current_l2}</Table.Td>
+                <Table.Td>{data.power_l2.toFixed(3)}</Table.Td>
+              </Table.Tr>
+              <Table.Tr>
+                <Table.Td>L3</Table.Td>
+                <Table.Td>{data.voltage_l3}</Table.Td>
+                <Table.Td>{data.current_l3}</Table.Td>
+                <Table.Td>{data.power_l3.toFixed(3)}</Table.Td>
+              </Table.Tr>
+            </Table.Tbody>
+          </Table>
+        </Table.ScrollContainer>
       </Card>
 
       <SimpleGrid cols={{ base: 1, sm: 4 }}>
