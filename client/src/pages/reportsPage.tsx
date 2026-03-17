@@ -6,11 +6,11 @@ import {
   Text, Title, Select, Divider, Box, TextInput,
 } from '@mantine/core';
 import {
+  Bar,
+  BarChart,
   Cell,
   CartesianGrid,
   Legend,
-  Line,
-  LineChart,
   Pie,
   PieChart,
   ResponsiveContainer,
@@ -178,10 +178,17 @@ function toChartDateLabel(date: string): string {
   });
 }
 
-function toChartHourLabel(timestamp: string): string {
+function toChartTimeOnlyLabel(timestamp: string): string {
   return new Date(timestamp).toLocaleString('lt-LT', {
-    month: 'short',
-    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function toChartShortDateTimeLabel(timestamp: string): string {
+  return new Date(timestamp).toLocaleString('lt-LT', {
+    month: '2-digit',
+    day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
   });
@@ -230,7 +237,32 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
       report.compliance.compliancePctL3) /
     3
   ).toFixed(1);
-  const quality = report.powerQuality;
+  const phaseCompliance = [
+    { phase: 'L1' as const, pct: report.compliance.compliancePctL1 },
+    { phase: 'L2' as const, pct: report.compliance.compliancePctL2 },
+    { phase: 'L3' as const, pct: report.compliance.compliancePctL3 },
+  ];
+  const worstPhase = phaseCompliance.reduce((acc, cur) => (cur.pct < acc.pct ? cur : acc));
+  const quality = report.powerQuality ?? {
+    averageCompliancePct: avgPct,
+    worstPhase: worstPhase.phase,
+    worstPhaseCompliancePct: worstPhase.pct,
+    pass: report.compliance.overallCompliant,
+    dominantAnomalyType: null,
+    assessmentText: 'Power quality assessment is unavailable for this report.',
+    recommendationText: '',
+  };
+  const insights = report.insights ?? {
+    totalEnergyConsumedKwh: 0,
+    totalEnergyReturnedKwh: 0,
+    averageEfficiencyPct: null,
+    averageHourlyElectricityKwh: null,
+    daily: [],
+    hourly: [],
+    anomalyTypeDistribution: [],
+    narrative: 'Energy insights are unavailable for this report.',
+    anomalyAppendix: [],
+  };
 
   const handlePrint = () => {
     const content = printRef.current;
@@ -330,11 +362,11 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
         <p>${quality.recommendationText}</p>
 
         <h2>Energy Insights</h2>
-        <p>${report.insights.narrative}</p>
+        <p>${insights.narrative}</p>
         <table>
           <thead><tr><th>Date</th><th>Energy consumed (kWh)</th><th>Energy returned (kWh)</th><th>Efficiency (%)</th><th>Avg hourly electricity (kWh)</th></tr></thead>
           <tbody>
-            ${report.insights.daily.map(d => `
+            ${insights.daily.map(d => `
               <tr>
                 <td>${d.date}</td>
                 <td>${d.energyConsumedKwh.toFixed(2)}</td>
@@ -366,12 +398,12 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
           </table>
         ` : '<h2>Anomalies</h2><p>No anomalies detected during this period.</p>'}
 
-        ${report.insights.anomalyAppendix.length > 0 ? `
+        ${insights.anomalyAppendix.length > 0 ? `
           <h2>Transmission Error Appendix</h2>
           <table>
             <thead><tr><th>Type</th><th>Description</th></tr></thead>
             <tbody>
-              ${report.insights.anomalyAppendix.map(a => `
+              ${insights.anomalyAppendix.map(a => `
                 <tr>
                   <td>${a.type}</td>
                   <td>${a.description}</td>
@@ -395,9 +427,8 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
   return (
     <Stack gap="md" ref={printRef}>
       {(() => {
-        const fullDays = report.insights.daily.filter((d) => !d.isPartialDay);
-        const chartDays = fullDays.length >= 2 ? fullDays : report.insights.daily;
-        const quality = report.powerQuality;
+        const fullDays = insights.daily.filter((d) => !d.isPartialDay);
+        const chartDays = fullDays.length >= 2 ? fullDays : insights.daily;
         const rangeHours = Math.max(
           0,
           (new Date(report.endsAt).getTime() - new Date(report.startsAt).getTime()) / 3600_000,
@@ -405,12 +436,14 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
         const useHourlyCharts = report.periodType === 'daily'
           || (report.periodType === 'custom' && rangeHours <= 72);
         const shouldShowCharts = useHourlyCharts
-          ? report.insights.hourly.length >= 2
+          ? insights.hourly.length >= 2
           : chartDays.length >= 2;
 
         const trendChartData = useHourlyCharts
-          ? report.insights.hourly.map((d) => ({
-              x: toChartHourLabel(d.timestamp),
+          ? insights.hourly.map((d) => ({
+              x: report.periodType === 'daily'
+                ? toChartTimeOnlyLabel(d.timestamp)
+                : toChartShortDateTimeLabel(d.timestamp),
               value: d.energyConsumedKwh,
               efficiency: d.efficiencyPct,
               hourly: d.avgHourlyElectricityKwh,
@@ -584,30 +617,30 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
 
       <Card p="md" radius="md" withBorder>
         <Text fw={700} mb="xs">Report summary</Text>
-        <Text size="sm" c="dimmed">{report.insights.narrative}</Text>
+        <Text size="sm" c="dimmed">{insights.narrative}</Text>
 
         <SimpleGrid cols={{ base: 1, sm: 4 }} mt="md">
           <Card p="sm" withBorder>
             <Text size="xs" c="dimmed">Total consumed</Text>
-            <Text fw={700} fz="xl">{report.insights.totalEnergyConsumedKwh.toFixed(2)} kWh</Text>
+            <Text fw={700} fz="xl">{insights.totalEnergyConsumedKwh.toFixed(2)} kWh</Text>
           </Card>
           <Card p="sm" withBorder>
             <Text size="xs" c="dimmed">Total returned</Text>
-            <Text fw={700} fz="xl">{report.insights.totalEnergyReturnedKwh.toFixed(2)} kWh</Text>
+            <Text fw={700} fz="xl">{insights.totalEnergyReturnedKwh.toFixed(2)} kWh</Text>
           </Card>
           <Card p="sm" withBorder>
             <Text size="xs" c="dimmed">Avg efficiency</Text>
             <Text fw={700} fz="xl">
-              {report.insights.averageEfficiencyPct != null
-                ? `${report.insights.averageEfficiencyPct.toFixed(1)}%`
+              {insights.averageEfficiencyPct != null
+                ? `${insights.averageEfficiencyPct.toFixed(1)}%`
                 : '—'}
             </Text>
           </Card>
           <Card p="sm" withBorder>
             <Text size="xs" c="dimmed">Avg hourly electricity</Text>
             <Text fw={700} fz="xl">
-              {report.insights.averageHourlyElectricityKwh != null
-                ? `${report.insights.averageHourlyElectricityKwh.toFixed(3)} kWh`
+              {insights.averageHourlyElectricityKwh != null
+                ? `${insights.averageHourlyElectricityKwh.toFixed(3)} kWh`
                 : '—'}
             </Text>
           </Card>
@@ -621,20 +654,18 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
               {useHourlyCharts ? 'Hourly electricity consumption' : 'Daily electricity consumption'}
             </Text>
             <ResponsiveContainer width="100%" height={260}>
-              <LineChart data={trendChartData}>
+              <BarChart data={trendChartData}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="x" />
                 <YAxis unit=" kWh" />
-                <Tooltip />
-                <Line
+                <Tooltip cursor={{ fill: 'rgba(255, 255, 255, 0.1)' }} />
+                <Bar
                   dataKey="value"
-                  type="monotone"
-                  stroke="#2f9e44"
-                  strokeWidth={2}
-                  dot={false}
+                  fill="#8ACDEA"
                   name="Consumed"
+                  radius={[4, 4, 0, 0]}
                 />
-              </LineChart>
+              </BarChart>
             </ResponsiveContainer>
           </Card>
 
@@ -643,34 +674,30 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
               {useHourlyCharts ? 'Hourly efficiency trend' : 'Efficiency and avg hourly use'}
             </Text>
             <ResponsiveContainer width="100%" height={260}>
-              <LineChart data={trendChartData}>
+              <BarChart data={trendChartData}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="x" />
                 <YAxis yAxisId="left" unit=" %" />
                 {!useHourlyCharts && <YAxis yAxisId="right" orientation="right" unit=" kWh" />}
-                <Tooltip />
+                <Tooltip cursor={{ fill: 'rgba(255, 255, 255, 0.1)' }} />
                 <Legend />
-                <Line
+                <Bar
                   yAxisId="left"
                   dataKey="efficiency"
-                  type="monotone"
-                  stroke="#f59f00"
-                  strokeWidth={2}
-                  dot={false}
+                  fill="#FFCC59"
                   name="Efficiency %"
+                  radius={[4, 4, 0, 0]}
                 />
                 {!useHourlyCharts && (
-                  <Line
+                  <Bar
                     yAxisId="right"
                     dataKey="hourly"
-                    type="monotone"
-                    stroke="#1c7ed6"
-                    strokeWidth={2}
-                    dot={false}
+                    fill="#8ACDEA"
                     name="Avg hourly kWh"
+                    radius={[4, 4, 0, 0]}
                   />
                 )}
-              </LineChart>
+              </BarChart>
             </ResponsiveContainer>
           </Card>
         </SimpleGrid>
@@ -684,26 +711,26 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
         </Text>
       )}
 
-      {fullDays.length < report.insights.daily.length && (
+      {fullDays.length < insights.daily.length && (
         <Text size="xs" c="dimmed" ta="center">
           Partial first/last day points are excluded from charts to reduce boundary skew.
         </Text>
       )}
 
-      {showAdvanced && report.insights.anomalyTypeDistribution.length > 0 && (
+      {showAdvanced && insights.anomalyTypeDistribution.length > 0 && (
         <SimpleGrid cols={{ base: 1, lg: 2 }}>
           <Card p="md" radius="md" withBorder>
             <Text fw={700} mb="md">Anomaly type distribution</Text>
             <ResponsiveContainer width="100%" height={260}>
               <PieChart>
                 <Pie
-                  data={report.insights.anomalyTypeDistribution}
+                  data={insights.anomalyTypeDistribution}
                   dataKey="count"
                   nameKey="type"
                   outerRadius={90}
                   label
                 >
-                  {report.insights.anomalyTypeDistribution.map((entry, idx) => (
+                  {insights.anomalyTypeDistribution.map((entry, idx) => (
                     <Cell key={`${entry.type}-${idx}`} fill={anomalyColor(entry.type, idx)} />
                   ))}
                 </Pie>
@@ -724,7 +751,7 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
                   </Table.Tr>
                 </Table.Thead>
                 <Table.Tbody>
-                  {report.insights.anomalyAppendix.map((item) => (
+                  {insights.anomalyAppendix.map((item) => (
                     <Table.Tr key={item.type}>
                       <Table.Td>{item.type}</Table.Td>
                       <Table.Td>{item.description}</Table.Td>
