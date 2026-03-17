@@ -18,7 +18,12 @@ import { calculateWeeklyCompliance } from './voltageAnalysis.js';
 // ── Types ──────────────────────────────────────────────────────
 
 export type HealthScore = 'GREEN' | 'YELLOW' | 'RED';
-export type PeriodType = 'weekly' | 'monthly';
+export type PeriodType = 'daily' | 'weekly' | 'biweekly' | 'monthly' | 'custom';
+
+export interface PeriodRange {
+  startsAt: Date;
+  endsAt: Date;
+}
 
 export interface AnomalySummaryRow {
   type: string;
@@ -135,6 +140,55 @@ export function getMonthEnd(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth() + 1, 1, 0, 0, 0, 0);
 }
 
+/** Start of day in local time */
+function getDayStart(date: Date): Date {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+/** ISO week number (1-53) */
+function getIsoWeekNumber(date: Date): number {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+}
+
+/** Resolve deterministic report ranges for preset period types.*/
+export function resolvePresetPeriodRange(
+  periodType: Exclude<PeriodType, 'custom'>,
+  referenceDate: Date,
+): PeriodRange {
+  if (periodType === 'daily') {
+    const startsAt = getDayStart(referenceDate);
+    const endsAt = new Date(startsAt.getTime() + 24 * 3600_000);
+    return { startsAt, endsAt };
+  }
+
+  if (periodType === 'weekly') {
+    const startsAt = getWeekStart(referenceDate);
+    const endsAt = new Date(startsAt.getTime() + 7 * 24 * 3600_000);
+    return { startsAt, endsAt };
+  }
+
+  if (periodType === 'biweekly') {
+    const weekStart = getWeekStart(referenceDate);
+    const weekNum = getIsoWeekNumber(weekStart);
+    const startsAt = new Date(weekStart);
+    if (weekNum % 2 !== 0) {
+      startsAt.setDate(startsAt.getDate() - 7);
+    }
+    const endsAt = new Date(startsAt);
+    endsAt.setDate(startsAt.getDate() + 14);
+    return { startsAt, endsAt };
+  }
+
+  const startsAt = getMonthStart(referenceDate);
+  const endsAt = getMonthEnd(referenceDate);
+  return { startsAt, endsAt };
+}
+
 // ── Core report generation ─────────────────────────────────────
 
 /**
@@ -232,6 +286,7 @@ export async function saveReport(report: GeneratedReport) {
       totalAnomalies: report.totalAnomalies,
       criticalCount: report.criticalCount,
       warningCount: report.warningCount,
+      createdAt: new Date(),
     },
     create: {
       deviceId: report.deviceId,

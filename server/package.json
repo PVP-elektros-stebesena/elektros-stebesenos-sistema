@@ -9,6 +9,7 @@
     "dev": "tsx watch src/index.ts",
     "mock": "tsx src/mock/mockServer.ts",
     "mock:watch": "tsx watch src/mock/mockServer.ts",
+    "mock:seed-report": "tsx src/mock/seedReportMockData.ts",
     "prisma": "npx prisma studio",
     "build": "tsc",
     "start": "node dist/src/index.js"

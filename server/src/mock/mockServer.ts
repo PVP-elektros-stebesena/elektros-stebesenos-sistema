@@ -7,7 +7,7 @@ import {
   type ScenarioConfig,
   type ScenarioOutput,
 } from './scenarios.js';
-import { toP1Response } from './p1Response.js';
+import { toP1ResponseWithTotals } from './p1Response.js';
 
 /**
  * Mock P1 Gateway Server
@@ -25,6 +25,7 @@ import { toP1Response } from './p1Response.js';
  */
 
 const MOCK_PORT = parseInt(process.env.MOCK_PORT || '3001');
+const MOCK_SAMPLE_SECONDS = parseInt(process.env.MOCK_SAMPLE_SECONDS || '10');
 
 // State
 
@@ -35,6 +36,8 @@ let customOverride: ScenarioOutput | null = null;
 /** Queue of scenarios to auto-play in sequence */
 let scenarioQueue: { name: ScenarioName; ticks: number }[] = [];
 let queueTicksRemaining = 0;
+let cumulativeEnergyDeliveredKwh = 0;
+let cumulativeEnergyReturnedKwh = 0;
 
 // Tick management
 
@@ -69,7 +72,17 @@ app.register(cors, { origin: '*' });
 
 app.get('/smartmeter/api/read', async () => {
   const output = getCurrentOutput();
-  return toP1Response(output);
+  const totalPowerDelivered = output.l1.powerDelivered + output.l2.powerDelivered + output.l3.powerDelivered;
+  const totalPowerReturned = output.l1.powerReturned + output.l2.powerReturned + output.l3.powerReturned;
+  const sampleHours = MOCK_SAMPLE_SECONDS / 3600;
+
+  cumulativeEnergyDeliveredKwh += totalPowerDelivered * sampleHours;
+  cumulativeEnergyReturnedKwh += totalPowerReturned * sampleHours;
+
+  return toP1ResponseWithTotals(output, {
+    energyDeliveredKwh: cumulativeEnergyDeliveredKwh,
+    energyReturnedKwh: cumulativeEnergyReturnedKwh,
+  });
 });
 
 // Mock control: list scenarios
@@ -92,6 +105,8 @@ app.get('/mock/status', async () => {
     hasCustomOverride: customOverride !== null,
     queueLength: scenarioQueue.length,
     queueTicksRemaining,
+    cumulativeEnergyDeliveredKwh: +cumulativeEnergyDeliveredKwh.toFixed(3),
+    cumulativeEnergyReturnedKwh: +cumulativeEnergyReturnedKwh.toFixed(3),
   };
 });
 
@@ -112,6 +127,8 @@ app.post<{ Body: { scenario: ScenarioName } }>('/mock/scenario', async (req, rep
   customOverride = null;
   scenarioQueue = [];
   queueTicksRemaining = 0;
+  cumulativeEnergyDeliveredKwh = 0;
+  cumulativeEnergyReturnedKwh = 0;
 
   return {
     message: `Switched to scenario: ${scenario}`,
@@ -195,6 +212,8 @@ app.post('/mock/reset', async () => {
   customOverride = null;
   scenarioQueue = [];
   queueTicksRemaining = 0;
+  cumulativeEnergyDeliveredKwh = 0;
+  cumulativeEnergyReturnedKwh = 0;
 
   return { message: 'Reset to normal scenario' };
 });

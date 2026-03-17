@@ -4,6 +4,7 @@ import {
   getWeekStart,
   getMonthStart,
   getMonthEnd,
+  resolvePresetPeriodRange,
   type HealthScore,
 } from '../reportGenerator.js';
 import type { WeeklyComplianceResult } from '../voltageAnalysis.js';
@@ -132,5 +133,46 @@ describe('getMonthEnd', () => {
     expect(result.getFullYear()).toBe(2027);
     expect(result.getMonth()).toBe(0); // January = 0
     expect(result.getDate()).toBe(1);
+  });
+});
+
+describe('resolvePresetPeriodRange', () => {
+  const reference = new Date('2026-03-10T12:00:00Z');
+
+  it('resolves daily range as a calendar day bucket', () => {
+    const result = resolvePresetPeriodRange('daily', reference);
+    expect(result.startsAt.getHours()).toBe(0);
+    expect(result.startsAt.getMinutes()).toBe(0);
+    expect(result.startsAt.getSeconds()).toBe(0);
+    expect(result.startsAt.getMilliseconds()).toBe(0);
+    expect(result.endsAt.getTime() - result.startsAt.getTime()).toBe(24 * 3600_000);
+    expect(reference.getTime()).toBeGreaterThanOrEqual(result.startsAt.getTime());
+    expect(reference.getTime()).toBeLessThan(result.endsAt.getTime());
+  });
+
+  it('resolves weekly range as Monday-Sunday bucket', () => {
+    const result = resolvePresetPeriodRange('weekly', reference);
+    expect(result.startsAt.getDay()).toBe(1);
+    expect(result.endsAt.getTime() - result.startsAt.getTime()).toBe(7 * 24 * 3600_000);
+    expect(reference.getTime()).toBeGreaterThanOrEqual(result.startsAt.getTime());
+    expect(reference.getTime()).toBeLessThan(result.endsAt.getTime());
+  });
+
+  it('resolves biweekly range as deterministic two-week bucket', () => {
+    const result = resolvePresetPeriodRange('biweekly', reference);
+    expect(result.startsAt.getDay()).toBe(1);
+    expect(result.endsAt.getTime() - result.startsAt.getTime()).toBe(14 * 24 * 3600_000);
+    expect(reference.getTime()).toBeGreaterThanOrEqual(result.startsAt.getTime());
+    expect(reference.getTime()).toBeLessThan(result.endsAt.getTime());
+  });
+
+  it('resolves monthly range as calendar month bucket', () => {
+    const result = resolvePresetPeriodRange('monthly', reference);
+    expect(result.startsAt.getDate()).toBe(1);
+    expect(result.startsAt.getHours()).toBe(0);
+    expect(result.endsAt.getDate()).toBe(1);
+    expect(result.endsAt.getTime()).toBeGreaterThan(result.startsAt.getTime());
+    expect(reference.getTime()).toBeGreaterThanOrEqual(result.startsAt.getTime());
+    expect(reference.getTime()).toBeLessThan(result.endsAt.getTime());
   });
 });
