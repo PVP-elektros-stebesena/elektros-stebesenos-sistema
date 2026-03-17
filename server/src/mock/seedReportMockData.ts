@@ -95,11 +95,28 @@ async function seedReadings(deviceId: number, days: number, now: Date) {
 
       const eveningPeak = h >= 18 && h <= 22 ? 0.9 : 0;
       const baseLoadKw = 0.6 + eveningPeak + 0.15 * Math.sin((h / 24) * Math.PI * 2);
-      const solarKw = clamp(0, Math.sin(((h - 6) / 12) * Math.PI), 1.2) * 0.7;
-
+      
       const consumedKw = Math.max(0.15, baseLoadKw * dayFactor);
-      const netImportKw = Math.max(0, consumedKw - solarKw);
-      const exportedKw = Math.max(0, solarKw - consumedKw * 0.8);
+      
+      
+      const hasSun = h >= 7 && h <= 19;
+      const cloudFactor = 1 - 0.6 * Math.sin(d * 1.5); 
+      const rawSolarKw = Math.sin(((h - 6) / 12) * Math.PI) * 1.5 * cloudFactor;
+      const computedSolarKw = clamp(0, hasSun ? rawSolarKw : 0, 2.5);
+
+      let gridUsed = Math.max(0, consumedKw - computedSolarKw);
+      let exportedKw = Math.max(0, computedSolarKw - consumedKw);
+      
+      
+      if (hasSun && computedSolarKw > 0) {
+        const mixingFactor = 0.1 + (Math.random() * 0.4); 
+        const baseActivity = Math.min(consumedKw, computedSolarKw);
+        gridUsed += baseActivity * mixingFactor;
+        exportedKw += baseActivity * mixingFactor;
+      }
+      
+      const netImportKw = gridUsed + (Math.random() * 0.05);
+      exportedKw += (Math.random() * 0.05);
 
       cumulativeDelivered += netImportKw;
       cumulativeReturned += exportedKw;
