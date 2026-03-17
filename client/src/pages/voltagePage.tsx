@@ -421,15 +421,16 @@ export function VoltagePage() {
           </Group>
 
           {activeAnomalies && activeAnomalies.count > 0 ? (
-            <Table striped highlightOnHover>
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>Phase</Table.Th>
-                  <Table.Th>Type</Table.Th>
-                  <Table.Th>Voltage</Table.Th>
-                  <Table.Th>Started</Table.Th>
-                </Table.Tr>
-              </Table.Thead>
+            <Table.ScrollContainer minWidth={400}>
+              <Table striped highlightOnHover>
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>Phase</Table.Th>
+                    <Table.Th>Type</Table.Th>
+                    <Table.Th>Voltage</Table.Th>
+                    <Table.Th>Started</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
               <Table.Tbody>
                 {activeAnomalies.data.map(a => (
                   <Table.Tr key={a.id}>
@@ -441,6 +442,7 @@ export function VoltagePage() {
                 ))}
               </Table.Tbody>
             </Table>
+            </Table.ScrollContainer>
           ) : (
             <Stack align="center" justify="center" style={{ flex: 1, minHeight: 120 }}>
               <Text c="dimmed" fz="lg">No active anomalies</Text>
@@ -455,18 +457,19 @@ export function VoltagePage() {
         <Text fw={700} mb="md">Recent anomaly history</Text>
 
         {recentAnomalies && recentAnomalies.count > 0 ? (
-          <Table striped highlightOnHover>
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>Phase</Table.Th>
-                <Table.Th>Type</Table.Th>
-                <Table.Th>Min V</Table.Th>
-                <Table.Th>Max V</Table.Th>
-                <Table.Th>Started</Table.Th>
-                <Table.Th>Duration</Table.Th>
-                <Table.Th>Status</Table.Th>
-              </Table.Tr>
-            </Table.Thead>
+          <Table.ScrollContainer minWidth={600}>
+            <Table striped highlightOnHover>
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>Phase</Table.Th>
+                  <Table.Th>Type</Table.Th>
+                  <Table.Th>Min V</Table.Th>
+                  <Table.Th>Max V</Table.Th>
+                  <Table.Th>Started</Table.Th>
+                  <Table.Th>Duration</Table.Th>
+                  <Table.Th>Status</Table.Th>
+                </Table.Tr>
+              </Table.Thead>
             <Table.Tbody>
               {recentAnomalies.data.map(a => (
                 <Table.Tr key={a.id}>
@@ -493,6 +496,7 @@ export function VoltagePage() {
               ))}
             </Table.Tbody>
           </Table>
+          </Table.ScrollContainer>
         ) : (
           <Text c="dimmed" ta="center">No anomalies recorded yet</Text>
         )}

@@ -496,56 +496,58 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
       {showAdvanced && (
         <Card p="md" radius="md" withBorder>
           <Text fw={700} mb="md">Per-Phase Compliance</Text>
-          <Table>
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>Phase</Table.Th>
-                <Table.Th>Compliant Windows</Table.Th>
-                <Table.Th>Compliance</Table.Th>
-                <Table.Th>Status</Table.Th>
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {(['L1', 'L2', 'L3'] as const).map((phase) => {
-                const pct =
-                  phase === 'L1'
-                    ? report.compliance.compliancePctL1
-                    : phase === 'L2'
-                      ? report.compliance.compliancePctL2
-                      : report.compliance.compliancePctL3;
-                const compliant =
-                  phase === 'L1'
-                    ? report.compliance.compliantWindowsL1
-                    : phase === 'L2'
-                      ? report.compliance.compliantWindowsL2
-                      : report.compliance.compliantWindowsL3;
+          <Table.ScrollContainer minWidth={500}>
+            <Table>
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>Phase</Table.Th>
+                  <Table.Th>Compliant Windows</Table.Th>
+                  <Table.Th>Compliance</Table.Th>
+                  <Table.Th>Status</Table.Th>
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
+                {(['L1', 'L2', 'L3'] as const).map((phase) => {
+                  const pct =
+                    phase === 'L1'
+                      ? report.compliance.compliancePctL1
+                      : phase === 'L2'
+                        ? report.compliance.compliancePctL2
+                        : report.compliance.compliancePctL3;
+                  const compliant =
+                    phase === 'L1'
+                      ? report.compliance.compliantWindowsL1
+                      : phase === 'L2'
+                        ? report.compliance.compliantWindowsL2
+                        : report.compliance.compliantWindowsL3;
 
-                return (
-                  <Table.Tr key={phase}>
-                    <Table.Td><Badge variant="light">{phase}</Badge></Table.Td>
-                    <Table.Td>{compliant} / {report.compliance.totalWindows}</Table.Td>
-                    <Table.Td>
-                      <Group gap="xs">
-                        <Progress
-                          value={pct}
-                          color={pct >= 95 ? 'green' : pct >= 90 ? 'yellow' : 'red'}
-                          size="sm"
-                          radius="xl"
-                          style={{ flex: 1 }}
-                        />
-                        <Text size="sm" fw={600} style={{ minWidth: 48 }}>{pct}%</Text>
-                      </Group>
-                    </Table.Td>
-                    <Table.Td>
-                      <Badge color={pct >= 95 ? 'green' : 'red'} variant="light">
-                        {pct >= 95 ? 'PASS' : 'FAIL'}
-                      </Badge>
-                    </Table.Td>
-                  </Table.Tr>
-                );
-              })}
-            </Table.Tbody>
-          </Table>
+                  return (
+                    <Table.Tr key={phase}>
+                      <Table.Td><Badge variant="light">{phase}</Badge></Table.Td>
+                      <Table.Td>{compliant} / {report.compliance.totalWindows}</Table.Td>
+                      <Table.Td>
+                        <Group gap="xs">
+                          <Progress
+                            value={pct}
+                            color={pct >= 95 ? 'green' : pct >= 90 ? 'yellow' : 'red'}
+                            size="sm"
+                            radius="xl"
+                            style={{ flex: 1 }}
+                          />
+                          <Text size="sm" fw={600} style={{ minWidth: 48 }}>{pct}%</Text>
+                        </Group>
+                      </Table.Td>
+                      <Table.Td>
+                        <Badge color={pct >= 95 ? 'green' : 'red'} variant="light">
+                          {pct >= 95 ? 'PASS' : 'FAIL'}
+                        </Badge>
+                      </Table.Td>
+                    </Table.Tr>
+                  );
+                })}
+              </Table.Tbody>
+            </Table>
+          </Table.ScrollContainer>
         </Card>
       )}
 
@@ -713,22 +715,24 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
 
           <Card p="md" radius="md" withBorder>
             <Text fw={700} mb="md">Transmission error appendix</Text>
-            <Table>
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>Type</Table.Th>
-                  <Table.Th>Meaning</Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {report.insights.anomalyAppendix.map((item) => (
-                  <Table.Tr key={item.type}>
-                    <Table.Td>{item.type}</Table.Td>
-                    <Table.Td>{item.description}</Table.Td>
+            <Table.ScrollContainer minWidth={400}>
+              <Table>
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>Type</Table.Th>
+                    <Table.Th>Meaning</Table.Th>
                   </Table.Tr>
-                ))}
-              </Table.Tbody>
-            </Table>
+                </Table.Thead>
+                <Table.Tbody>
+                  {report.insights.anomalyAppendix.map((item) => (
+                    <Table.Tr key={item.type}>
+                      <Table.Td>{item.type}</Table.Td>
+                      <Table.Td>{item.description}</Table.Td>
+                    </Table.Tr>
+                  ))}
+                </Table.Tbody>
+              </Table>
+            </Table.ScrollContainer>
           </Card>
         </SimpleGrid>
       )}
@@ -739,11 +743,12 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
           <Text fw={700} mb="md">
             Anomaly Details ({report.anomalySummary.length})
           </Text>
-          <Table striped highlightOnHover>
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>Type</Table.Th>
-                <Table.Th>Phase</Table.Th>
+          <Table.ScrollContainer minWidth={600}>
+            <Table striped highlightOnHover>
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>Type</Table.Th>
+                  <Table.Th>Phase</Table.Th>
                 <Table.Th>Severity</Table.Th>
                 <Table.Th>Duration</Table.Th>
                 <Table.Th>Min V</Table.Th>
@@ -773,6 +778,7 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
               ))}
             </Table.Tbody>
           </Table>
+        </Table.ScrollContainer>
         </Card>
       )}
 
@@ -968,19 +974,20 @@ export function ReportsPage() {
         </Text>
 
         {reportList && reportList.count > 0 ? (
-          <Table striped highlightOnHover>
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>Device</Table.Th>
-                <Table.Th>Period</Table.Th>
-                <Table.Th>Date Range</Table.Th>
-                <Table.Th>Health</Table.Th>
-                <Table.Th>Compliance</Table.Th>
-                <Table.Th>Anomalies</Table.Th>
-                <Table.Th>Actions</Table.Th>
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
+          <Table.ScrollContainer minWidth={800}>
+            <Table striped highlightOnHover>
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>Device</Table.Th>
+                  <Table.Th>Period</Table.Th>
+                  <Table.Th>Date Range</Table.Th>
+                  <Table.Th>Health</Table.Th>
+                  <Table.Th>Compliance</Table.Th>
+                  <Table.Th>Anomalies</Table.Th>
+                  <Table.Th>Actions</Table.Th>
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
               {reportList.data.map((r) => {
                 const avgPct = +(
                   (r.compliancePctL1 + r.compliancePctL2 + r.compliancePctL3) / 3
@@ -1039,6 +1046,7 @@ export function ReportsPage() {
               })}
             </Table.Tbody>
           </Table>
+        </Table.ScrollContainer>
         ) : (
           <Box py="xl">
             <Text c="dimmed" ta="center">
