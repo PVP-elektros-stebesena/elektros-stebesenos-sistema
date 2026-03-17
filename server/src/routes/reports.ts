@@ -13,6 +13,7 @@ import {
   stopReportScheduler,
   getSchedulerStatus,
 } from '../services/reportScheduler.js';
+import { notificationService } from '../services/notificationService.js';
 
 // Query helpers
 
@@ -285,6 +286,15 @@ export async function reportRoutes(fastify: FastifyInstance): Promise<void> {
 
     const report = await generateReport(deviceId, periodType, startsAt, endsAt);
     await saveReport(report);
+
+    await notificationService.notifyReportGenerated({
+      deviceId: report.deviceId,
+      periodType: report.periodType,
+      startsAt: report.startsAt,
+      endsAt: report.endsAt,
+      healthScore: report.healthScore,
+      totalAnomalies: report.totalAnomalies,
+    });
 
     const insights = await buildReportInsights(deviceId, startsAt, endsAt, report.anomalies);
     const powerQuality = buildPowerQualityAssessment(

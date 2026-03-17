@@ -16,6 +16,14 @@ import { AnomalyTracker } from './anomalyTracker.js';
 import { WindowManager } from './windowManager.js';
 import { parseP1Response, toVoltageReading } from './p1Parser.js';
 import type { DetectedAnomaly, RmsWindowResult } from './voltageAnalysis.js';
+import { type NotificationEventAdapter } from './notificationTypes.js';
+
+const NOOP_NOTIFICATION_ADAPTER: NotificationEventAdapter = {
+  async notifyAnomalyDetected() {},
+  async notifyDeviceUnreachable() {},
+  async notifyDeviceRecovered() {},
+  async notifyReportGenerated() {},
+};
 
 // ── Per-device runtime state ───────────────────────────────────────
 
@@ -50,9 +58,24 @@ export class DevicePoller {
   /** Fetch implementation — injectable for testing */
   private fetchFn: typeof fetch;
 
-  constructor(opts?: { syncIntervalMs?: number; fetchFn?: typeof fetch }) {
+  /** Outbound notification adapter */
+  private notificationAdapter: NotificationEventAdapter;
+
+  /** Device connectivity status to avoid repeated unreachable notifications */
+  private connectivityState = new Map<number, { unreachable: boolean }>();
+
+  constructor(opts?: {
+    syncIntervalMs?: number;
+    fetchFn?: typeof fetch;
+    notificationAdapter?: NotificationEventAdapter;
+  }) {
     this.syncIntervalMs = opts?.syncIntervalMs ?? 3_600_000; // 1 h
     this.fetchFn = opts?.fetchFn ?? globalThis.fetch;
+    this.notificationAdapter = opts?.notificationAdapter ?? NOOP_NOTIFICATION_ADAPTER;
+  }
+
+  setNotificationAdapter(adapter: NotificationEventAdapter): void {
+    this.notificationAdapter = adapter;
   }
 
   // ── Lifecycle ──────────────────────────────────────────────────
@@ -122,6 +145,7 @@ export class DevicePoller {
           await this.saveAggregatedWindow(id, flushed);
         }
         this.runtimes.delete(id);
+        this.connectivityState.delete(id);
       }
     }
 
@@ -206,14 +230,23 @@ export class DevicePoller {
     windowMgr: WindowManager,
   ): Promise<void> {
     // 1. Fetch from gateway
-    const response = await this.fetchFn(deviceIp, {
-      signal: AbortSignal.timeout(5_000), // 5s timeout
-    });
+    let response: Response;
+    try {
+      response = await this.fetchFn(deviceIp, {
+        signal: AbortSignal.timeout(5_000), // 5s timeout
+      });
+    } catch (err) {
+      await this.markDeviceUnreachable(deviceId, deviceIp, err instanceof Error ? err.message : 'Fetch failed');
+      return;
+    }
 
     if (!response.ok) {
       console.warn('[DevicePoller] Device %d HTTP %d', deviceId, response.status);
+      await this.markDeviceUnreachable(deviceId, deviceIp, `HTTP ${response.status}`);
       return;
     }
+
+    await this.markDeviceRecovered(deviceId, deviceIp);
 
     const raw: Record<string, string> = await response.json();
     const now = new Date();
@@ -253,7 +286,7 @@ export class DevicePoller {
     anomalies: DetectedAnomaly[],
   ): Promise<void> {
     for (const a of anomalies) {
-      await prisma.anomaly.create({
+      const saved = await prisma.anomaly.create({
         data: {
           deviceId,
           startsAt: a.startedAt,
@@ -267,7 +300,48 @@ export class DevicePoller {
           description: `${a.type} on phase ${a.phase}`,
         },
       });
+
+      await this.notificationAdapter.notifyAnomalyDetected({
+        deviceId,
+        anomaly: {
+          id: saved.id,
+          type: saved.type,
+          phase: saved.phase,
+          severity: saved.severity,
+          startsAt: saved.startsAt,
+          endsAt: saved.endsAt,
+          minVoltage: saved.minVoltage,
+          maxVoltage: saved.maxVoltage,
+          durationSeconds: saved.duration,
+        },
+      });
     }
+  }
+
+  private async markDeviceUnreachable(deviceId: number, deviceIp: string, reason: string): Promise<void> {
+    const current = this.connectivityState.get(deviceId);
+    if (current?.unreachable) return;
+
+    this.connectivityState.set(deviceId, { unreachable: true });
+    await this.notificationAdapter.notifyDeviceUnreachable({
+      deviceId,
+      deviceIp,
+      reason,
+      at: new Date(),
+    });
+  }
+
+  private async markDeviceRecovered(deviceId: number, deviceIp: string): Promise<void> {
+    const current = this.connectivityState.get(deviceId);
+    if (current?.unreachable) {
+      await this.notificationAdapter.notifyDeviceRecovered({
+        deviceId,
+        deviceIp,
+        at: new Date(),
+      });
+    }
+
+    this.connectivityState.set(deviceId, { unreachable: false });
   }
 
   private async saveAggregatedWindow(

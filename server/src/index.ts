@@ -4,8 +4,10 @@ import "dotenv/config";
 import { voltageRoutes } from './routes/voltage.js';
 import { settingsRoutes } from './routes/settings.js';
 import { reportRoutes } from './routes/reports.js';
+import { notificationRoutes } from './routes/notifications.js';
 import { devicePoller } from './services/devicePoller.js';
 import { startReportScheduler, stopReportScheduler } from './services/reportScheduler.js';
+import { ConsoleNotificationSender, notificationService } from './services/notificationService.js';
 
 const fastify = Fastify({ logger: true });
 
@@ -27,6 +29,9 @@ fastify.register(settingsRoutes);
 // Report generation & retrieval endpoints
 fastify.register(reportRoutes);
 
+// Notification event toggle endpoints
+fastify.register(notificationRoutes);
+
 // Poller status endpoint
 fastify.get('/api/poller/status', async () => {
     return { devices: devicePoller.getStatus() };
@@ -34,6 +39,9 @@ fastify.get('/api/poller/status', async () => {
 
 const start = async () => {
     try {
+        devicePoller.setNotificationAdapter(notificationService);
+        notificationService.addSender(new ConsoleNotificationSender());
+
         await fastify.listen({ port: parseInt(process.env.PORT || '3000') });
         console.log('Server is running on http://localhost:' + (process.env.PORT || '3000'));
 
