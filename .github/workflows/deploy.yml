@@ -37,6 +37,7 @@ jobs:
             cd $REPO_DIR/server
             npm ci --omit=dev
             npx prisma migrate deploy
+            npx prisma generate
             npm run build
 
             pm2 describe server > /dev/null 2>&1 && pm2 restart server || pm2 start dist/src/index.js --name server
