@@ -1,4 +1,4 @@
-import { Group, UnstyledButton, Text, ActionIcon, Box } from "@mantine/core"
+import { Group, UnstyledButton, Text, ActionIcon, Flex, Box } from "@mantine/core"
 import type { Page } from '../types/energy';
 
 /* ── Inline SVG icons (no icon library needed) ─────────────── */
@@ -43,93 +43,123 @@ interface NavbarProps {
 }
 
 export function Navbar({ page, onNavigate }: NavbarProps) {
-  return (
-    <Box
-      px="lg"
-      py="sm"
-      mx="md"
-      mt="md"
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-      }}
-    >
-      <Group gap="sm">
-        <Box
-          style={{
-            width: 32,
-            height: 32,
-            borderRadius: "50%",
-            backgroundColor: "#FFCC59",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <IconBolt size={18} color="#000000" />
-        </Box>
-        <Text fw={500} size="xl" c="white">
-          P1 Monitor
-        </Text>
-      </Group>
-
-      <Group
-        gap={4}
-        p={4}
+  const logo = (
+    <Group gap="sm">
+      <Box
         style={{
-          backgroundColor: "#515151",
-          borderRadius: "34px",
+          width: 32,
+          height: 32,
+          borderRadius: "50%",
+          backgroundColor: "#FFCC59",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
         }}
       >
-        {navItems.map((item) => (
-          <UnstyledButton
-            key={item.label}
-            onClick={() => onNavigate(item.page)}
-            px="lg"
-            py={8}
-            style={{
-              borderRadius: "44px",
-              backgroundColor: page === item.page ? "#FFCC59" : "#515151",
-              color: page === item.page ? "#000000" : "#EBEBEB",
-              fontWeight: 500,
-              fontSize: "14px",
-              transition: "all 150ms ease",
-              cursor: "pointer",
-            }}
-          >
-            {item.label}
-          </UnstyledButton>
-        ))}
-      </Group>
+        <IconBolt size={18} color="#000000" />
+      </Box>
+      <Text fw={500} size="xl" c="white">
+        P1 Monitor
+      </Text>
+    </Group>
+  );
 
-      <Group gap="xs">
-        <ActionIcon
-          variant="filled"
-          size="lg"
-          radius="xl"
+  const notifications = (
+    <Group gap="xs">
+      <ActionIcon
+        variant="filled"
+        size="lg"
+        radius="xl"
+        style={{
+          backgroundColor: "#FFCC59",
+          color: "#000000",
+        }}
+        aria-label="Notifications"
+      >
+        <IconBellFilled size={18} color="#000000" />
+      </ActionIcon>
+      <ActionIcon
+        variant="outline"
+        size="lg"
+        radius="xl"
+        style={{
+          borderColor: "#EBEBEB",
+          color: "#EBEBEB",
+          backgroundColor: "transparent",
+        }}
+        aria-label="Notification preferences"
+      >
+        <IconBell size={18} color="#EBEBEB" />
+      </ActionIcon>
+    </Group>
+  );
+
+  return (
+    <Box
+      px={{ base: 'xs', sm: 'lg' }}
+      py="sm"
+      mx={{ base: 0, sm: 'md' }}
+      mt={{ base: 0, sm: 'md' }}
+    >
+      {/* Mobile Top Row: Logo & Icons */}
+      <Flex 
+        display={{ base: 'flex', md: 'none' }} 
+        align="center" 
+        justify="space-between"
+        mb="md"
+      >
+        {logo}
+        {notifications}
+      </Flex>
+
+      {/* Main Nav Row */}
+      <Flex
+        direction="row"
+        align="center"
+        justify={{ base: 'center', md: 'space-between' }}
+        gap="md"
+      >
+        <Box display={{ base: 'none', md: 'block' }}>
+          {logo}
+        </Box>
+
+                <Group
+          gap={4}
+          p={4}
+          justify="center"
           style={{
-            backgroundColor: "#FFCC59",
-            color: "#000000",
+            backgroundColor: "#515151",
+            borderRadius: "34px",
+            flexWrap: "wrap",
           }}
-          aria-label="Notifications"
         >
-          <IconBellFilled size={18} color="#000000" />
-        </ActionIcon>
-        <ActionIcon
-          variant="outline"
-          size="lg"
-          radius="xl"
-          style={{
-            borderColor: "#EBEBEB",
-            color: "#EBEBEB",
-            backgroundColor: "transparent",
-          }}
-          aria-label="Notification preferences"
-        >
-          <IconBell size={18} color="#EBEBEB" />
-        </ActionIcon>
-      </Group>
+          {navItems.map((item) => (
+            <UnstyledButton
+              key={item.label}
+              onClick={() => onNavigate(item.page)}
+              px="lg"
+              py={8}
+              w={{ base: 'calc(50% - 4px)', sm: 'auto' }}
+              ta="center"
+              style={{
+                borderRadius: "44px",
+                backgroundColor: page === item.page ? "#FFCC59" : "#515151",
+                color: page === item.page ? "#000000" : "#EBEBEB",
+                fontWeight: 500,
+                fontSize: "14px",
+                transition: "all 150ms ease",
+                cursor: "pointer",
+              }}
+            >
+              {item.label}
+            </UnstyledButton>
+          ))}
+        </Group>
+
+        <Box display={{ base: 'none', md: 'block' }}>
+          {notifications}
+        </Box>
+      </Flex>
     </Box>
-  )
+  );
 }
