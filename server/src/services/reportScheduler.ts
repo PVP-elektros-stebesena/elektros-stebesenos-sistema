@@ -6,6 +6,7 @@
  */
 
 import { generateAllWeeklyReports } from './reportGenerator.js';
+import { notificationService } from './notificationService.js';
 
 /** Milliseconds until next Monday 00:01 local time */
 function msUntilNextMonday0001(): number {
@@ -46,6 +47,17 @@ async function runWeeklyJob(): Promise<void> {
   try {
     const reports = await generateAllWeeklyReports();
     console.log('[ReportScheduler] Generated %d weekly report(s).', reports.length);
+
+    for (const report of reports) {
+      await notificationService.notifyReportGenerated({
+        deviceId: report.deviceId,
+        periodType: report.periodType,
+        startsAt: report.startsAt,
+        endsAt: report.endsAt,
+        healthScore: report.healthScore,
+        totalAnomalies: report.totalAnomalies,
+      });
+    }
   } catch (err) {
     console.error('[ReportScheduler] Weekly report generation failed:', err);
   }

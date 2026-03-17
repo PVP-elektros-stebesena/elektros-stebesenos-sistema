@@ -27,6 +27,7 @@ model Device {
   weeklyReports WeeklyReport[]
   anomalies   Anomaly[]
   reports     Report[]
+  notificationToggles NotificationEventToggle[]
 
   @@map("devices")
 }
@@ -234,4 +235,19 @@ model Report {
   @@unique([deviceId, periodType, startsAt, endsAt])
   @@index([deviceId, createdAt])
   @@map("reports")
+}
+
+model NotificationEventToggle {
+  id        Int      @id @default(autoincrement())
+  eventType String
+  deviceId  Int?
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  device Device? @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([eventType, deviceId])
+  @@index([deviceId])
+  @@map("notification_event_toggles")
 }
