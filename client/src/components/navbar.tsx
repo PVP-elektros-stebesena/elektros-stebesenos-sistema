@@ -1,7 +1,6 @@
 import { Group, UnstyledButton, Text, ActionIcon, Flex, Box } from "@mantine/core"
 import type { Page } from '../types/energy';
 
-/* ── Inline SVG icons (no icon library needed) ─────────────── */
 
 function IconBolt({ size = 20, color = "currentColor" }: { size?: number; color?: string }) {
   return (
@@ -30,9 +29,9 @@ function IconBellFilled({ size = 20, color = "currentColor" }: { size?: number; 
 }
 
 const navItems: { label: string; page: Page }[] = [
-  { label: "Dashboard", page: "dashboard" },
   { label: "Voltage", page: "voltage" },
   { label: "Reports", page: "reports" },
+  { label: "Current data", page: "currentData" },
   { label: "Settings", page: "settings" },
 ]
 
@@ -101,7 +100,6 @@ export function Navbar({ page, onNavigate }: NavbarProps) {
       mx={{ base: 0, sm: 'md' }}
       mt={{ base: 0, sm: 'md' }}
     >
-      {/* Mobile Top Row: Logo & Icons */}
       <Flex 
         display={{ base: 'flex', md: 'none' }} 
         align="center" 
@@ -112,7 +110,6 @@ export function Navbar({ page, onNavigate }: NavbarProps) {
         {notifications}
       </Flex>
 
-      {/* Main Nav Row */}
       <Flex
         direction="row"
         align="center"
@@ -123,7 +120,7 @@ export function Navbar({ page, onNavigate }: NavbarProps) {
           {logo}
         </Box>
 
-                <Group
+        <Group
           gap={4}
           p={4}
           justify="center"
