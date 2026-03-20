@@ -1,23 +1,82 @@
 export interface LiveData {
-  timestamp: Date;
-  power_delivered: number;
-  power_returned: number;
-  gas_flow: number;
-  voltage_l1: number;
-  voltage_l2: number;
-  voltage_l3: number;
-  current_l1: number;
-  current_l2: number;
-  current_l3: number;
-  power_l1: number;
-  power_l2: number;
-  power_l3: number;
-  tariff: 1 | 2;
-  total_t1_import: number;
-  total_t2_import: number;
-  total_t1_export: number;
-  total_t2_export: number;
-  total_gas: number;
+  timestamp: string;
+  deviceId: number;
+
+  energyDelivered: number | null;
+  energyReturned: number | null;
+  reactiveEnergyDelivered: number | null;
+  reactiveEnergyReturned: number | null;
+
+  energyDeliveredTariff1: number | null;
+  energyDeliveredTariff2: number | null;
+  energyDeliveredTariff3: number | null;
+  energyDeliveredTariff4: number | null;
+
+  energyReturnedTariff1: number | null;
+  energyReturnedTariff2: number | null;
+  energyReturnedTariff3: number | null;
+  energyReturnedTariff4: number | null;
+
+  reactiveEnergyDeliveredTariff1: number | null;
+  reactiveEnergyDeliveredTariff2: number | null;
+  reactiveEnergyDeliveredTariff3: number | null;
+  reactiveEnergyDeliveredTariff4: number | null;
+
+  reactiveEnergyReturnedTariff1: number | null;
+  reactiveEnergyReturnedTariff2: number | null;
+  reactiveEnergyReturnedTariff3: number | null;
+  reactiveEnergyReturnedTariff4: number | null;
+
+  instantaneousVoltageL1: number | null;
+  voltageL1: number | null;
+  instantaneousCurrentL1: number | null;
+  currentL1: number | null;
+
+  instantaneousVoltageL2: number | null;
+  voltageL2: number | null;
+  instantaneousCurrentL2: number | null;
+  currentL2: number | null;
+
+  instantaneousVoltageL3: number | null;
+  voltageL3: number | null;
+  instantaneousCurrentL3: number | null;
+  currentL3: number | null;
+
+  instantaneousVoltage: number | null;
+  instantaneousCurrent: number | null;
+  instantaneousCurrentNeutral: number | null;
+  currentNeutral: number | null;
+  frequency: number | null;
+
+  activeInstantaneousPowerDelivered: number | null;
+  activeInstantaneousPowerDeliveredL1: number | null;
+  activeInstantaneousPowerDeliveredL2: number | null;
+  activeInstantaneousPowerDeliveredL3: number | null;
+
+  activeInstantaneousPowerReturnedL1: number | null;
+  activeInstantaneousPowerReturnedL2: number | null;
+  activeInstantaneousPowerReturnedL3: number | null;
+
+  reactiveInstantaneousPowerDeliveredL1: number | null;
+  reactiveInstantaneousPowerDeliveredL2: number | null;
+  reactiveInstantaneousPowerDeliveredL3: number | null;
+
+  reactiveInstantaneousPowerReturnedL1: number | null;
+  reactiveInstantaneousPowerReturnedL2: number | null;
+  reactiveInstantaneousPowerReturnedL3: number | null;
+
+  apparentInstantaneousPower: number | null;
+  apparentInstantaneousPowerL1: number | null;
+  apparentInstantaneousPowerL2: number | null;
+  apparentInstantaneousPowerL3: number | null;
+
+  powerDeliveredTotal: number | null;
+  powerReturnedTotal: number | null;
+
+  reactiveEnergyDeliveredCurrentPeriod: number | null;
+  reactiveEnergyReturnedCurrentPeriod: number | null;
+
+  powerDeliveredNetto: number | null;
 }
 
 export interface DailyPoint {
@@ -47,4 +106,4 @@ export interface AppSettings {
   retain_days: number;
 }
 
-export type Page = 'dashboard' | 'voltage' | 'settings' | 'reports';
+export type Page = 'currentData' | 'voltage' | 'settings' | 'reports';

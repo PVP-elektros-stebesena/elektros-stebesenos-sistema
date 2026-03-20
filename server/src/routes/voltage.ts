@@ -402,4 +402,24 @@ export async function voltageRoutes(fastify: FastifyInstance): Promise<void> {
       },
     };
   });
+  
+  fastify.get<{ Querystring: DeviceQuery }>('/api/live/raw', async (req, reply) => {
+    const deviceId = parseDeviceId(req.query.deviceId);
+
+    const reading = await prisma.reading.findFirst({
+      where: deviceId ? { deviceId } : undefined,
+      orderBy: { timestamp: 'desc' },
+    });
+
+    if (!reading) {
+      return reply.code(503).send({
+        error: 'NO_DATA',
+        message: 'No readings received yet',
+      });
+    }
+
+    return reading;
+  });
+
+  console.log(fastify.printRoutes());
 }
