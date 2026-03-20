@@ -1,7 +1,10 @@
 /**
  * Device Poller Service
  *
- * Polls every active device's P1 gateway at its configured interval.
+ * Supports two transport modes per active device:
+ *   - REST polling (deviceIp)
+ *   - MQTT subscription (mqttBroker + mqttTopic)
+ *
  * On each reading it:
  *   1. Persists the full Reading row to DB
  *   2. Feeds the voltage data through AnomalyTracker → persists anomalies
@@ -11,6 +14,7 @@
  * added / removed / deactivated devices are picked up without restart.
  */
 
+import mqtt, { type MqttClient } from 'mqtt';
 import prisma from '../lib/prisma.js';
 import { AnomalyTracker } from './anomalyTracker.js';
 import { WindowManager } from './windowManager.js';
@@ -29,11 +33,16 @@ const NOOP_NOTIFICATION_ADAPTER: NotificationEventAdapter = {
 
 interface DeviceRuntime {
   deviceId: number;
-  deviceIp: string;
+  mode: 'http' | 'mqtt';
+  deviceIp?: string;
+  mqttBroker?: string;
+  mqttPort?: number | null;
+  mqttTopic?: string;
   pollInterval: number;
   tracker: AnomalyTracker;
   windowMgr: WindowManager;
-  timer: ReturnType<typeof setInterval>;
+  timer?: ReturnType<typeof setInterval>;
+  mqttClient?: MqttClient;
 }
 
 // ── Severity mapping ───────────────────────────────────────────────
@@ -69,7 +78,7 @@ export class DevicePoller {
     fetchFn?: typeof fetch;
     notificationAdapter?: NotificationEventAdapter;
   }) {
-    this.syncIntervalMs = opts?.syncIntervalMs ?? 3_600_000; // 1 h
+    this.syncIntervalMs = opts?.syncIntervalMs ?? 3_600_000;
     this.fetchFn = opts?.fetchFn ?? globalThis.fetch;
     this.notificationAdapter = opts?.notificationAdapter ?? NOOP_NOTIFICATION_ADAPTER;
   }
@@ -91,11 +100,13 @@ export class DevicePoller {
       );
     }, this.syncIntervalMs);
 
-    console.log('[DevicePoller] Running. Next device-list sync in %d min.',
-      Math.round(this.syncIntervalMs / 60_000));
+    console.log(
+      '[DevicePoller] Running. Next device-list sync in %d min.',
+      Math.round(this.syncIntervalMs / 60_000),
+    );
   }
 
-  /** Gracefully stop all polling timers. */
+  /** Gracefully stop all runtimes. */
   async stop(): Promise<void> {
     console.log('[DevicePoller] Stopping…');
 
@@ -104,9 +115,10 @@ export class DevicePoller {
       this.syncTimer = null;
     }
 
-    // Flush every window manager and stop timers
     for (const rt of this.runtimes.values()) {
-      clearInterval(rt.timer);
+      if (rt.timer) clearInterval(rt.timer);
+      if (rt.mqttClient) rt.mqttClient.end(true);
+
       const flushed = rt.windowMgr.flush();
       if (flushed) {
         await this.saveAggregatedWindow(rt.deviceId, flushed);
@@ -120,75 +132,145 @@ export class DevicePoller {
   // ── Device sync ────────────────────────────────────────────────
 
   /**
-   * Fetch all active devices from DB and reconcile with running timers.
-   * - New devices → start polling
-   * - Removed / deactivated devices → stop polling
-   * - Changed pollInterval or IP → restart that device's timer
-   *
-   * Called automatically on an hourly interval, but can also be
-   * triggered manually (e.g. after a device is added/updated/deleted).
+   * Fetch all active devices from DB and reconcile with running runtimes.
+   * Priority:
+   *   1. MQTT if mqttBroker + mqttTopic are configured
+   *   2. HTTP if deviceIp is configured
    */
   async syncDevices(): Promise<void> {
     const devices = await prisma.device.findMany({
-      where: { isActive: true, deviceIp: { not: null } },
+      where: {
+        isActive: true,
+        OR: [
+          { deviceIp: { not: null } },
+          {
+            AND: [
+              { mqttBroker: { not: null } },
+              { mqttTopic: { not: null } },
+            ],
+          },
+        ],
+      },
     });
 
     const activeIds = new Set(devices.map((d) => d.id));
 
-    // Stop polling for devices that are no longer active / present
+    // Remove devices that are no longer active/present
     for (const [id, rt] of this.runtimes) {
       if (!activeIds.has(id)) {
         console.log('[DevicePoller] Removing device %d', id);
-        clearInterval(rt.timer);
-        const flushed = rt.windowMgr.flush();
-        if (flushed) {
-          await this.saveAggregatedWindow(id, flushed);
-        }
+        await this.stopRuntime(rt);
         this.runtimes.delete(id);
         this.connectivityState.delete(id);
       }
     }
 
-    // Start or update polling for each active device
+    // Start or update active devices
     for (const device of devices) {
-      if (!device.deviceIp) continue;
+      const wantsMqtt = !!device.mqttBroker && !!device.mqttTopic;
+      const wantsHttp = !!device.deviceIp;
+      const desiredMode: 'mqtt' | 'http' | null = wantsMqtt ? 'mqtt' : wantsHttp ? 'http' : null;
+
+      if (!desiredMode) continue;
 
       const existing = this.runtimes.get(device.id);
 
       if (existing) {
-        // Check if config changed
-        const ipChanged = existing.deviceIp !== device.deviceIp;
-        const intervalChanged = existing.pollInterval !== device.pollInterval;
+        const modeChanged = existing.mode !== desiredMode;
 
-        if (!ipChanged && !intervalChanged) continue; // nothing to do
+        const commonChanged =
+          existing.pollInterval !== device.pollInterval;
 
-        // Config changed → restart this device's poller
+        const httpChanged =
+          desiredMode === 'http' &&
+          existing.deviceIp !== device.deviceIp;
+
+        const mqttChanged =
+          desiredMode === 'mqtt' &&
+          (
+            existing.mqttBroker !== device.mqttBroker ||
+            existing.mqttPort !== device.mqttPort ||
+            existing.mqttTopic !== device.mqttTopic
+          );
+
+        if (!modeChanged && !commonChanged && !httpChanged && !mqttChanged) {
+          continue;
+        }
+
         console.log('[DevicePoller] Restarting device %d (config changed)', device.id);
-        clearInterval(existing.timer);
-        // Keep tracker/windowMgr state to preserve anomaly continuity
-        this.startDevicePoller(
-          device.id,
-          device.deviceIp,
-          device.pollInterval,
-          existing.tracker,
-          existing.windowMgr,
-        );
+
+        const tracker = existing.tracker;
+        const windowMgr = existing.windowMgr;
+
+        await this.stopRuntime(existing);
+
+        if (desiredMode === 'mqtt') {
+          this.startDeviceMqtt(
+            device.id,
+            device.mqttBroker!,
+            device.mqttPort,
+            device.mqttTopic!,
+            device.pollInterval,
+            tracker,
+            windowMgr,
+          );
+        } else {
+          this.startDevicePoller(
+            device.id,
+            device.deviceIp!,
+            device.pollInterval,
+            tracker,
+            windowMgr,
+          );
+        }
       } else {
-        // Brand-new device
-        console.log('[DevicePoller] Starting device %d → %s every %ds',
-          device.id, device.deviceIp, device.pollInterval);
-        this.startDevicePoller(
-          device.id,
-          device.deviceIp,
-          device.pollInterval,
-        );
+        if (desiredMode === 'mqtt') {
+          console.log(
+            '[DevicePoller] Starting device %d → MQTT %s:%s topic=%s',
+            device.id,
+            device.mqttBroker,
+            device.mqttPort ?? 1883,
+            device.mqttTopic,
+          );
+
+          this.startDeviceMqtt(
+            device.id,
+            device.mqttBroker!,
+            device.mqttPort,
+            device.mqttTopic!,
+            device.pollInterval,
+          );
+        } else {
+          console.log(
+            '[DevicePoller] Starting device %d → %s every %ds',
+            device.id,
+            device.deviceIp,
+            device.pollInterval,
+          );
+
+          this.startDevicePoller(
+            device.id,
+            device.deviceIp!,
+            device.pollInterval,
+          );
+        }
       }
     }
 
-    console.log('[DevicePoller] Synced — %d device(s) polling.', this.runtimes.size);
+    console.log('[DevicePoller] Synced — %d device(s) active.', this.runtimes.size);
   }
 
-  // ── Per-device timer ───────────────────────────────────────────
+  private async stopRuntime(rt: DeviceRuntime): Promise<void> {
+    if (rt.timer) clearInterval(rt.timer);
+    if (rt.mqttClient) rt.mqttClient.end(true);
+
+    const flushed = rt.windowMgr.flush();
+    if (flushed) {
+      await this.saveAggregatedWindow(rt.deviceId, flushed);
+    }
+  }
+
+  // ── Per-device HTTP runtime ────────────────────────────────────
 
   private startDevicePoller(
     deviceId: number,
@@ -206,13 +288,13 @@ export class DevicePoller {
       );
     }, pollInterval * 1000);
 
-    // Also do an immediate first poll
     this.pollDevice(deviceId, deviceIp, t, w).catch((err) =>
       console.error(`[DevicePoller] Device ${deviceId} initial poll error:`, err),
     );
 
     this.runtimes.set(deviceId, {
       deviceId,
+      mode: 'http',
       deviceIp,
       pollInterval,
       tracker: t,
@@ -221,7 +303,71 @@ export class DevicePoller {
     });
   }
 
-  // ── Single poll cycle ──────────────────────────────────────────
+  // ── Per-device MQTT runtime ────────────────────────────────────
+
+  private startDeviceMqtt(
+    deviceId: number,
+    mqttBroker: string,
+    mqttPort: number | null,
+    mqttTopic: string,
+    pollInterval: number,
+    tracker?: AnomalyTracker,
+    windowMgr?: WindowManager,
+  ): void {
+    const t = tracker ?? new AnomalyTracker();
+    const w = windowMgr ?? new WindowManager(pollInterval);
+
+    const brokerUrl = this.buildBrokerUrl(mqttBroker, mqttPort);
+    const client = mqtt.connect(brokerUrl);
+
+    client.on('connect', async () => {
+      console.log(`[DevicePoller] MQTT connected for device ${deviceId} → ${mqttTopic}`);
+      await this.markDeviceRecovered(deviceId, `mqtt:${mqttBroker}`);
+
+      client.subscribe(mqttTopic, (err) => {
+        if (err) {
+          console.error(`[DevicePoller] MQTT subscribe failed for device ${deviceId}:`, err);
+        }
+      });
+    });
+
+    client.on('message', (topic, payload) => {
+      this.handleMqttMessage(deviceId, topic, payload, t, w).catch((err) =>
+        console.error(`[DevicePoller] Device ${deviceId} MQTT message error:`, err),
+      );
+    });
+
+    client.on('error', async (err) => {
+      console.error(`[DevicePoller] MQTT error for device ${deviceId}:`, err);
+      await this.markDeviceUnreachable(deviceId, `mqtt:${mqttBroker}`, err.message);
+    });
+
+    client.on('close', async () => {
+      console.warn(`[DevicePoller] MQTT disconnected for device ${deviceId}`);
+      await this.markDeviceUnreachable(deviceId, `mqtt:${mqttBroker}`, 'MQTT disconnected');
+    });
+
+    this.runtimes.set(deviceId, {
+      deviceId,
+      mode: 'mqtt',
+      mqttBroker,
+      mqttPort,
+      mqttTopic,
+      pollInterval,
+      tracker: t,
+      windowMgr: w,
+      mqttClient: client,
+    });
+  }
+
+  private buildBrokerUrl(host: string, port?: number | null): string {
+    if (host.startsWith('mqtt://') || host.startsWith('mqtts://') || host.startsWith('ws://') || host.startsWith('wss://')) {
+      return host;
+    }
+    return `mqtt://${host}:${port ?? 1883}`;
+  }
+
+  // ── Single REST poll cycle ─────────────────────────────────────
 
   private async pollDevice(
     deviceId: number,
@@ -229,14 +375,17 @@ export class DevicePoller {
     tracker: AnomalyTracker,
     windowMgr: WindowManager,
   ): Promise<void> {
-    // 1. Fetch from gateway
     let response: Response;
     try {
       response = await this.fetchFn(deviceIp, {
-        signal: AbortSignal.timeout(5_000), // 5s timeout
+        signal: AbortSignal.timeout(5_000),
       });
     } catch (err) {
-      await this.markDeviceUnreachable(deviceId, deviceIp, err instanceof Error ? err.message : 'Fetch failed');
+      await this.markDeviceUnreachable(
+        deviceId,
+        deviceIp,
+        err instanceof Error ? err.message : 'Fetch failed',
+      );
       return;
     }
 
@@ -248,13 +397,45 @@ export class DevicePoller {
 
     await this.markDeviceRecovered(deviceId, deviceIp);
 
-    const raw: Record<string, string> = await response.json();
+    const raw = await response.json() as Record<string, string>;
     const now = new Date();
 
-    // 2. Parse full P1 response
+    await this.processIncomingReading(deviceId, raw, now, tracker, windowMgr);
+  }
+
+  // ── Single MQTT message cycle ──────────────────────────────────
+
+  private async handleMqttMessage(
+    deviceId: number,
+    _topic: string,
+    payload: Buffer,
+    tracker: AnomalyTracker,
+    windowMgr: WindowManager,
+  ): Promise<void> {
+    let raw: Record<string, string>;
+
+    try {
+      raw = JSON.parse(payload.toString()) as Record<string, string>;
+    } catch (err) {
+      console.error(`[DevicePoller] Device ${deviceId} received invalid MQTT JSON:`, err);
+      return;
+    }
+
+    const now = new Date();
+    await this.processIncomingReading(deviceId, raw, now, tracker, windowMgr);
+  }
+
+  // ── Shared reading pipeline ────────────────────────────────────
+
+  private async processIncomingReading(
+    deviceId: number,
+    raw: Record<string, string>,
+    now: Date,
+    tracker: AnomalyTracker,
+    windowMgr: WindowManager,
+  ): Promise<void> {
     const p1Data = parseP1Response(raw);
 
-    // 3. Save full reading to DB
     await prisma.reading.create({
       data: {
         deviceId,
@@ -263,16 +444,13 @@ export class DevicePoller {
       },
     });
 
-    // 4. Build voltage reading for analysis pipeline
     const voltageReading = toVoltageReading(p1Data, now);
 
-    // 5. Anomaly detection
     const anomalies = tracker.processReading(voltageReading);
     if (anomalies.length > 0) {
       await this.saveAnomalies(deviceId, anomalies);
     }
 
-    // 6. Window aggregation
     const completedWindow = windowMgr.addReading(voltageReading);
     if (completedWindow) {
       await this.saveAggregatedWindow(deviceId, completedWindow);
@@ -318,25 +496,34 @@ export class DevicePoller {
     }
   }
 
-  private async markDeviceUnreachable(deviceId: number, deviceIp: string, reason: string): Promise<void> {
+  private async markDeviceUnreachable(
+    deviceId: number,
+    endpoint: string,
+    reason: string,
+  ): Promise<void> {
     const current = this.connectivityState.get(deviceId);
     if (current?.unreachable) return;
 
     this.connectivityState.set(deviceId, { unreachable: true });
+
     await this.notificationAdapter.notifyDeviceUnreachable({
       deviceId,
-      deviceIp,
+      deviceIp: endpoint,
       reason,
       at: new Date(),
     });
   }
 
-  private async markDeviceRecovered(deviceId: number, deviceIp: string): Promise<void> {
+  private async markDeviceRecovered(
+    deviceId: number,
+    endpoint: string,
+  ): Promise<void> {
     const current = this.connectivityState.get(deviceId);
+
     if (current?.unreachable) {
       await this.notificationAdapter.notifyDeviceRecovered({
         deviceId,
-        deviceIp,
+        deviceIp: endpoint,
         at: new Date(),
       });
     }
@@ -388,11 +575,22 @@ export class DevicePoller {
 
   // ── Diagnostics ────────────────────────────────────────────────
 
-  /** Which devices are currently being polled */
-  getStatus(): { deviceId: number; deviceIp: string; pollInterval: number }[] {
+  getStatus(): Array<{
+    deviceId: number;
+    mode: 'http' | 'mqtt';
+    deviceIp?: string;
+    mqttBroker?: string;
+    mqttPort?: number | null;
+    mqttTopic?: string;
+    pollInterval: number;
+  }> {
     return [...this.runtimes.values()].map((rt) => ({
       deviceId: rt.deviceId,
+      mode: rt.mode,
       deviceIp: rt.deviceIp,
+      mqttBroker: rt.mqttBroker,
+      mqttPort: rt.mqttPort,
+      mqttTopic: rt.mqttTopic,
       pollInterval: rt.pollInterval,
     }));
   }
