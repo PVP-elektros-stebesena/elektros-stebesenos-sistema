@@ -35,7 +35,7 @@ export function CurrentDataPage() {
 
     const loadData = async () => {
       try {
-        const response = await fetch('http://localhost:3000/api/live/raw');
+        const response = await fetch(`${import.meta.env.VITE_API_URL}/api/live/raw`);
 
         const text = await response.text();
 
