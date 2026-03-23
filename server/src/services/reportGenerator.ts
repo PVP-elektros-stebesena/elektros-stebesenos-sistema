@@ -26,6 +26,7 @@ export interface PeriodRange {
 }
 
 export interface AnomalySummaryRow {
+  id?: number;
   type: string;
   phase: string;
   durationSeconds: number | null;
@@ -228,6 +229,7 @@ export async function generateReport(
   });
 
   const anomalies: AnomalySummaryRow[] = anomalyRows.map((a) => ({
+    id: a.id,
     type: a.type,
     phase: a.phase,
     durationSeconds: a.duration,

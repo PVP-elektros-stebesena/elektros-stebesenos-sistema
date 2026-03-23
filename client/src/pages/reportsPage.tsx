@@ -1,25 +1,29 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  Accordion,
   Alert,
   Badge, Button, Card, Group, Progress,
   RingProgress, SimpleGrid, Stack, Table, Switch,
-  Text, Title, Select, Divider, Box, TextInput,
+  Text, Title, Select, Divider, Box, TextInput, Loader,
 } from '@mantine/core';
 import {
   Bar,
   BarChart,
   Cell,
   CartesianGrid,
+  Line,
+  LineChart,
   Legend,
   Pie,
   PieChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from 'recharts';
 import { usePolling } from '../hooks/usePolling';
-import { apiPost } from '../services/apiClient';
+import { apiFetch, apiPost } from '../services/apiClient';
 
 /* ── API response types ─────────────────────────────────────────── */
 
@@ -43,6 +47,7 @@ interface ReportListItem {
 }
 
 interface AnomalySummaryRow {
+  id?: number;
   type: string;
   phase: string;
   durationSeconds: number | null;
@@ -127,6 +132,36 @@ interface ReportListResponse {
 interface DeviceListResponse {
   id: number;
   name: string;
+}
+
+interface AnomalyContextPoint {
+  timestamp: string;
+  voltage: number | null;
+  voltageL1: number | null;
+  voltageL2: number | null;
+  voltageL3: number | null;
+  powerKw: number | null;
+}
+
+interface AnomalyContextResponse {
+  anomaly: {
+    id: number;
+    deviceId: number;
+    phase: string;
+    type: string;
+    startsAt: string;
+    endsAt: string;
+    minVoltage: number | null;
+    maxVoltage: number | null;
+  };
+  context: {
+    startsAt: string;
+    endsAt: string;
+    rawPointCount: number;
+    returnedPointCount: number;
+    downsampled: boolean;
+  };
+  points: AnomalyContextPoint[];
 }
 
 /* ── Helpers ────────────────────────────────────────────────────── */
@@ -226,11 +261,25 @@ function anomalyColor(type: string, index: number): string {
   return fallback[index % fallback.length];
 }
 
+function severityColor(severity: string): string {
+  return severity === 'CRITICAL' ? 'red' : 'yellow';
+}
+
+function phaseName(phase: string): string {
+  if (phase === 'L1' || phase === 'L2' || phase === 'L3') return phase;
+  return 'ALL';
+}
+
 /* ── Print-friendly report view ─────────────────────────────────── */
 
 function ReportPrintView({ report }: { report: ReportDetail }) {
   const printRef = useRef<HTMLDivElement>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [openedAnomalyKey, setOpenedAnomalyKey] = useState<string | null>(null);
+  const [loadingAnomalyId, setLoadingAnomalyId] = useState<number | null>(null);
+  const [contextByAnomalyId, setContextByAnomalyId] =
+    useState<Record<number, AnomalyContextResponse>>({});
+  const [contextErrorByAnomalyId, setContextErrorByAnomalyId] = useState<Record<number, string>>({});
   const avgPct = +(
     (report.compliance.compliancePctL1 +
       report.compliance.compliancePctL2 +
@@ -263,6 +312,50 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
     narrative: 'Energy insights are unavailable for this report.',
     anomalyAppendix: [],
   };
+
+  useEffect(() => {
+    setOpenedAnomalyKey(null);
+    setLoadingAnomalyId(null);
+    setContextByAnomalyId({});
+    setContextErrorByAnomalyId({});
+  }, [report.id]);
+
+  const loadAnomalyContext = useCallback(async (itemIndex: number) => {
+    const anomaly = report.anomalySummary[itemIndex];
+    if (!anomaly || anomaly.id == null) return;
+    if (contextByAnomalyId[anomaly.id]) return;
+
+    setLoadingAnomalyId(anomaly.id);
+    setContextErrorByAnomalyId((prev) => {
+      const next = { ...prev };
+      delete next[anomaly.id!];
+      return next;
+    });
+
+    try {
+      const response = await apiFetch<AnomalyContextResponse>(`/api/anomalies/${anomaly.id}/context`);
+      setContextByAnomalyId((prev) => ({
+        ...prev,
+        [anomaly.id!]: response,
+      }));
+    } catch {
+      setContextErrorByAnomalyId((prev) => ({
+        ...prev,
+        [anomaly.id!]: 'Could not load anomaly context. Please try again.',
+      }));
+    } finally {
+      setLoadingAnomalyId(null);
+    }
+  }, [contextByAnomalyId, report.anomalySummary]);
+
+  const handleAnomalyAccordionChange = useCallback((value: string | null) => {
+    setOpenedAnomalyKey(value);
+    if (value == null) return;
+
+    const parsedIndex = Number(value);
+    if (Number.isNaN(parsedIndex)) return;
+    void loadAnomalyContext(parsedIndex);
+  }, [loadAnomalyContext]);
 
   const handlePrint = () => {
     const content = printRef.current;
@@ -586,135 +679,152 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
 
       <Card p="md" radius="md" withBorder>
         <Group justify="space-between" mb="xs">
-          <Text fw={700}>Power Quality Assessment</Text>
+          <Text fw={700}>Power Quality Snapshot</Text>
           <Badge color={quality.pass ? 'green' : 'red'} variant="light">
             {quality.pass ? 'COMPLIANT' : 'NON-COMPLIANT'}
           </Badge>
         </Group>
-
-        <SimpleGrid cols={{ base: 1, sm: 4 }} mb="md">
-          <Card p="sm" withBorder>
-            <Text size="xs" c="dimmed">Average compliance</Text>
-            <Text fw={700} fz="lg">{quality.averageCompliancePct.toFixed(2)}%</Text>
-          </Card>
-          <Card p="sm" withBorder>
-            <Text size="xs" c="dimmed">Worst phase</Text>
-            <Text fw={700} fz="lg">{quality.worstPhase}</Text>
-          </Card>
-          <Card p="sm" withBorder>
-            <Text size="xs" c="dimmed">Worst-phase compliance</Text>
-            <Text fw={700} fz="lg">{quality.worstPhaseCompliancePct.toFixed(2)}%</Text>
-          </Card>
-          <Card p="sm" withBorder>
-            <Text size="xs" c="dimmed">Dominant anomaly</Text>
-            <Text fw={700} fz="lg">{quality.dominantAnomalyType ?? 'None'}</Text>
-          </Card>
-        </SimpleGrid>
-
         <Text size="sm" mb={4}>{quality.assessmentText}</Text>
-        <Text size="sm" c="dimmed">{quality.recommendationText}</Text>
+        <Text size="sm" c="dimmed">
+          Detailed quality metrics, energy trends, and appendices are available in Advanced details.
+        </Text>
       </Card>
 
-      <Card p="md" radius="md" withBorder>
-        <Text fw={700} mb="xs">Report summary</Text>
-        <Text size="sm" c="dimmed">{insights.narrative}</Text>
-
-        <SimpleGrid cols={{ base: 1, sm: 4 }} mt="md">
-          <Card p="sm" withBorder>
-            <Text size="xs" c="dimmed">Total consumed</Text>
-            <Text fw={700} fz="xl">{insights.totalEnergyConsumedKwh.toFixed(2)} kWh</Text>
-          </Card>
-          <Card p="sm" withBorder>
-            <Text size="xs" c="dimmed">Total returned</Text>
-            <Text fw={700} fz="xl">{insights.totalEnergyReturnedKwh.toFixed(2)} kWh</Text>
-          </Card>
-          <Card p="sm" withBorder>
-            <Text size="xs" c="dimmed">Avg efficiency</Text>
-            <Text fw={700} fz="xl">
-              {insights.averageEfficiencyPct != null
-                ? `${insights.averageEfficiencyPct.toFixed(1)}%`
-                : '—'}
-            </Text>
-          </Card>
-          <Card p="sm" withBorder>
-            <Text size="xs" c="dimmed">Avg hourly electricity</Text>
-            <Text fw={700} fz="xl">
-              {insights.averageHourlyElectricityKwh != null
-                ? `${insights.averageHourlyElectricityKwh.toFixed(3)} kWh`
-                : '—'}
-            </Text>
-          </Card>
-        </SimpleGrid>
-      </Card>
-
-      {shouldShowCharts && (
-        <SimpleGrid cols={{ base: 1, lg: 2 }}>
+      {showAdvanced && (
+        <>
           <Card p="md" radius="md" withBorder>
-            <Text fw={700} mb="md">
-              {useHourlyCharts ? 'Hourly electricity consumption' : 'Daily electricity consumption'}
-            </Text>
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={trendChartData}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="x" />
-                <YAxis unit=" kWh" />
-                <Tooltip cursor={{ fill: 'rgba(255, 255, 255, 0.1)' }} />
-                <Bar
-                  dataKey="value"
-                  fill="#8ACDEA"
-                  name="Consumed"
-                  radius={[4, 4, 0, 0]}
-                />
-              </BarChart>
-            </ResponsiveContainer>
+            <Group justify="space-between" mb="xs">
+              <Text fw={700}>Power Quality Assessment</Text>
+              <Badge color={quality.pass ? 'green' : 'red'} variant="light">
+                {quality.pass ? 'COMPLIANT' : 'NON-COMPLIANT'}
+              </Badge>
+            </Group>
+
+            <SimpleGrid cols={{ base: 1, sm: 4 }} mb="md">
+              <Card p="sm" withBorder>
+                <Text size="xs" c="dimmed">Average compliance</Text>
+                <Text fw={700} fz="lg">{quality.averageCompliancePct.toFixed(2)}%</Text>
+              </Card>
+              <Card p="sm" withBorder>
+                <Text size="xs" c="dimmed">Worst phase</Text>
+                <Text fw={700} fz="lg">{quality.worstPhase}</Text>
+              </Card>
+              <Card p="sm" withBorder>
+                <Text size="xs" c="dimmed">Worst-phase compliance</Text>
+                <Text fw={700} fz="lg">{quality.worstPhaseCompliancePct.toFixed(2)}%</Text>
+              </Card>
+              <Card p="sm" withBorder>
+                <Text size="xs" c="dimmed">Dominant anomaly</Text>
+                <Text fw={700} fz="lg">{quality.dominantAnomalyType ?? 'None'}</Text>
+              </Card>
+            </SimpleGrid>
+
+            <Text size="sm" mb={4}>{quality.assessmentText}</Text>
+            <Text size="sm" c="dimmed">{quality.recommendationText}</Text>
           </Card>
 
           <Card p="md" radius="md" withBorder>
-            <Text fw={700} mb="md">
-              {useHourlyCharts ? 'Hourly efficiency trend' : 'Efficiency and avg hourly use'}
-            </Text>
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={trendChartData}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="x" />
-                <YAxis yAxisId="left" unit=" %" />
-                {!useHourlyCharts && <YAxis yAxisId="right" orientation="right" unit=" kWh" />}
-                <Tooltip cursor={{ fill: 'rgba(255, 255, 255, 0.1)' }} />
-                <Legend />
-                <Bar
-                  yAxisId="left"
-                  dataKey="efficiency"
-                  fill="#FFCC59"
-                  name="Efficiency %"
-                  radius={[4, 4, 0, 0]}
-                />
-                {!useHourlyCharts && (
-                  <Bar
-                    yAxisId="right"
-                    dataKey="hourly"
-                    fill="#8ACDEA"
-                    name="Avg hourly kWh"
-                    radius={[4, 4, 0, 0]}
-                  />
-                )}
-              </BarChart>
-            </ResponsiveContainer>
+            <Text fw={700} mb="xs">Report summary</Text>
+            <Text size="sm" c="dimmed">{insights.narrative}</Text>
+
+            <SimpleGrid cols={{ base: 1, sm: 4 }} mt="md">
+              <Card p="sm" withBorder>
+                <Text size="xs" c="dimmed">Total consumed</Text>
+                <Text fw={700} fz="xl">{insights.totalEnergyConsumedKwh.toFixed(2)} kWh</Text>
+              </Card>
+              <Card p="sm" withBorder>
+                <Text size="xs" c="dimmed">Total returned</Text>
+                <Text fw={700} fz="xl">{insights.totalEnergyReturnedKwh.toFixed(2)} kWh</Text>
+              </Card>
+              <Card p="sm" withBorder>
+                <Text size="xs" c="dimmed">Avg efficiency</Text>
+                <Text fw={700} fz="xl">
+                  {insights.averageEfficiencyPct != null
+                    ? `${insights.averageEfficiencyPct.toFixed(1)}%`
+                    : '—'}
+                </Text>
+              </Card>
+              <Card p="sm" withBorder>
+                <Text size="xs" c="dimmed">Avg hourly electricity</Text>
+                <Text fw={700} fz="xl">
+                  {insights.averageHourlyElectricityKwh != null
+                    ? `${insights.averageHourlyElectricityKwh.toFixed(3)} kWh`
+                    : '—'}
+                </Text>
+              </Card>
+            </SimpleGrid>
           </Card>
-        </SimpleGrid>
-      )}
 
-      {!shouldShowCharts && (
-        <Text size="xs" c="dimmed" ta="center">
-          {useHourlyCharts
-            ? 'Not enough hourly points for trend charts in this interval.'
-            : 'Not enough full-day points for trend charts in this period.'}
-        </Text>
-      )}
+          {shouldShowCharts && (
+            <SimpleGrid cols={{ base: 1, lg: 2 }}>
+              <Card p="md" radius="md" withBorder>
+                <Text fw={700} mb="md">
+                  {useHourlyCharts ? 'Hourly electricity consumption' : 'Daily electricity consumption'}
+                </Text>
+                <ResponsiveContainer width="100%" height={260}>
+                  <BarChart data={trendChartData}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="x" />
+                    <YAxis unit=" kWh" />
+                    <Tooltip cursor={{ fill: 'rgba(255, 255, 255, 0.1)' }} />
+                    <Bar
+                      dataKey="value"
+                      fill="#8ACDEA"
+                      name="Consumed"
+                      radius={[4, 4, 0, 0]}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              </Card>
 
-      {fullDays.length < insights.daily.length && (
-        <Text size="xs" c="dimmed" ta="center">
-          Partial first/last day points are excluded from charts to reduce boundary skew.
-        </Text>
+              <Card p="md" radius="md" withBorder>
+                <Text fw={700} mb="md">
+                  {useHourlyCharts ? 'Hourly efficiency trend' : 'Efficiency and avg hourly use'}
+                </Text>
+                <ResponsiveContainer width="100%" height={260}>
+                  <BarChart data={trendChartData}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="x" />
+                    <YAxis yAxisId="left" unit=" %" />
+                    {!useHourlyCharts && <YAxis yAxisId="right" orientation="right" unit=" kWh" />}
+                    <Tooltip cursor={{ fill: 'rgba(255, 255, 255, 0.1)' }} />
+                    <Legend />
+                    <Bar
+                      yAxisId="left"
+                      dataKey="efficiency"
+                      fill="#FFCC59"
+                      name="Efficiency %"
+                      radius={[4, 4, 0, 0]}
+                    />
+                    {!useHourlyCharts && (
+                      <Bar
+                        yAxisId="right"
+                        dataKey="hourly"
+                        fill="#8ACDEA"
+                        name="Avg hourly kWh"
+                        radius={[4, 4, 0, 0]}
+                      />
+                    )}
+                  </BarChart>
+                </ResponsiveContainer>
+              </Card>
+            </SimpleGrid>
+          )}
+
+          {!shouldShowCharts && (
+            <Text size="xs" c="dimmed" ta="center">
+              {useHourlyCharts
+                ? 'Not enough hourly points for trend charts in this interval.'
+                : 'Not enough full-day points for trend charts in this period.'}
+            </Text>
+          )}
+
+          {fullDays.length < insights.daily.length && (
+            <Text size="xs" c="dimmed" ta="center">
+              Partial first/last day points are excluded from charts to reduce boundary skew.
+            </Text>
+          )}
+        </>
       )}
 
       {showAdvanced && insights.anomalyTypeDistribution.length > 0 && (
@@ -764,50 +874,184 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
         </SimpleGrid>
       )}
 
-      {/* Anomaly table */}
-      {showAdvanced && report.anomalySummary.length > 0 && (
-        <Card p="md" radius="md" withBorder>
-          <Text fw={700} mb="md">
-            Anomaly Details ({report.anomalySummary.length})
-          </Text>
-          <Table.ScrollContainer minWidth={600}>
-            <Table striped highlightOnHover>
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>Type</Table.Th>
-                  <Table.Th>Phase</Table.Th>
-                <Table.Th>Severity</Table.Th>
-                <Table.Th>Duration</Table.Th>
-                <Table.Th>Min V</Table.Th>
-                <Table.Th>Max V</Table.Th>
-                <Table.Th>Started</Table.Th>
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {report.anomalySummary.map((a, i) => (
-                <Table.Tr key={i}>
-                  <Table.Td>{a.type}</Table.Td>
-                  <Table.Td><Badge variant="light">{a.phase}</Badge></Table.Td>
-                  <Table.Td>
-                    <Badge
-                      color={a.severity === 'CRITICAL' ? 'red' : 'yellow'}
-                      variant="light"
-                      size="sm"
-                    >
-                      {a.severity}
-                    </Badge>
-                  </Table.Td>
-                  <Table.Td>{formatDuration(a.durationSeconds)}</Table.Td>
-                  <Table.Td>{a.minVoltage != null ? `${a.minVoltage.toFixed(1)} V` : '—'}</Table.Td>
-                  <Table.Td>{a.maxVoltage != null ? `${a.maxVoltage.toFixed(1)} V` : '—'}</Table.Td>
-                  <Table.Td>{new Date(a.startsAt).toLocaleString()}</Table.Td>
-                </Table.Tr>
-              ))}
-            </Table.Tbody>
-          </Table>
-        </Table.ScrollContainer>
-        </Card>
-      )}
+      <Card p="md" radius="md" withBorder>
+        <Text fw={700} mb="xs">Voltage anomaly analysis (60-minute context)</Text>
+        <Text size="sm" c="dimmed" mb="md">
+          Open an anomaly to view a 30-minute pre-event and 30-minute post-event context window.
+        </Text>
+
+        {report.anomalySummary.length === 0 ? (
+          <Alert color="green" title="Clean Health Status">
+            No anomalies detected in this reporting period.
+          </Alert>
+        ) : (
+          <Accordion
+            value={openedAnomalyKey}
+            onChange={handleAnomalyAccordionChange}
+            chevronPosition="left"
+          >
+            {report.anomalySummary.map((a, index) => {
+              const itemKey = String(index);
+              const context = a.id != null ? contextByAnomalyId[a.id] : undefined;
+              const contextError = a.id != null ? contextErrorByAnomalyId[a.id] : undefined;
+              const isLoading = a.id != null && loadingAnomalyId === a.id;
+
+              return (
+                <Accordion.Item key={`${a.startsAt}-${a.phase}-${index}`} value={itemKey}>
+                  <Accordion.Control>
+                    <Group justify="space-between" wrap="wrap" gap="xs">
+                      <Group gap="xs" wrap="wrap">
+                        <Badge color={severityColor(a.severity)} variant="light">{a.severity}</Badge>
+                        <Badge variant="light">{a.type}</Badge>
+                        <Badge variant="outline">{a.phase}</Badge>
+                        <Text size="sm" fw={600}>{formatDate(a.startsAt)}</Text>
+                      </Group>
+                      <Group gap="md" wrap="wrap">
+                        <Text size="xs" c="dimmed">Duration: {formatDuration(a.durationSeconds)}</Text>
+                        <Text size="xs" c="dimmed">
+                          Min/Max: {a.minVoltage != null ? `${a.minVoltage.toFixed(1)} V` : '—'} / {a.maxVoltage != null ? `${a.maxVoltage.toFixed(1)} V` : '—'}
+                        </Text>
+                      </Group>
+                    </Group>
+                  </Accordion.Control>
+                  <Accordion.Panel>
+                    <SimpleGrid cols={{ base: 1, sm: 3 }} mb="md">
+                      <Card p="sm" withBorder>
+                        <Text size="xs" c="dimmed">Start time</Text>
+                        <Text fw={600}>{formatDate(a.startsAt)}</Text>
+                      </Card>
+                      <Card p="sm" withBorder>
+                        <Text size="xs" c="dimmed">End time</Text>
+                        <Text fw={600}>{a.endsAt ? formatDate(a.endsAt) : '—'}</Text>
+                      </Card>
+                      <Card p="sm" withBorder>
+                        <Text size="xs" c="dimmed">Type / phase</Text>
+                        <Text fw={600}>{a.type} / {a.phase}</Text>
+                      </Card>
+                    </SimpleGrid>
+
+                    {a.id == null && (
+                      <Alert color="yellow" title="Context unavailable">
+                        This anomaly does not have a stored identifier yet. Re-generate this report to enable context slicing.
+                      </Alert>
+                    )}
+
+                    {isLoading && (
+                      <Group gap="sm" mt="xs">
+                        <Loader size="sm" />
+                        <Text size="sm" c="dimmed">Loading anomaly context...</Text>
+                      </Group>
+                    )}
+
+                    {contextError && (
+                      <Alert mt="xs" color="red" title="Failed to load anomaly context">
+                        {contextError}
+                      </Alert>
+                    )}
+
+                    {context && (
+                      <>
+                        <Group justify="space-between" mb="xs">
+                          <Text size="sm" c="dimmed">
+                            Context range: {formatDate(context.context.startsAt)} – {formatDate(context.context.endsAt)}
+                          </Text>
+                          <Text size="xs" c="dimmed">
+                            Points: {context.context.returnedPointCount}/{context.context.rawPointCount}
+                            {context.context.downsampled ? ' (downsampled)' : ''}
+                          </Text>
+                        </Group>
+                        <Text size="xs" c="dimmed" mb="xs">
+                          Dashed gray lines are compliance limits: 220V and 240V.
+                        </Text>
+
+                        <ResponsiveContainer width="100%" height={320}>
+                          <LineChart data={context.points}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                            <XAxis
+                              dataKey="timestamp"
+                              tickFormatter={toChartTimeOnlyLabel}
+                              minTickGap={28}
+                            />
+                            <YAxis yAxisId="voltage" unit=" V" />
+                            <YAxis yAxisId="power" orientation="right" unit=" kW" />
+                            <ReferenceLine yAxisId="voltage" y={220} stroke="#868e96" strokeDasharray="4 4" />
+                            <ReferenceLine yAxisId="voltage" y={240} stroke="#868e96" strokeDasharray="4 4" />
+                            <Tooltip
+                              labelFormatter={(label) => formatDate(String(label))}
+                              formatter={(value, name) => {
+                                if (typeof value !== 'number') return ['—', name];
+                                if (name === 'Voltage') return [`${value.toFixed(2)} V`, name];
+                                return [`${value.toFixed(3)} kW`, name];
+                              }}
+                            />
+                            <Legend />
+                            <Line
+                              yAxisId="voltage"
+                              type="monotone"
+                              dataKey="voltage"
+                              name={`${phaseName(a.phase)} voltage`}
+                              stroke="#c92a2a"
+                              strokeWidth={2}
+                              dot={false}
+                              connectNulls
+                            />
+                            {a.phase !== 'L1' && (
+                              <Line
+                                yAxisId="voltage"
+                                type="monotone"
+                                dataKey="voltageL1"
+                                name="L1 voltage"
+                                stroke="#495057"
+                                strokeWidth={1}
+                                dot={false}
+                                connectNulls
+                              />
+                            )}
+                            {a.phase !== 'L2' && (
+                              <Line
+                                yAxisId="voltage"
+                                type="monotone"
+                                dataKey="voltageL2"
+                                name="L2 voltage"
+                                stroke="#868e96"
+                                strokeWidth={1}
+                                dot={false}
+                                connectNulls
+                              />
+                            )}
+                            {a.phase !== 'L3' && (
+                              <Line
+                                yAxisId="voltage"
+                                type="monotone"
+                                dataKey="voltageL3"
+                                name="L3 voltage"
+                                stroke="#adb5bd"
+                                strokeWidth={1}
+                                dot={false}
+                                connectNulls
+                              />
+                            )}
+                            <Line
+                              yAxisId="power"
+                              type="monotone"
+                              dataKey="powerKw"
+                              name="Total Power Delivered"
+                              stroke="#1c7ed6"
+                              strokeWidth={2}
+                              dot={false}
+                              connectNulls
+                            />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </>
+                    )}
+                  </Accordion.Panel>
+                </Accordion.Item>
+              );
+            })}
+          </Accordion>
+        )}
+      </Card>
 
       <Text size="xs" c="dimmed" ta="center">
         Standard: LST EN 50160 — ≥95% of 10-min RMS windows must be within 230V ±10V

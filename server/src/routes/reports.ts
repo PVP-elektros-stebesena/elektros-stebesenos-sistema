@@ -15,6 +15,27 @@ import {
 } from '../services/reportScheduler.js';
 import { notificationService } from '../services/notificationService.js';
 
+type RawAnomalySummaryRow = {
+  id?: number;
+  type: string;
+  phase: string;
+  durationSeconds: number | null;
+  minVoltage: number | null;
+  maxVoltage: number | null;
+  startsAt: string;
+  endsAt: string | null;
+  severity: string;
+};
+
+type ContextChartPoint = {
+  timestamp: string;
+  voltage: number | null;
+  voltageL1: number | null;
+  voltageL2: number | null;
+  voltageL3: number | null;
+  powerKw: number | null;
+};
+
 // Query helpers
 
 function parseDeviceId(val: string | undefined): number | undefined {
@@ -31,6 +52,85 @@ function parseDate(val: string | undefined, fallback: Date): Date {
 
 const MAX_CUSTOM_RANGE_DAYS = 62;
 const MS_PER_DAY = 24 * 3600_000;
+const CONTEXT_PADDING_MS = 30 * 60 * 1000;
+const MAX_CONTEXT_POINTS = 360;
+
+function toSeverityLabel(severity: number): string {
+  return severity >= 2 ? 'CRITICAL' : 'WARNING';
+}
+
+function pickVoltageByPhase(
+  phase: string,
+  row: { voltageL1: number | null; voltageL2: number | null; voltageL3: number | null },
+): number | null {
+  if (phase === 'L1') return row.voltageL1;
+  if (phase === 'L2') return row.voltageL2;
+  if (phase === 'L3') return row.voltageL3;
+  if (phase === 'ALL') {
+    const values = [row.voltageL1, row.voltageL2, row.voltageL3]
+      .filter((val): val is number => val != null);
+    if (values.length === 0) return null;
+    return +(values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(3);
+  }
+  return row.voltageL1 ?? row.voltageL2 ?? row.voltageL3;
+}
+
+function pickTotalPowerKw(row: {
+  activeInstantaneousPowerDelivered: number | null;
+  powerDeliveredTotal: number | null;
+  activeInstantaneousPowerDeliveredL1: number | null;
+  activeInstantaneousPowerDeliveredL2: number | null;
+  activeInstantaneousPowerDeliveredL3: number | null;
+}): number | null {
+  const directTotal = row.activeInstantaneousPowerDelivered ?? row.powerDeliveredTotal;
+  if (directTotal != null) return +(directTotal / 1000).toFixed(4);
+
+  const phaseValues = [
+    row.activeInstantaneousPowerDeliveredL1,
+    row.activeInstantaneousPowerDeliveredL2,
+    row.activeInstantaneousPowerDeliveredL3,
+  ].filter((val): val is number => val != null);
+
+  if (phaseValues.length === 0) return null;
+  return +(phaseValues.reduce((sum, value) => sum + value, 0) / 1000).toFixed(4);
+}
+
+function downsampleContextPoints(points: ContextChartPoint[]): ContextChartPoint[] {
+  if (points.length <= MAX_CONTEXT_POINTS) return points;
+
+  const keepIndexes = new Set<number>();
+  const step = Math.ceil(points.length / MAX_CONTEXT_POINTS);
+  for (let i = 0; i < points.length; i += step) {
+    keepIndexes.add(i);
+  }
+
+  keepIndexes.add(0);
+  keepIndexes.add(points.length - 1);
+
+  let minVoltageIndex: number | null = null;
+  let maxVoltageIndex: number | null = null;
+  let minVoltage = Infinity;
+  let maxVoltage = -Infinity;
+
+  points.forEach((point, index) => {
+    if (point.voltage == null) return;
+    if (point.voltage < minVoltage) {
+      minVoltage = point.voltage;
+      minVoltageIndex = index;
+    }
+    if (point.voltage > maxVoltage) {
+      maxVoltage = point.voltage;
+      maxVoltageIndex = index;
+    }
+  });
+
+  if (minVoltageIndex != null) keepIndexes.add(minVoltageIndex);
+  if (maxVoltageIndex != null) keepIndexes.add(maxVoltageIndex);
+
+  return [...keepIndexes]
+    .sort((a, b) => a - b)
+    .map((index) => points[index]);
+}
 
 function isValidDate(value: string | undefined): value is string {
   if (!value) return false;
@@ -84,6 +184,91 @@ function parseCustomRange(startDate?: string, endDate?: string): {
 // Plugin
 
 export async function reportRoutes(fastify: FastifyInstance): Promise<void> {
+
+  //  GET /api/anomalies/:id/context
+  //  Returns 30 min before and 30 min after anomaly for on-demand charting
+  fastify.get<{ Params: { id: string } }>('/api/anomalies/:id/context', async (req, reply) => {
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) {
+      return reply.code(400).send({ error: 'INVALID_ID', message: 'Anomaly ID must be a number' });
+    }
+
+    const anomaly = await prisma.anomaly.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        deviceId: true,
+        phase: true,
+        type: true,
+        startsAt: true,
+        endsAt: true,
+        minVoltage: true,
+        maxVoltage: true,
+      },
+    });
+
+    if (!anomaly) {
+      return reply.code(404).send({ error: 'NOT_FOUND', message: 'Anomaly not found' });
+    }
+
+    const anomalyEndsAt = anomaly.endsAt ?? anomaly.startsAt;
+    const contextStartsAt = new Date(anomaly.startsAt.getTime() - CONTEXT_PADDING_MS);
+    const contextEndsAt = new Date(anomalyEndsAt.getTime() + CONTEXT_PADDING_MS);
+
+    const readings = await prisma.reading.findMany({
+      where: {
+        deviceId: anomaly.deviceId,
+        timestamp: {
+          gte: contextStartsAt,
+          lte: contextEndsAt,
+        },
+      },
+      orderBy: { timestamp: 'asc' },
+      select: {
+        timestamp: true,
+        voltageL1: true,
+        voltageL2: true,
+        voltageL3: true,
+        activeInstantaneousPowerDelivered: true,
+        powerDeliveredTotal: true,
+        activeInstantaneousPowerDeliveredL1: true,
+        activeInstantaneousPowerDeliveredL2: true,
+        activeInstantaneousPowerDeliveredL3: true,
+      },
+    });
+
+    const rawPoints: ContextChartPoint[] = readings.map((row) => ({
+      timestamp: row.timestamp.toISOString(),
+      voltage: pickVoltageByPhase(anomaly.phase, row),
+      voltageL1: row.voltageL1,
+      voltageL2: row.voltageL2,
+      voltageL3: row.voltageL3,
+      powerKw: pickTotalPowerKw(row),
+    }));
+
+    const points = downsampleContextPoints(rawPoints);
+
+    return {
+      anomaly: {
+        id: anomaly.id,
+        deviceId: anomaly.deviceId,
+        phase: anomaly.phase,
+        type: anomaly.type,
+        startsAt: anomaly.startsAt.toISOString(),
+        endsAt: anomalyEndsAt.toISOString(),
+        minVoltage: anomaly.minVoltage,
+        maxVoltage: anomaly.maxVoltage,
+      },
+      context: {
+        startsAt: contextStartsAt.toISOString(),
+        endsAt: contextEndsAt.toISOString(),
+        rawPointCount: rawPoints.length,
+        returnedPointCount: points.length,
+        downsampled: points.length < rawPoints.length,
+      },
+      points,
+    };
+  });
 
   //  GET /api/reports/scheduler/status
   //  Get current status of background report generation
@@ -164,16 +349,64 @@ export async function reportRoutes(fastify: FastifyInstance): Promise<void> {
       return reply.code(404).send({ error: 'NOT_FOUND', message: 'Report not found' });
     }
 
-    let anomalySummary = [];
+    let anomalySummary: RawAnomalySummaryRow[] = [];
     try {
-      anomalySummary = JSON.parse(report.anomalySummary);
+      const parsed = JSON.parse(report.anomalySummary) as RawAnomalySummaryRow[];
+      anomalySummary = Array.isArray(parsed) ? parsed : [];
     } catch { /* empty */ }
+
+    const anomaliesInRange = await prisma.anomaly.findMany({
+      where: {
+        deviceId: report.deviceId,
+        startsAt: { gte: report.startsAt, lte: report.endsAt },
+      },
+      orderBy: { startsAt: 'asc' },
+      select: {
+        id: true,
+        startsAt: true,
+        endsAt: true,
+        phase: true,
+        type: true,
+        severity: true,
+        minVoltage: true,
+        maxVoltage: true,
+        duration: true,
+      },
+    });
+
+    const usedIds = new Set<number>();
+    const enrichedAnomalySummary = anomalySummary.map((summaryRow) => {
+      if (summaryRow.id != null) {
+        usedIds.add(summaryRow.id);
+        return summaryRow;
+      }
+
+      const matched = anomaliesInRange.find((row) => {
+        if (usedIds.has(row.id)) return false;
+        if (row.type !== summaryRow.type || row.phase !== summaryRow.phase) return false;
+        if (row.startsAt.toISOString() !== summaryRow.startsAt) return false;
+
+        const rowEndsAt = row.endsAt?.toISOString() ?? null;
+        if (rowEndsAt !== summaryRow.endsAt) return false;
+        if ((row.duration ?? null) !== summaryRow.durationSeconds) return false;
+        if ((row.minVoltage ?? null) !== summaryRow.minVoltage) return false;
+        if ((row.maxVoltage ?? null) !== summaryRow.maxVoltage) return false;
+        return toSeverityLabel(row.severity) === summaryRow.severity;
+      });
+
+      if (matched) {
+        usedIds.add(matched.id);
+        return { ...summaryRow, id: matched.id };
+      }
+
+      return summaryRow;
+    });
 
     const insights = await buildReportInsights(
       report.deviceId,
       report.startsAt,
       report.endsAt,
-      anomalySummary,
+      enrichedAnomalySummary,
     );
 
     const powerQuality = buildPowerQualityAssessment(
@@ -183,7 +416,7 @@ export async function reportRoutes(fastify: FastifyInstance): Promise<void> {
         compliancePctL3: report.compliancePctL3,
         overallCompliant: report.overallCompliant,
       },
-      anomalySummary,
+      enrichedAnomalySummary,
     );
 
     return {
@@ -204,7 +437,7 @@ export async function reportRoutes(fastify: FastifyInstance): Promise<void> {
         compliancePctL3: report.compliancePctL3,
         overallCompliant: report.overallCompliant,
       },
-      anomalySummary,
+      anomalySummary: enrichedAnomalySummary,
       insights,
       powerQuality,
       totalAnomalies: report.totalAnomalies,
