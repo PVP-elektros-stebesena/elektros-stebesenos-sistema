@@ -33,6 +33,15 @@ Create a `.env` file in `/server`:
 ```
 DATABASE_URL="file:./dev.db"
 PORT=3000
+
+# Optional: Brevo SMTP email notifications
+BREVO_SMTP_HOST="smtp-relay.brevo.com"
+BREVO_SMTP_PORT=587
+BREVO_SMTP_SECURE=false
+BREVO_SMTP_USER="your_brevo_login"
+BREVO_SMTP_PASS="your_brevo_smtp_key"
+NOTIFICATION_EMAIL_FROM="alerts@yourdomain.com"
+NOTIFICATION_EMAIL_TO="ops@example.com"
 ```
 
 Run the dev server:
@@ -76,6 +85,26 @@ npx prisma studio               # browse data in the browser
 ```
 
 The server uses `@prisma/adapter-better-sqlite3` (Prisma 7 driver adapter). The singleton client is set up in `server/src/lib/prisma.ts`.
+
+## Notifications (event pipeline + Brevo email)
+
+Events are produced by core services (`DevicePoller`, report generation) and dispatched by a centralized `NotificationService`. Delivery is pluggable via adapters that implement `NotificationSender`, and event enable/disable rules are loaded from DB toggles.
+
+Supported event types:
+
+- `ANOMALY_DETECTED`
+- `DEVICE_UNREACHABLE`
+- `DEVICE_RECOVERED`
+- `REPORT_GENERATED`
+
+Email sender setup (Brevo):
+
+1. In Brevo, create/get SMTP credentials (login + SMTP key).
+2. Fill the SMTP variables in `server/.env`.
+3. Set `NOTIFICATION_EMAIL_TO` (recipient) and `NOTIFICATION_EMAIL_FROM` (verified sender).
+4. Start the server. If configured correctly, startup log shows `Brevo email sender enabled`.
+
+The sender is registered at startup in `server/src/index.ts` and keeps using the same event-based notification pipeline.
 
 ## API – Settings
 

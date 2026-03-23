@@ -8,6 +8,7 @@ import { notificationRoutes } from './routes/notifications.js';
 import { devicePoller } from './services/devicePoller.js';
 import { startReportScheduler, stopReportScheduler } from './services/reportScheduler.js';
 import { ConsoleNotificationSender, notificationService } from './services/notificationService.js';
+import { createBrevoEmailNotificationSender } from './services/emailNotificationSender.js';
 
 const fastify = Fastify({ logger: true });
 
@@ -41,6 +42,14 @@ const start = async () => {
     try {
         devicePoller.setNotificationAdapter(notificationService);
         notificationService.addSender(new ConsoleNotificationSender());
+
+        const emailSender = createBrevoEmailNotificationSender(process.env);
+        if (emailSender) {
+            notificationService.addSender(emailSender);
+            console.log('[Notification] Brevo email sender enabled');
+        } else {
+            console.log('[Notification] Brevo email sender is disabled (missing env vars)');
+        }
 
         await fastify.listen({ port: parseInt(process.env.PORT || '3000') });
         console.log('Server is running on http://localhost:' + (process.env.PORT || '3000'));
