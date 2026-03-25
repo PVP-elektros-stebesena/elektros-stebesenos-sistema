@@ -1,4 +1,5 @@
 import nodemailer, { type SendMailOptions } from 'nodemailer';
+import prisma from '../lib/prisma.js';
 import type { NotificationMessage, NotificationSender } from './notificationTypes.js';
 
 export type SendMailFn = (input: {
@@ -79,26 +80,6 @@ function toEmailHtml(message: NotificationMessage): string {
   </div>`;
 }
 
-export class EmailNotificationSender implements NotificationSender {
-  constructor(
-    private readonly sendMailFn: SendMailFn,
-    private readonly recipient: string,
-  ) {}
-
-  async send(message: NotificationMessage): Promise<void> {
-    const subject = `${message.title} | ${message.severity}`;
-    const text = toEmailText(message);
-    const html = toEmailHtml(message);
-
-    await this.sendMailFn({
-      to: this.recipient,
-      subject,
-      text,
-      html,
-    });
-  }
-}
-
 function parsePort(rawPort: string | undefined): number {
   const value = Number.parseInt(rawPort ?? '587', 10);
   if (!Number.isInteger(value) || value <= 0) {
@@ -110,6 +91,64 @@ function parsePort(rawPort: string | undefined): number {
 function parseSecure(rawSecure: string | undefined): boolean {
   if (!rawSecure) return false;
   return ['1', 'true', 'yes', 'on'].includes(rawSecure.trim().toLowerCase());
+}
+
+async function resolveRecipient(
+  message: NotificationMessage,
+  fallbackRecipient?: string,
+): Promise<string | null> {
+  if (message.deviceId != null) {
+    const device = await prisma.device.findUnique({
+      where: { id: message.deviceId },
+      select: {
+        notificationChannel: true,
+        notificationTarget: true,
+      },
+    });
+
+    if (!device) {
+      return fallbackRecipient ?? null;
+    }
+
+    if (device.notificationChannel !== 'email') {
+      return null;
+    }
+
+    const target = device.notificationTarget?.trim();
+    if (target) {
+      return target;
+    }
+
+    return fallbackRecipient ?? null;
+  }
+
+  return fallbackRecipient ?? null;
+}
+
+export class EmailNotificationSender implements NotificationSender {
+  constructor(
+    private readonly sendMailFn: SendMailFn,
+    private readonly fallbackRecipient?: string,
+  ) {}
+
+  async send(message: NotificationMessage): Promise<void> {
+    const recipient = await resolveRecipient(message, this.fallbackRecipient);
+
+    if (!recipient) {
+      return;
+    }
+
+    const subject = `${message.title} | ${message.severity}`;
+    const text = toEmailText(message);
+    const html = toEmailHtml(message);
+
+    await this.sendMailFn({
+      to: recipient,
+      subject,
+      text,
+      html,
+    });
+  }
 }
 
 export function createBrevoSendMailFn(env: NodeJS.ProcessEnv = process.env): SendMailFn | null {
@@ -147,11 +186,8 @@ export function createBrevoSendMailFn(env: NodeJS.ProcessEnv = process.env): Sen
 export function createBrevoEmailNotificationSender(
   env: NodeJS.ProcessEnv = process.env,
 ): EmailNotificationSender | null {
-  const recipient = env.NOTIFICATION_EMAIL_TO;
-  if (!recipient) return null;
-
   const sendMailFn = createBrevoSendMailFn(env);
   if (!sendMailFn) return null;
 
-  return new EmailNotificationSender(sendMailFn, recipient);
+  return new EmailNotificationSender(sendMailFn, env.NOTIFICATION_EMAIL_TO);
 }
