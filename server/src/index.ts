@@ -5,6 +5,7 @@ import { voltageRoutes } from './routes/voltage.js';
 import { settingsRoutes } from './routes/settings.js';
 import { reportRoutes } from './routes/reports.js';
 import { notificationRoutes } from './routes/notifications.js';
+import { exportRoutes } from './routes/exports.js';
 import { devicePoller } from './services/devicePoller.js';
 import { startReportScheduler, stopReportScheduler } from './services/reportScheduler.js';
 import { ConsoleNotificationSender, notificationService } from './services/notificationService.js';
@@ -33,6 +34,8 @@ fastify.register(reportRoutes);
 // Notification event toggle endpoints
 fastify.register(notificationRoutes);
 
+// Export endpoints
+await fastify.register(exportRoutes);
 // Poller status endpoint
 fastify.get('/api/poller/status', async () => {
     return { devices: devicePoller.getStatus() };
