@@ -153,13 +153,13 @@ export function CurrentDataPage() {
       return
     }
 
-    const endDateTime = `${exportToDate}T23:59:59.999Z`
     const now = new Date()
+    const today = now.toISOString().slice(0, 10)
 
-    if (new Date(endDateTime).getTime() > now.getTime()) {
-      setExportError('End date cannot be in the future.')
-      return
-    }
+    const endDateTime =
+      exportToDate === today
+        ? now.toISOString()
+        : `${exportToDate}T23:59:59.999Z`
 
     setExporting(format)
 
