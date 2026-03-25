@@ -102,6 +102,8 @@ export interface AppSettings {
   dsmr_version: string;
   meter_serial: string;
   notifications_enabled: boolean;
+  notification_channel: 'email' | 'sms' | 'push' | 'none'
+  notification_target: string
   high_usage_threshold: number;
   retain_days: number;
 }
