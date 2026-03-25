@@ -21,6 +21,8 @@ model Device {
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
 
+  notificationChannel String?  @default("email")
+  notificationTarget  String?
 
   readings    Reading[]
   aggregated  AggregatedData[]
