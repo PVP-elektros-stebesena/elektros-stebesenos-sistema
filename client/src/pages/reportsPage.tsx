@@ -980,7 +980,9 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
                               labelFormatter={(label) => formatDate(String(label))}
                               formatter={(value, name) => {
                                 if (typeof value !== 'number') return ['—', name];
-                                if (name === 'Voltage') return [`${value.toFixed(2)} V`, name];
+                                if (String(name).toLowerCase().includes('voltage')) {
+                                  return [`${value.toFixed(2)} V`, name];
+                                }
                                 return [`${value.toFixed(3)} kW`, name];
                               }}
                             />

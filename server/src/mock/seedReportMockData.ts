@@ -4,6 +4,7 @@ interface SeedOptions {
   days: number;
   deviceName: string;
   pollIntervalSeconds: number;
+  useMqtt: boolean;
 }
 
 function parseArgs(): SeedOptions {
@@ -15,11 +16,22 @@ function parseArgs(): SeedOptions {
     return args[idx + 1] ?? fallback;
   };
 
+  const getBoolArg = (name: string, fallback: boolean): boolean => {
+    const idx = args.findIndex((a) => a === `--${name}`);
+    if (idx === -1) return fallback;
+
+    const raw = args[idx + 1];
+    if (!raw || raw.startsWith('--')) return true;
+
+    return ['1', 'true', 'yes', 'on'].includes(raw.toLowerCase());
+  };
+
   const days = Math.max(2, parseInt(getArg('days', '30'), 10) || 30);
   const deviceName = getArg('name', 'Mock Report Device');
   const pollIntervalSeconds = Math.max(1, parseInt(getArg('interval', '10'), 10) || 10);
+  const useMqtt = getBoolArg('mqtt', false);
 
-  return { days, deviceName, pollIntervalSeconds };
+  return { days, deviceName, pollIntervalSeconds, useMqtt };
 }
 
 function clamp(min: number, value: number, max: number): number {
@@ -38,24 +50,33 @@ function inDayHours(base: Date, hour: number, minute: number): Date {
   return d;
 }
 
-async function ensureDevice(name: string, pollIntervalSeconds: number) {
+async function ensureDevice(name: string, pollIntervalSeconds: number, useMqtt: boolean) {
+  const desiredConfig = {
+    deviceIp: 'http://127.0.0.1:3001/smartmeter/api/read',
+    mqttBroker: useMqtt ? 'localhost' : null,
+    mqttPort: useMqtt ? 1883 : null,
+    mqttTopic: useMqtt ? 'mock/topic' : null,
+    pollInterval: pollIntervalSeconds,
+    isActive: true,
+  };
+
   const existing = await prisma.device.findFirst({ where: { name } });
-  if (existing) return existing;
+  if (existing) {
+    return prisma.device.update({
+      where: { id: existing.id },
+      data: desiredConfig,
+    });
+  }
 
   return prisma.device.create({
     data: {
       name,
-      deviceIp: 'http://127.0.0.1:3001/smartmeter/api/read',
-      mqttBroker: 'localhost',
-      mqttPort: 1883,
-      mqttTopic: 'mock/topic',
-      pollInterval: pollIntervalSeconds,
-      isActive: true,
+      ...desiredConfig,
     },
   });
 }
 
-async function seedReadings(deviceId: number, days: number, now: Date) {
+async function seedReadings(deviceId: number, days: number, now: Date, intervalSeconds: number) {
   const start = dayStart(new Date(now.getTime() - days * 24 * 3600_000));
 
   await prisma.reading.deleteMany({
@@ -85,16 +106,25 @@ async function seedReadings(deviceId: number, days: number, now: Date) {
   let cumulativeDelivered = 1000;
   let cumulativeReturned = 120;
 
+  const stepSeconds = Math.max(1, intervalSeconds);
+  const stepMs = stepSeconds * 1000;
+
   for (let d = 0; d < days; d++) {
     const baseDay = new Date(start.getTime() + d * 24 * 3600_000);
     const dayFactor = 0.85 + 0.25 * Math.sin(d / 2.5);
+    const dayNumber = baseDay.getDate();
 
-    for (let h = 0; h < 24; h++) {
-      const ts = inDayHours(baseDay, h, 0);
+    for (let ms = 0; ms < 24 * 3600_000; ms += stepMs) {
+      const ts = new Date(baseDay.getTime() + ms);
       if (ts > now) continue;
 
+      const h = ts.getHours();
+      const minute = ts.getMinutes();
+      const second = ts.getSeconds();
+      const hourProgress = h + minute / 60 + second / 3600;
+
       const eveningPeak = h >= 18 && h <= 22 ? 0.9 : 0;
-      const baseLoadKw = 0.6 + eveningPeak + 0.15 * Math.sin((h / 24) * Math.PI * 2);
+      const baseLoadKw = 0.6 + eveningPeak + 0.15 * Math.sin((hourProgress / 24) * Math.PI * 2);
       
       const consumedKw = Math.max(0.15, baseLoadKw * dayFactor);
       
@@ -118,13 +148,56 @@ async function seedReadings(deviceId: number, days: number, now: Date) {
       const netImportKw = gridUsed + (Math.random() * 0.05);
       exportedKw += (Math.random() * 0.05);
 
-      cumulativeDelivered += netImportKw;
-      cumulativeReturned += exportedKw;
+      const underVoltageWindow = dayNumber % 5 === 0 && h >= 9 && h <= 11;
+      const overVoltageWindow = dayNumber % 6 === 0 && h >= 19 && h <= 20;
+      const deviationL3Window = dayNumber % 4 === 0 && h >= 14 && h <= 15;
+      const shortInterruptionWindow = dayNumber % 8 === 0 && h === 6 && minute < 20;
+      const longInterruptionWindow = dayNumber % 11 === 0 && h === 2 && minute < 40;
 
-      const vShift = d % 5 === 0 && h >= 9 && h <= 11 ? -12 : 0;
-      const l1 = 230 + vShift + 1.2 * Math.sin(h / 3);
-      const l2 = 229 + vShift + 1.1 * Math.cos(h / 4);
-      const l3 = 231 + vShift + 0.9 * Math.sin(h / 5);
+      const interrupted = shortInterruptionWindow || longInterruptionWindow;
+
+      let adjustedImportKw = netImportKw;
+      if (underVoltageWindow) {
+        adjustedImportKw *= 1.4;
+      } else if (overVoltageWindow) {
+        adjustedImportKw *= 0.75;
+      } else if (deviationL3Window) {
+        adjustedImportKw *= 1.1;
+      }
+
+      if (interrupted) {
+        adjustedImportKw = 0;
+        exportedKw = 0;
+      }
+
+      cumulativeDelivered += adjustedImportKw * (stepSeconds / 3600);
+      cumulativeReturned += exportedKw * (stepSeconds / 3600);
+
+      let l1 = 230 + 1.2 * Math.sin(hourProgress / 3);
+      let l2 = 229 + 1.1 * Math.cos(hourProgress / 4);
+      let l3 = 231 + 0.9 * Math.sin(hourProgress / 5);
+
+      if (underVoltageWindow) {
+        l1 -= 13;
+        l2 -= 12;
+        l3 -= 11;
+      }
+
+      if (overVoltageWindow) {
+        l1 += 11;
+        l2 += 14;
+        l3 += 12;
+      }
+
+      if (deviationL3Window) {
+        l3 += 10;
+      }
+
+      if (interrupted) {
+        l1 = 0;
+        l2 = 0;
+        l3 = 0;
+      }
 
       rows.push({
         deviceId,
@@ -137,16 +210,19 @@ async function seedReadings(deviceId: number, days: number, now: Date) {
         voltageL1: +l1.toFixed(3),
         voltageL2: +l2.toFixed(3),
         voltageL3: +l3.toFixed(3),
-        activeInstantaneousPowerDelivered: +netImportKw.toFixed(3),
-        powerDeliveredTotal: +netImportKw.toFixed(3),
-        powerReturnedTotal: +exportedKw.toFixed(3),
-        powerDeliveredNetto: +(netImportKw - exportedKw).toFixed(3),
+        activeInstantaneousPowerDelivered: +(adjustedImportKw * 1000).toFixed(3),
+        powerDeliveredTotal: +(adjustedImportKw * 1000).toFixed(3),
+        powerReturnedTotal: +(exportedKw * 1000).toFixed(3),
+        powerDeliveredNetto: +(adjustedImportKw - exportedKw).toFixed(3),
       });
     }
   }
 
   if (rows.length > 0) {
-    await prisma.reading.createMany({ data: rows });
+    const chunkSize = 2000;
+    for (let i = 0; i < rows.length; i += chunkSize) {
+      await prisma.reading.createMany({ data: rows.slice(i, i + chunkSize) });
+    }
   }
 
   return { start, count: rows.length };
@@ -346,15 +422,16 @@ async function seedAggregatesAndAnomalies(deviceId: number, start: Date, now: Da
 }
 
 async function main() {
-  const { days, deviceName, pollIntervalSeconds } = parseArgs();
+  const { days, deviceName, pollIntervalSeconds, useMqtt } = parseArgs();
   const now = new Date();
 
-  const device = await ensureDevice(deviceName, pollIntervalSeconds);
-  const readingResult = await seedReadings(device.id, days, now);
+  const device = await ensureDevice(deviceName, pollIntervalSeconds, useMqtt);
+  const readingResult = await seedReadings(device.id, days, now, pollIntervalSeconds);
   const qaResult = await seedAggregatesAndAnomalies(device.id, readingResult.start, now);
 
   console.log('[seedReportMockData] Seed complete');
   console.log(`  Device: ${device.name} (id=${device.id})`);
+  console.log(`  Mode: ${useMqtt ? 'mqtt' : 'http'}`);
   console.log(`  Days: ${days}`);
   console.log(`  Readings: ${readingResult.count}`);
   console.log(`  Aggregated windows: ${qaResult.windows}`);
