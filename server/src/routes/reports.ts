@@ -75,6 +75,21 @@ function pickVoltageByPhase(
   return row.voltageL1 ?? row.voltageL2 ?? row.voltageL3;
 }
 
+function normalizePhaseVoltages(row: {
+  instantaneousVoltageL1: number | null;
+  instantaneousVoltageL2: number | null;
+  instantaneousVoltageL3: number | null;
+  voltageL1: number | null;
+  voltageL2: number | null;
+  voltageL3: number | null;
+}): { voltageL1: number | null; voltageL2: number | null; voltageL3: number | null } {
+  return {
+    voltageL1: row.instantaneousVoltageL1 ?? row.voltageL1,
+    voltageL2: row.instantaneousVoltageL2 ?? row.voltageL2,
+    voltageL3: row.instantaneousVoltageL3 ?? row.voltageL3,
+  };
+}
+
 function pickTotalPowerKw(row: {
   activeInstantaneousPowerDelivered: number | null;
   powerDeliveredTotal: number | null;
@@ -95,7 +110,11 @@ function pickTotalPowerKw(row: {
   return +(phaseValues.reduce((sum, value) => sum + value, 0) / 1000).toFixed(4);
 }
 
-function downsampleContextPoints(points: ContextChartPoint[]): ContextChartPoint[] {
+function downsampleContextPoints(
+  points: ContextChartPoint[],
+  anomalyStartsAt?: Date,
+  anomalyEndsAt?: Date,
+): ContextChartPoint[] {
   if (points.length <= MAX_CONTEXT_POINTS) return points;
 
   const keepIndexes = new Set<number>();
@@ -106,6 +125,26 @@ function downsampleContextPoints(points: ContextChartPoint[]): ContextChartPoint
 
   keepIndexes.add(0);
   keepIndexes.add(points.length - 1);
+
+  const addNearestIndex = (target: Date | undefined) => {
+    if (!target) return;
+    const targetMs = target.getTime();
+    let nearestIndex = 0;
+    let nearestDiff = Infinity;
+
+    points.forEach((point, index) => {
+      const diff = Math.abs(new Date(point.timestamp).getTime() - targetMs);
+      if (diff < nearestDiff) {
+        nearestDiff = diff;
+        nearestIndex = index;
+      }
+    });
+
+    keepIndexes.add(nearestIndex);
+  };
+
+  addNearestIndex(anomalyStartsAt);
+  addNearestIndex(anomalyEndsAt);
 
   let minVoltageIndex: number | null = null;
   let maxVoltageIndex: number | null = null;
@@ -226,6 +265,9 @@ export async function reportRoutes(fastify: FastifyInstance): Promise<void> {
       orderBy: { timestamp: 'asc' },
       select: {
         timestamp: true,
+        instantaneousVoltageL1: true,
+        instantaneousVoltageL2: true,
+        instantaneousVoltageL3: true,
         voltageL1: true,
         voltageL2: true,
         voltageL3: true,
@@ -237,16 +279,19 @@ export async function reportRoutes(fastify: FastifyInstance): Promise<void> {
       },
     });
 
-    const rawPoints: ContextChartPoint[] = readings.map((row) => ({
-      timestamp: row.timestamp.toISOString(),
-      voltage: pickVoltageByPhase(anomaly.phase, row),
-      voltageL1: row.voltageL1,
-      voltageL2: row.voltageL2,
-      voltageL3: row.voltageL3,
-      powerKw: pickTotalPowerKw(row),
-    }));
+    const rawPoints: ContextChartPoint[] = readings.map((row) => {
+      const normalizedVoltages = normalizePhaseVoltages(row);
+      return {
+        timestamp: row.timestamp.toISOString(),
+        voltage: pickVoltageByPhase(anomaly.phase, normalizedVoltages),
+        voltageL1: normalizedVoltages.voltageL1,
+        voltageL2: normalizedVoltages.voltageL2,
+        voltageL3: normalizedVoltages.voltageL3,
+        powerKw: pickTotalPowerKw(row),
+      };
+    });
 
-    const points = downsampleContextPoints(rawPoints);
+    const points = downsampleContextPoints(rawPoints, anomaly.startsAt, anomalyEndsAt);
 
     return {
       anomaly: {

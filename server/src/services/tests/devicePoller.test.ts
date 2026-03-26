@@ -257,8 +257,18 @@ describe('DevicePoller', () => {
 
     const status = poller.getStatus();
     expect(status).toHaveLength(2);
-    expect(status[0]).toEqual({ deviceId: 1, deviceIp: 'http://10.0.0.1/smartmeter/api/read', pollInterval: 5 });
-    expect(status[1]).toEqual({ deviceId: 2, deviceIp: 'http://10.0.0.2/smartmeter/api/read', pollInterval: 15 });
+    expect(status[0]).toMatchObject({
+      deviceId: 1,
+      mode: 'http',
+      deviceIp: 'http://10.0.0.1/smartmeter/api/read',
+      pollInterval: 5,
+    });
+    expect(status[1]).toMatchObject({
+      deviceId: 2,
+      mode: 'http',
+      deviceIp: 'http://10.0.0.2/smartmeter/api/read',
+      pollInterval: 15,
+    });
 
     await poller.stop();
   });
