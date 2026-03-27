@@ -223,6 +223,7 @@ export async function generateReport(
   const anomalyRows = await prisma.anomaly.findMany({
     where: {
       deviceId,
+      metricDomain: 'VOLTAGE',
       startsAt: { gte: startsAt, lt: endsAt },
     },
     orderBy: { startsAt: 'asc' },

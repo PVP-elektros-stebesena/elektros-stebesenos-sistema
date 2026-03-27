@@ -237,6 +237,7 @@ export async function reportRoutes(fastify: FastifyInstance): Promise<void> {
       select: {
         id: true,
         deviceId: true,
+        metricDomain: true,
         phase: true,
         type: true,
         startsAt: true,
@@ -248,6 +249,12 @@ export async function reportRoutes(fastify: FastifyInstance): Promise<void> {
 
     if (!anomaly) {
       return reply.code(404).send({ error: 'NOT_FOUND', message: 'Anomaly not found' });
+    }
+    if (anomaly.metricDomain !== 'VOLTAGE') {
+      return reply.code(400).send({
+        error: 'UNSUPPORTED_ANOMALY_DOMAIN',
+        message: 'Only voltage anomalies support context slicing',
+      });
     }
 
     const anomalyEndsAt = anomaly.endsAt ?? anomaly.startsAt;
@@ -403,6 +410,7 @@ export async function reportRoutes(fastify: FastifyInstance): Promise<void> {
     const anomaliesInRange = await prisma.anomaly.findMany({
       where: {
         deviceId: report.deviceId,
+        metricDomain: 'VOLTAGE',
         startsAt: { gte: report.startsAt, lte: report.endsAt },
       },
       orderBy: { startsAt: 'asc' },
