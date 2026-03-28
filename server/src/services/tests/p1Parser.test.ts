@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseP1Response, toVoltageReading } from '../p1Parser.js';
+import { parseP1Response, toPowerReading, toVoltageReading } from '../p1Parser.js';
 
 /** Minimal P1 gateway response fixture */
 function makeRawP1(overrides: Record<string, string> = {}): Record<string, string> {
@@ -166,5 +166,84 @@ describe('toVoltageReading', () => {
     const reading = toVoltageReading(parsed, new Date());
 
     expect(reading.voltage_l1).toBe(0);
+  });
+});
+
+describe('toPowerReading', () => {
+  it('extracts total and per-phase power metrics', () => {
+    const parsed = parseP1Response(makeRawP1());
+    const ts = new Date('2026-03-03T10:00:00Z');
+    const reading = toPowerReading(parsed, ts);
+
+    expect(reading.timestamp).toEqual(ts);
+    expect(reading.activePowerTotalKw).toBe(1.035);
+    expect(reading.activePowerL1Kw).toBe(0.486);
+    expect(reading.activePowerL2Kw).toBe(0.437);
+    expect(reading.activePowerL3Kw).toBe(0.115);
+    expect(reading.apparentPowerTotalKva).toBe(1.035);
+  });
+
+  it('uses delivered-returned net values when returns are present', () => {
+    const parsed = parseP1Response(makeRawP1({
+      PowerDelivered_total: '2.000',
+      PowerReturned_total: '0.300',
+      ActiveInstantaneousPowerDeliveredL1: '1.000',
+      ActiveInstantaneousPowerReturnedL1: '0.200',
+    }));
+
+    const reading = toPowerReading(parsed, new Date('2026-03-03T10:00:00Z'));
+    expect(reading.activePowerTotalKw).toBe(1.7);
+    expect(reading.activePowerL1Kw).toBe(0.8);
+  });
+
+  it('falls back to instantaneous total power when total registers are missing', () => {
+    const raw = makeRawP1({
+      ActiveInstantaneousPowerDelivered: '4.500',
+      PowerReturned_total: '0.200',
+    });
+    delete raw.PowerDelivered_total;
+
+    const parsed = parseP1Response(raw);
+    const reading = toPowerReading(parsed, new Date('2026-03-03T10:00:00Z'));
+
+    expect(reading.activePowerTotalKw).toBe(4.3);
+  });
+
+  it('returns null totals when neither total nor instantaneous active power is available', () => {
+    const raw = makeRawP1();
+    delete raw.PowerDelivered_total;
+    delete raw.PowerReturned_total;
+    delete raw.ActiveInstantaneousPowerDelivered;
+
+    const parsed = parseP1Response(raw);
+    const reading = toPowerReading(parsed, new Date('2026-03-03T10:00:00Z'));
+
+    expect(reading.activePowerTotalKw).toBeNull();
+  });
+
+  it('preserves reverse flow by netting returned power above delivered power', () => {
+    const parsed = parseP1Response(makeRawP1({
+      ActiveInstantaneousPowerDeliveredL2: '0.100',
+      ActiveInstantaneousPowerReturnedL2: '0.450',
+    }));
+
+    const reading = toPowerReading(parsed, new Date('2026-03-03T10:00:00Z'));
+
+    expect(reading.activePowerL2Kw).toBe(-0.35);
+  });
+
+  it('nets reactive power per phase using delivered and returned values', () => {
+    const parsed = parseP1Response(makeRawP1({
+      ReactiveInstantaneousPowerDeliveredL1: '0.800',
+      ReactiveInstantaneousPowerReturnedL1: '0.250',
+      ReactiveInstantaneousPowerDeliveredL2: '0.100',
+      ReactiveInstantaneousPowerReturnedL2: '0.400',
+    }));
+
+    const reading = toPowerReading(parsed, new Date('2026-03-03T10:00:00Z'));
+
+    expect(reading.reactivePowerL1Kvar).toBe(0.55);
+    expect(reading.reactivePowerL2Kvar).toBeCloseTo(-0.3, 10);
+    expect(reading.reactivePowerL3Kvar).toBe(0);
   });
 });
