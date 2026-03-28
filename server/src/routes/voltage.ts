@@ -204,15 +204,14 @@ export async function voltageRoutes(fastify: FastifyInstance): Promise<void> {
       // Downsample if needed
       let data = readings;
       if (readings.length > maxPoints) {
-        const step = readings.length / maxPoints;
-        const sampled = [];
-        for (let i = 0; i < maxPoints; i++) {
-          sampled.push(readings[Math.floor(i * step)]);
+        if (maxPoints <= 1) {
+          data = [readings[readings.length - 1]];
+        } else {
+          const step = (readings.length - 1) / (maxPoints - 1);
+          data = Array.from({ length: maxPoints }, (_, index) => (
+            readings[Math.round(index * step)]
+          ));
         }
-        if (sampled[sampled.length - 1] !== readings[readings.length - 1]) {
-          sampled.push(readings[readings.length - 1]);
-        }
-        data = sampled;
       }
 
       return {
@@ -249,11 +248,16 @@ export async function voltageRoutes(fastify: FastifyInstance): Promise<void> {
 
       const anomalies = await prisma.anomaly.findMany({
         where: {
+          metricDomain: 'VOLTAGE',
           ...(deviceId ? { deviceId } : {}),
           ...(req.query.type ? { type: req.query.type } : {}),
           ...(req.query.phase ? { phase: req.query.phase } : {}),
-          ...(from ? { startsAt: { gte: from } } : {}),
-          ...(to ? { startsAt: { lte: to } } : {}),
+          ...((from || to) ? {
+            startsAt: {
+              ...(from ? { gte: from } : {}),
+              ...(to ? { lte: to } : {}),
+            },
+          } : {}),
         },
         orderBy: { startsAt: 'desc' },
         take: limit,
@@ -273,6 +277,7 @@ export async function voltageRoutes(fastify: FastifyInstance): Promise<void> {
 
     const active = await prisma.anomaly.findMany({
       where: {
+        metricDomain: 'VOLTAGE',
         ...(deviceId ? { deviceId } : {}),
         endsAt: null,
       },
@@ -352,8 +357,8 @@ export async function voltageRoutes(fastify: FastifyInstance): Promise<void> {
         }),
         prisma.reading.count({ where }),
         prisma.aggregatedData.count({ where }),
-        prisma.anomaly.count({ where }),
-        prisma.anomaly.count({ where: { ...where, endsAt: null } }),
+        prisma.anomaly.count({ where: { ...where, metricDomain: 'VOLTAGE' } }),
+        prisma.anomaly.count({ where: { ...where, metricDomain: 'VOLTAGE', endsAt: null } }),
       ]);
 
     // Quick weekly compliance
