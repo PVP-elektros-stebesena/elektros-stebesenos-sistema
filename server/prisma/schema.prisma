@@ -30,6 +30,7 @@ model Device {
   anomalies   Anomaly[]
   reports     Report[]
   notificationToggles NotificationEventToggle[]
+  powerPolicyOverrides PowerPolicyOverride[]
 
   @@map("devices")
 }
@@ -145,6 +146,24 @@ model AggregatedData {
 
   sampleCount Int @default(0)
 
+  activePowerAvgTotal   Float?
+  activePowerMaxTotal   Float?
+  reactivePowerAvgTotal Float?
+  reactivePowerMaxTotal Float?
+  apparentPowerAvgTotal Float?
+  apparentPowerMaxTotal Float?
+  powerFactorAvg        Float?
+
+  activePowerAvgL1      Float?
+  activePowerAvgL2      Float?
+  activePowerAvgL3      Float?
+  reactivePowerAvgL1    Float?
+  reactivePowerAvgL2    Float?
+  reactivePowerAvgL3    Float?
+
+  powerImbalancePct     Float?
+  powerPolicyBreached   Boolean @default(false)
+
   device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
 
   @@unique([deviceId, startsAt, endsAt])
@@ -192,13 +211,43 @@ model Anomaly {
   minVoltage Float?
   maxVoltage Float?
 
+  metricDomain   String  @default("VOLTAGE")
+  metricName     String?
+  thresholdValue Float?
+  observedMin    Float?
+  observedMax    Float?
+  observedAvg    Float?
+  unit           String?
+
   duration  Int?
   description String?
 
   device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
 
   @@index([deviceId, startsAt])
+  @@index([deviceId, metricDomain, startsAt])
   @@map("anomalies")
+}
+
+model PowerPolicyOverride {
+  id                   Int      @id @default(autoincrement())
+  deviceId             Int
+  maxActivePowerKw     Float?
+  maxReactivePowerKvar Float?
+  minPowerFactor       Float?
+  maxPhaseImbalancePct Float?
+  maxRampKwPerMinute   Float?
+  effectiveFrom        DateTime @default(now())
+  effectiveTo          DateTime?
+  enabled              Boolean  @default(true)
+  policyVersion        String   @default("default-v1")
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId, effectiveFrom, enabled])
+  @@map("power_policy_overrides")
 }
 
 model Report {

@@ -171,7 +171,7 @@ describe('GET /api/voltage/history', () => {
     const body = res.json();
 
     expect(res.statusCode).toBe(200);
-    expect(body.count).toBeLessThanOrEqual(7);
+    expect(body.count).toBe(5);
   });
 });
 
@@ -241,6 +241,46 @@ describe('GET /api/voltage/anomalies', () => {
     for (const a of body.data) {
       expect(a.phase).toBe('L1');
     }
+  });
+
+  it('applies both from and to bounds together', async () => {
+    await prisma.anomaly.createMany({
+      data: [
+        {
+          deviceId: testDeviceId,
+          startsAt: new Date('2025-06-01T14:59:00Z'),
+          endsAt: new Date('2025-06-01T14:59:10Z'),
+          phase: 'L1',
+          type: 'VOLTAGE_DEVIATION',
+          severity: 1,
+        },
+        {
+          deviceId: testDeviceId,
+          startsAt: new Date('2025-06-01T15:30:00Z'),
+          endsAt: new Date('2025-06-01T15:30:10Z'),
+          phase: 'L1',
+          type: 'VOLTAGE_DEVIATION',
+          severity: 1,
+        },
+        {
+          deviceId: testDeviceId,
+          startsAt: new Date('2025-06-01T16:01:00Z'),
+          endsAt: new Date('2025-06-01T16:01:10Z'),
+          phase: 'L1',
+          type: 'VOLTAGE_DEVIATION',
+          severity: 1,
+        },
+      ],
+    });
+
+    const res = await injectGet(
+      `/api/voltage/anomalies?deviceId=${testDeviceId}&from=2025-06-01T15:00:00Z&to=2025-06-01T16:00:00Z`,
+    );
+    const body = res.json();
+
+    expect(res.statusCode).toBe(200);
+    expect(body.count).toBe(1);
+    expect(body.data[0].startsAt).toBe('2025-06-01T15:30:00.000Z');
   });
 });
 

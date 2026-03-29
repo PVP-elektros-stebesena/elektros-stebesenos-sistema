@@ -115,6 +115,7 @@ class VoltageState {
   }): Promise<DetectedAnomaly[]> {
     const rows = await prisma.anomaly.findMany({
       where: {
+        metricDomain: 'VOLTAGE',
         ...(opts?.deviceId ? { deviceId: opts.deviceId } : {}),
         ...(opts?.type ? { type: opts.type } : {}),
         ...(opts?.phase ? { phase: opts.phase } : {}),
@@ -158,8 +159,8 @@ class VoltageState {
       await Promise.all([
         prisma.reading.count({ where }),
         prisma.aggregatedData.count({ where }),
-        prisma.anomaly.count({ where }),
-        prisma.anomaly.count({ where: { ...where, endsAt: null } }),
+        prisma.anomaly.count({ where: { ...where, metricDomain: 'VOLTAGE' } }),
+        prisma.anomaly.count({ where: { ...where, metricDomain: 'VOLTAGE', endsAt: null } }),
       ]);
 
     return { totalReadings, totalWindows, totalAnomalies, activeAnomalies };

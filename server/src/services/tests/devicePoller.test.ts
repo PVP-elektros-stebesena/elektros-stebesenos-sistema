@@ -9,6 +9,9 @@ vi.mock('../../lib/prisma.js', () => {
       device: {
         findMany: vi.fn(),
       },
+      powerPolicyOverride: {
+        findFirst: vi.fn(),
+      },
       reading: {
         create: vi.fn(),
       },
@@ -27,6 +30,7 @@ import prisma from '../../lib/prisma.js';
 
 const mockPrisma = prisma as unknown as {
   device: { findMany: ReturnType<typeof vi.fn> };
+  powerPolicyOverride: { findFirst: ReturnType<typeof vi.fn> };
   reading: { create: ReturnType<typeof vi.fn> };
   anomaly: { create: ReturnType<typeof vi.fn> };
   aggregatedData: { upsert: ReturnType<typeof vi.fn> };
@@ -34,7 +38,12 @@ const mockPrisma = prisma as unknown as {
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
-function makeP1Json(voltageL1 = 230, voltageL2 = 230, voltageL3 = 230): Record<string, string> {
+function makeP1Json(
+  voltageL1 = 230,
+  voltageL2 = 230,
+  voltageL3 = 230,
+  overrides: Record<string, string> = {},
+): Record<string, string> {
   return {
     mac_address: '78_42_1C_6D_1D_DC',
     gateway_model: 'test',
@@ -97,6 +106,7 @@ function makeP1Json(voltageL1 = 230, voltageL2 = 230, voltageL3 = 230): Record<s
     ReactiveEnergyDeliveredCurrentPeriod: '0.000',
     ReactiveEnergyReturnedCurrentPeriod: '0.000',
     PowerDeliveredNetto: '0.690',
+    ...overrides,
   };
 }
 
@@ -121,6 +131,7 @@ describe('DevicePoller', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
+    mockPrisma.powerPolicyOverride.findFirst.mockResolvedValue(null);
   });
 
   afterEach(async () => {
@@ -197,6 +208,84 @@ describe('DevicePoller', () => {
     // On recovery (2nd poll), AnomalyTracker should emit a SHORT_INTERRUPTION
     // for all three phases (all were 0 on first poll)
     expect(mockPrisma.anomaly.create).toHaveBeenCalled();
+
+    await poller.stop();
+  });
+
+  it('persists power anomalies when policy thresholds are exceeded', async () => {
+    vi.setSystemTime(new Date('2026-03-27T10:00:00Z'));
+
+    const fetchFn = makeFetchFn(
+      makeP1Json(230, 230, 230, {
+        ActiveInstantaneousPowerDelivered: '15.000',
+        PowerDelivered_total: '15.000',
+        ApparentInstantaneousPower: '16.000',
+        ActiveInstantaneousPowerDeliveredL1: '5.000',
+        ActiveInstantaneousPowerDeliveredL2: '5.000',
+        ActiveInstantaneousPowerDeliveredL3: '5.000',
+        ApparentInstantaneousPowerL1: '5.333',
+        ApparentInstantaneousPowerL2: '5.333',
+        ApparentInstantaneousPowerL3: '5.334',
+      }),
+    );
+
+    mockPrisma.device.findMany.mockResolvedValue([
+      { id: 1, name: 'Test', deviceIp: 'http://192.168.1.100/smartmeter/api/read', pollInterval: 10, isActive: true },
+    ]);
+    mockPrisma.reading.create.mockResolvedValue({});
+    mockPrisma.anomaly.create.mockResolvedValue({});
+
+    const poller = new DevicePoller({ syncIntervalMs: 3_600_000, fetchFn });
+    await poller.start();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(mockPrisma.anomaly.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          metricDomain: 'POWER',
+          metricName: 'ACTIVE_POWER_TOTAL',
+          type: 'POWER_SPIKE',
+          thresholdValue: 12,
+        }),
+      }),
+    );
+
+    await poller.stop();
+  });
+
+  it('persists power aggregate fields when a power window closes', async () => {
+    vi.setSystemTime(new Date('2026-03-27T10:39:50Z'));
+
+    const fetchFn = makeFetchFn(makeP1Json(230, 230, 230, {
+      ActiveInstantaneousPowerDelivered: '3.600',
+      PowerDelivered_total: '3.600',
+      ApparentInstantaneousPower: '4.000',
+      ActiveInstantaneousPowerDeliveredL1: '1.200',
+      ActiveInstantaneousPowerDeliveredL2: '1.200',
+      ActiveInstantaneousPowerDeliveredL3: '1.200',
+      ApparentInstantaneousPowerL1: '1.333',
+      ApparentInstantaneousPowerL2: '1.333',
+      ApparentInstantaneousPowerL3: '1.334',
+    }));
+
+    mockPrisma.device.findMany.mockResolvedValue([
+      { id: 1, name: 'Test', deviceIp: 'http://192.168.1.100/smartmeter/api/read', pollInterval: 10, isActive: true },
+    ]);
+    mockPrisma.reading.create.mockResolvedValue({});
+    mockPrisma.aggregatedData.upsert.mockResolvedValue({});
+
+    const poller = new DevicePoller({ syncIntervalMs: 3_600_000, fetchFn });
+    await poller.start();
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(
+      mockPrisma.aggregatedData.upsert.mock.calls.some(([call]) =>
+        call.update?.activePowerAvgTotal === 3.6 &&
+        call.update?.activePowerMaxTotal === 3.6 &&
+        call.update?.powerFactorAvg === 0.9,
+      ),
+    ).toBe(true);
 
     await poller.stop();
   });

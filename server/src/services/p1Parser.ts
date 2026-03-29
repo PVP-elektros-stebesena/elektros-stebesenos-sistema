@@ -6,6 +6,7 @@
  */
 
 import type { VoltageReading } from './voltageAnalysis.js';
+import type { PowerReading } from './powerAnalysis.js';
 
 /** All P1 fields mapped to Prisma Reading column names (sans deviceId / timestamp) */
 export interface P1ReadingData {
@@ -205,5 +206,54 @@ export function toVoltageReading(data: P1ReadingData, timestamp: Date): VoltageR
     voltage_l1: data.instantaneousVoltageL1 ?? data.voltageL1 ?? 0,
     voltage_l2: data.instantaneousVoltageL2 ?? data.voltageL2 ?? 0,
     voltage_l3: data.instantaneousVoltageL3 ?? data.voltageL3 ?? 0,
+  };
+}
+
+function netPower(
+  delivered: number | null,
+  returned: number | null,
+): number | null {
+  if (delivered == null && returned == null) return null;
+  return (delivered ?? 0) - (returned ?? 0);
+}
+
+/**
+ * Extracts power-domain values used by the power analytics pipeline.
+ */
+export function toPowerReading(data: P1ReadingData, timestamp: Date): PowerReading {
+  return {
+    timestamp,
+    activePowerTotalKw: netPower(
+      data.powerDeliveredTotal ?? data.activeInstantaneousPowerDelivered,
+      data.powerReturnedTotal,
+    ),
+    activePowerL1Kw: netPower(
+      data.activeInstantaneousPowerDeliveredL1,
+      data.activeInstantaneousPowerReturnedL1,
+    ),
+    activePowerL2Kw: netPower(
+      data.activeInstantaneousPowerDeliveredL2,
+      data.activeInstantaneousPowerReturnedL2,
+    ),
+    activePowerL3Kw: netPower(
+      data.activeInstantaneousPowerDeliveredL3,
+      data.activeInstantaneousPowerReturnedL3,
+    ),
+    reactivePowerL1Kvar: netPower(
+      data.reactiveInstantaneousPowerDeliveredL1,
+      data.reactiveInstantaneousPowerReturnedL1,
+    ),
+    reactivePowerL2Kvar: netPower(
+      data.reactiveInstantaneousPowerDeliveredL2,
+      data.reactiveInstantaneousPowerReturnedL2,
+    ),
+    reactivePowerL3Kvar: netPower(
+      data.reactiveInstantaneousPowerDeliveredL3,
+      data.reactiveInstantaneousPowerReturnedL3,
+    ),
+    apparentPowerTotalKva: data.apparentInstantaneousPower,
+    apparentPowerL1Kva: data.apparentInstantaneousPowerL1,
+    apparentPowerL2Kva: data.apparentInstantaneousPowerL2,
+    apparentPowerL3Kva: data.apparentInstantaneousPowerL3,
   };
 }
