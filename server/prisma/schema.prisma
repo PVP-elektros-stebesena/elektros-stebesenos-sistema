@@ -254,11 +254,11 @@ model Report {
   id        Int      @id @default(autoincrement())
   deviceId  Int
 
-  periodType String  // "weekly" or "monthly"
+  reportUse  String  @default("home")
+  periodType String
   startsAt   DateTime
   endsAt     DateTime
 
-  // Compliance
   totalWindows       Int
   compliantWindowsL1 Int @default(0)
   compliantWindowsL2 Int @default(0)
@@ -268,13 +268,9 @@ model Report {
   compliancePctL3    Float @default(0)
   overallCompliant   Boolean @default(false)
 
-  // Health score: "GREEN", "YELLOW", "RED"
   healthScore String
-
-  // Anomaly summary (JSON string)
   anomalySummary String @default("[]")
 
-  // Stats
   totalAnomalies  Int @default(0)
   criticalCount   Int @default(0)
   warningCount    Int @default(0)
@@ -283,7 +279,7 @@ model Report {
 
   device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
 
-  @@unique([deviceId, periodType, startsAt, endsAt])
+  @@unique([deviceId, reportUse, periodType, startsAt, endsAt])
   @@index([deviceId, createdAt])
   @@map("reports")
 }

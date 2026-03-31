@@ -5,6 +5,7 @@ import {
   resolvePresetPeriodRange,
   saveReport,
   type PeriodType,
+  type ReportUse,
 } from '../services/reportGenerator.js';
 import { buildReportInsights } from '../services/reportInsights.js';
 import { buildPowerQualityAssessment } from '../services/reportQuality.js';
@@ -36,8 +37,6 @@ type ContextChartPoint = {
   powerKw: number | null;
 };
 
-// Query helpers
-
 function parseDeviceId(val: string | undefined): number | undefined {
   if (!val) return undefined;
   const n = parseInt(val, 10);
@@ -67,8 +66,9 @@ function pickVoltageByPhase(
   if (phase === 'L2') return row.voltageL2;
   if (phase === 'L3') return row.voltageL3;
   if (phase === 'ALL') {
-    const values = [row.voltageL1, row.voltageL2, row.voltageL3]
-      .filter((val): val is number => val != null);
+    const values = [row.voltageL1, row.voltageL2, row.voltageL3].filter(
+      (val): val is number => val != null,
+    );
     if (values.length === 0) return null;
     return +(values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(3);
   }
@@ -119,9 +119,7 @@ function downsampleContextPoints(
 
   const keepIndexes = new Set<number>();
   const step = Math.ceil(points.length / MAX_CONTEXT_POINTS);
-  for (let i = 0; i < points.length; i += step) {
-    keepIndexes.add(i);
-  }
+  for (let i = 0; i < points.length; i += step) keepIndexes.add(i);
 
   keepIndexes.add(0);
   keepIndexes.add(points.length - 1);
@@ -166,9 +164,7 @@ function downsampleContextPoints(
   if (minVoltageIndex != null) keepIndexes.add(minVoltageIndex);
   if (maxVoltageIndex != null) keepIndexes.add(maxVoltageIndex);
 
-  return [...keepIndexes]
-    .sort((a, b) => a - b)
-    .map((index) => points[index]);
+  return [...keepIndexes].sort((a, b) => a - b).map((index) => points[index]);
 }
 
 function isValidDate(value: string | undefined): value is string {
@@ -176,10 +172,9 @@ function isValidDate(value: string | undefined): value is string {
   return !Number.isNaN(new Date(value).getTime());
 }
 
-function parseCustomRange(startDate?: string, endDate?: string): {
-  startsAt: Date;
-  endsAt: Date;
-} | { error: { code: string; message: string } } {
+function parseCustomRange(startDate?: string, endDate?: string):
+  | { startsAt: Date; endsAt: Date }
+  | { error: { code: string; message: string } } {
   if (!isValidDate(startDate) || !isValidDate(endDate)) {
     return {
       error: {
@@ -203,7 +198,6 @@ function parseCustomRange(startDate?: string, endDate?: string): {
 
   const now = new Date();
   if (endsAt.getTime() > now.getTime()) {
-    // Allow selecting "today" while report is generated before midnight.
     endsAt.setTime(now.getTime());
   }
 
@@ -220,12 +214,7 @@ function parseCustomRange(startDate?: string, endDate?: string): {
   return { startsAt, endsAt };
 }
 
-// Plugin
-
 export async function reportRoutes(fastify: FastifyInstance): Promise<void> {
-
-  //  GET /api/anomalies/:id/context
-  //  Returns 30 min before and 30 min after anomaly for on-demand charting
   fastify.get<{ Params: { id: string } }>('/api/anomalies/:id/context', async (req, reply) => {
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) {
@@ -322,39 +311,31 @@ export async function reportRoutes(fastify: FastifyInstance): Promise<void> {
     };
   });
 
-  //  GET /api/reports/scheduler/status
-  //  Get current status of background report generation
-  fastify.get('/api/reports/scheduler/status', async () => {
-    return getSchedulerStatus();
-  });
+  fastify.get('/api/reports/scheduler/status', async () => getSchedulerStatus());
 
-  //  POST /api/reports/scheduler/start
-  //  Start background report generation
   fastify.post('/api/reports/scheduler/start', async () => {
     startReportScheduler();
     return getSchedulerStatus();
   });
 
-  //  POST /api/reports/scheduler/stop
-  //  Stop background report generation
   fastify.post('/api/reports/scheduler/stop', async () => {
     stopReportScheduler();
     return { message: 'Scheduler stopped', ...getSchedulerStatus() };
   });
 
-  //  GET /api/reports?deviceId=&periodType=&limit=
-  //  List stored reports
   fastify.get<{
-    Querystring: { deviceId?: string; periodType?: string; limit?: string };
+    Querystring: { deviceId?: string; periodType?: string; limit?: string; reportUse?: string };
   }>('/api/reports', async (req) => {
     const deviceId = parseDeviceId(req.query.deviceId);
     const periodType = req.query.periodType as PeriodType | undefined;
+    const reportUse = req.query.reportUse as ReportUse | undefined;
     const limit = Math.min(parseInt(req.query.limit ?? '20', 10) || 20, 100);
 
     const reports = await prisma.report.findMany({
       where: {
         ...(deviceId ? { deviceId } : {}),
         ...(periodType ? { periodType } : {}),
+        ...(reportUse ? { reportUse } : {}),
       },
       orderBy: { createdAt: 'desc' },
       take: limit,
@@ -367,6 +348,7 @@ export async function reportRoutes(fastify: FastifyInstance): Promise<void> {
         id: r.id,
         deviceId: r.deviceId,
         deviceName: r.device.name,
+        reportUse: r.reportUse,
         periodType: r.periodType,
         startsAt: r.startsAt,
         endsAt: r.endsAt,
@@ -384,8 +366,6 @@ export async function reportRoutes(fastify: FastifyInstance): Promise<void> {
     };
   });
 
-  //  GET /api/reports/:id
-  //  Full report detail including anomaly summary
   fastify.get<{ Params: { id: string } }>('/api/reports/:id', async (req, reply) => {
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) {
@@ -405,7 +385,7 @@ export async function reportRoutes(fastify: FastifyInstance): Promise<void> {
     try {
       const parsed = JSON.parse(report.anomalySummary) as RawAnomalySummaryRow[];
       anomalySummary = Array.isArray(parsed) ? parsed : [];
-    } catch { /* empty */ }
+    } catch {}
 
     const anomaliesInRange = await prisma.anomaly.findMany({
       where: {
@@ -476,6 +456,7 @@ export async function reportRoutes(fastify: FastifyInstance): Promise<void> {
       id: report.id,
       deviceId: report.deviceId,
       deviceName: report.device.name,
+      reportUse: report.reportUse,
       periodType: report.periodType,
       startsAt: report.startsAt,
       endsAt: report.endsAt,
@@ -500,30 +481,29 @@ export async function reportRoutes(fastify: FastifyInstance): Promise<void> {
     };
   });
 
-  //  POST /api/reports/generate
-  //  Manually trigger report generation
-  //  Body: {
-  //    deviceId: number,
-  //    periodType: "daily"|"weekly"|"biweekly"|"monthly"|"custom",
-  //    date?: string,
-  //    startDate?: string,
-  //    endDate?: string
-  //  }
   fastify.post<{
     Body: {
       deviceId: number;
+      reportUse: ReportUse;
       periodType: PeriodType;
       date?: string;
       startDate?: string;
       endDate?: string;
     };
   }>('/api/reports/generate', async (req, reply) => {
-    const { deviceId, periodType, date: dateStr, startDate, endDate } = req.body;
+    const { deviceId, reportUse, periodType, date: dateStr, startDate, endDate } = req.body;
 
-    if (!deviceId || !periodType) {
+    if (!deviceId || !periodType || !reportUse) {
       return reply.code(400).send({
         error: 'MISSING_FIELDS',
-        message: 'deviceId and periodType are required',
+        message: 'deviceId, reportUse and periodType are required',
+      });
+    }
+
+    if (!['home', 'technical', 'solar'].includes(reportUse)) {
+      return reply.code(400).send({
+        error: 'INVALID_REPORT_USE',
+        message: 'reportUse must be one of: home, technical, solar',
       });
     }
 
@@ -534,7 +514,6 @@ export async function reportRoutes(fastify: FastifyInstance): Promise<void> {
       });
     }
 
-    // Verify device exists
     const device = await prisma.device.findUnique({ where: { id: deviceId } });
     if (!device) {
       return reply.code(404).send({
@@ -570,7 +549,7 @@ export async function reportRoutes(fastify: FastifyInstance): Promise<void> {
       });
     }
 
-    const report = await generateReport(deviceId, periodType, startsAt, endsAt);
+    const report = await generateReport(deviceId, reportUse, periodType, startsAt, endsAt);
     await saveReport(report);
 
     await notificationService.notifyReportGenerated({
@@ -594,9 +573,10 @@ export async function reportRoutes(fastify: FastifyInstance): Promise<void> {
     );
 
     return {
-      message: `${periodType} report generated successfully`,
+      message: `${reportUse} ${periodType} report generated successfully`,
       report: {
         deviceId: report.deviceId,
+        reportUse: report.reportUse,
         periodType: report.periodType,
         startsAt: report.startsAt,
         endsAt: report.endsAt,

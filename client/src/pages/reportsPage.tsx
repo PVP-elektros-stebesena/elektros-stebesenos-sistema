@@ -4,7 +4,7 @@ import {
   Alert,
   Badge, Button, Card, Group, Progress,
   RingProgress, SimpleGrid, Stack, Table, Switch,
-  Text, Title, Select, Divider, Box, TextInput, Loader,
+  Text, Title, Select, Divider, Box, TextInput, Loader, Tabs,
 } from '@mantine/core';
 import {
   Bar,
@@ -31,6 +31,7 @@ interface ReportListItem {
   id: number;
   deviceId: number;
   deviceName: string;
+  reportUse: 'home' | 'technical' | 'solar';
   periodType: string;
   startsAt: string;
   endsAt: string;
@@ -62,6 +63,7 @@ interface ReportDetail {
   id: number;
   deviceId: number;
   deviceName: string;
+  reportUse: 'home' | 'technical' | 'solar';
   periodType: string;
   startsAt: string;
   endsAt: string;
@@ -194,14 +196,6 @@ function formatDuration(seconds: number | null): string {
   return sec > 0 ? `${min}m ${sec}s` : `${min}m`;
 }
 
-const PERIOD_OPTIONS = [
-  { value: 'daily', label: '1 day' },
-  { value: 'weekly', label: '1 week' },
-  { value: 'biweekly', label: '2 weeks' },
-  { value: 'monthly', label: '1 month' },
-  { value: 'custom', label: 'Custom range' },
-];
-
 function toDateInputValue(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
@@ -246,6 +240,12 @@ function periodLabel(periodType: string): string {
   return labels[periodType] ?? periodType;
 }
 
+function reportUseLabel(reportUse: ReportDetail['reportUse'] | ReportListItem['reportUse']): string {
+  if (reportUse === 'home') return 'Home';
+  if (reportUse === 'technical') return 'Technical';
+  return 'Solar';
+}
+
 function anomalyColor(type: string, index: number): string {
   const byType: Record<string, string> = {
     LONG_INTERRUPTION: '#c92a2a',
@@ -280,18 +280,25 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
   const [contextByAnomalyId, setContextByAnomalyId] =
     useState<Record<number, AnomalyContextResponse>>({});
   const [contextErrorByAnomalyId, setContextErrorByAnomalyId] = useState<Record<number, string>>({});
+
+  const isHomeReport = report.reportUse === 'home';
+  const isTechnicalReport = report.reportUse === 'technical';
+  const isSolarReport = report.reportUse === 'solar';
+
   const avgPct = +(
     (report.compliance.compliancePctL1 +
       report.compliance.compliancePctL2 +
       report.compliance.compliancePctL3) /
     3
   ).toFixed(1);
+
   const phaseCompliance = [
     { phase: 'L1' as const, pct: report.compliance.compliancePctL1 },
     { phase: 'L2' as const, pct: report.compliance.compliancePctL2 },
     { phase: 'L3' as const, pct: report.compliance.compliancePctL3 },
   ];
   const worstPhase = phaseCompliance.reduce((acc, cur) => (cur.pct < acc.pct ? cur : acc));
+
   const quality = report.powerQuality ?? {
     averageCompliancePct: avgPct,
     worstPhase: worstPhase.phase,
@@ -301,6 +308,7 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
     assessmentText: 'Power quality assessment is unavailable for this report.',
     recommendationText: '',
   };
+
   const insights = report.insights ?? {
     totalEnergyConsumedKwh: 0,
     totalEnergyReturnedKwh: 0,
@@ -318,6 +326,7 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
     setLoadingAnomalyId(null);
     setContextByAnomalyId({});
     setContextErrorByAnomalyId({});
+    setShowAdvanced(false);
   }, [report.id]);
 
   const loadAnomalyContext = useCallback(async (itemIndex: number) => {
@@ -368,7 +377,7 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
       <!DOCTYPE html>
       <html>
       <head>
-        <title>Voltage Report - ${report.deviceName}</title>
+        <title>${reportUseLabel(report.reportUse)} Report - ${report.deviceName}</title>
         <style>
           * { margin: 0; padding: 0; box-sizing: border-box; }
           body { font-family: 'Segoe UI', system-ui, sans-serif; padding: 40px; color: #222; line-height: 1.5; }
@@ -391,7 +400,7 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
         </style>
       </head>
       <body>
-        <h1>LST EN 50160 Voltage Quality Report</h1>
+        <h1>${reportUseLabel(report.reportUse)} Report</h1>
         <p class="subtitle">
           Device: ${report.deviceName} &middot;
           Period: ${formatDate(report.startsAt)} – ${formatDate(report.endsAt)} &middot;
@@ -400,61 +409,63 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
 
         <span class="health-badge health-${report.healthScore}">Health: ${report.healthScore}</span>
 
-        <h2>Compliance Summary</h2>
-        <div class="stats-grid">
-          <div class="stat-box">
-            <div class="stat-value">${avgPct}%</div>
-            <div class="stat-label">Average Compliance</div>
+        ${!isSolarReport ? `
+          <h2>Compliance Summary</h2>
+          <div class="stats-grid">
+            <div class="stat-box">
+              <div class="stat-value">${avgPct}%</div>
+              <div class="stat-label">Average Compliance</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-value">${report.compliance.totalWindows}</div>
+              <div class="stat-label">Total 10-min Windows</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-value">${report.totalAnomalies}</div>
+              <div class="stat-label">Anomalies Detected</div>
+            </div>
           </div>
-          <div class="stat-box">
-            <div class="stat-value">${report.compliance.totalWindows}</div>
-            <div class="stat-label">Total 10-min Windows</div>
-          </div>
-          <div class="stat-box">
-            <div class="stat-value">${report.totalAnomalies}</div>
-            <div class="stat-label">Anomalies Detected</div>
-          </div>
-        </div>
 
-        <table>
-          <thead><tr><th>Phase</th><th>Compliant Windows</th><th>Compliance %</th><th>Status</th></tr></thead>
-          <tbody>
-            <tr>
-              <td>L1</td>
-              <td>${report.compliance.compliantWindowsL1} / ${report.compliance.totalWindows}</td>
-              <td>${report.compliance.compliancePctL1}%</td>
-              <td>${report.compliance.compliancePctL1 >= 95 ? '✓ PASS' : '✗ FAIL'}</td>
-            </tr>
-            <tr>
-              <td>L2</td>
-              <td>${report.compliance.compliantWindowsL2} / ${report.compliance.totalWindows}</td>
-              <td>${report.compliance.compliancePctL2}%</td>
-              <td>${report.compliance.compliancePctL2 >= 95 ? '✓ PASS' : '✗ FAIL'}</td>
-            </tr>
-            <tr>
-              <td>L3</td>
-              <td>${report.compliance.compliantWindowsL3} / ${report.compliance.totalWindows}</td>
-              <td>${report.compliance.compliancePctL3}%</td>
-              <td>${report.compliance.compliancePctL3 >= 95 ? '✓ PASS' : '✗ FAIL'}</td>
-            </tr>
-          </tbody>
-        </table>
+          <table>
+            <thead><tr><th>Phase</th><th>Compliant Windows</th><th>Compliance %</th><th>Status</th></tr></thead>
+            <tbody>
+              <tr>
+                <td>L1</td>
+                <td>${report.compliance.compliantWindowsL1} / ${report.compliance.totalWindows}</td>
+                <td>${report.compliance.compliancePctL1}%</td>
+                <td>${report.compliance.compliancePctL1 >= 95 ? '✓ PASS' : '✗ FAIL'}</td>
+              </tr>
+              <tr>
+                <td>L2</td>
+                <td>${report.compliance.compliantWindowsL2} / ${report.compliance.totalWindows}</td>
+                <td>${report.compliance.compliancePctL2}%</td>
+                <td>${report.compliance.compliancePctL2 >= 95 ? '✓ PASS' : '✗ FAIL'}</td>
+              </tr>
+              <tr>
+                <td>L3</td>
+                <td>${report.compliance.compliantWindowsL3} / ${report.compliance.totalWindows}</td>
+                <td>${report.compliance.compliancePctL3}%</td>
+                <td>${report.compliance.compliancePctL3 >= 95 ? '✓ PASS' : '✗ FAIL'}</td>
+              </tr>
+            </tbody>
+          </table>
 
-        <h2>Power Quality Assessment</h2>
-        <p>${quality.assessmentText}</p>
-        <table>
-          <thead><tr><th>Metric</th><th>Value</th></tr></thead>
-          <tbody>
-            <tr><td>EN 50160 status</td><td>${quality.pass ? 'Compliant' : 'Non-compliant'}</td></tr>
-            <tr><td>Average compliance</td><td>${quality.averageCompliancePct.toFixed(2)}%</td></tr>
-            <tr><td>Worst phase</td><td>${quality.worstPhase}</td></tr>
-            <tr><td>Worst-phase compliance</td><td>${quality.worstPhaseCompliancePct.toFixed(2)}%</td></tr>
-            <tr><td>Dominant anomaly type</td><td>${quality.dominantAnomalyType ?? 'None'}</td></tr>
-          </tbody>
-        </table>
-        <p>${quality.recommendationText}</p>
+          <h2>Power Quality Assessment</h2>
+          <p>${quality.assessmentText}</p>
+          <table>
+            <thead><tr><th>Metric</th><th>Value</th></tr></thead>
+            <tbody>
+              <tr><td>EN 50160 status</td><td>${quality.pass ? 'Compliant' : 'Non-compliant'}</td></tr>
+              <tr><td>Average compliance</td><td>${quality.averageCompliancePct.toFixed(2)}%</td></tr>
+              <tr><td>Worst phase</td><td>${quality.worstPhase}</td></tr>
+              <tr><td>Worst-phase compliance</td><td>${quality.worstPhaseCompliancePct.toFixed(2)}%</td></tr>
+              <tr><td>Dominant anomaly type</td><td>${quality.dominantAnomalyType ?? 'None'}</td></tr>
+            </tbody>
+          </table>
+          <p>${quality.recommendationText}</p>
+        ` : ''}
 
-        <h2>Energy Insights</h2>
+        <h2>${isSolarReport ? 'Solar Energy Insights' : 'Energy Insights'}</h2>
         <p>${insights.narrative}</p>
         <table>
           <thead><tr><th>Date</th><th>Energy consumed (kWh)</th><th>Energy returned (kWh)</th><th>Efficiency (%)</th><th>Avg hourly electricity (kWh)</th></tr></thead>
@@ -491,7 +502,7 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
           </table>
         ` : '<h2>Anomalies</h2><p>No anomalies detected during this period.</p>'}
 
-        ${insights.anomalyAppendix.length > 0 ? `
+        ${isTechnicalReport && insights.anomalyAppendix.length > 0 ? `
           <h2>Transmission Error Appendix</h2>
           <table>
             <thead><tr><th>Type</th><th>Description</th></tr></thead>
@@ -508,7 +519,7 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
 
         <div class="footer">
           Generated: ${new Date().toLocaleString()} &middot;
-          Standard: LST EN 50160 (≥95% of 10-min RMS windows within 230V ±10V)
+          Standard: LST EN 50160 — ≥95% of 10-min RMS windows within 230V ±10V
         </div>
       </body>
       </html>
@@ -538,526 +549,586 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
                 ? toChartTimeOnlyLabel(d.timestamp)
                 : toChartShortDateTimeLabel(d.timestamp),
               value: d.energyConsumedKwh,
+              returned: d.energyReturnedKwh,
               efficiency: d.efficiencyPct,
               hourly: d.avgHourlyElectricityKwh,
             }))
           : chartDays.map((d) => ({
               x: toChartDateLabel(d.date),
               value: d.energyConsumedKwh,
+              returned: d.energyReturnedKwh,
               efficiency: d.efficiencyPct,
               hourly: d.avgHourlyElectricityKwh,
             }));
 
         return (
           <>
-      {/* Header */}
-      <Group justify="space-between" align="flex-start">
-        <div>
-          <Title order={3}>
-            {periodLabel(report.periodType)} Report
-          </Title>
-          <Text c="dimmed" size="sm">
-            {report.deviceName} &middot; {formatDate(report.startsAt)} – {formatDate(report.endsAt)}
-          </Text>
-        </div>
-        <Group gap="sm">
-          <Badge
-            size="xl"
-            color={healthColor(report.healthScore)}
-            variant="light"
-          >
-            {report.healthScore}
-          </Badge>
-          <Switch
-            label="Advanced details"
-            checked={showAdvanced}
-            onChange={(event) => setShowAdvanced(event.currentTarget.checked)}
-          />
-          <Button variant="light" onClick={handlePrint}>
-            Print / PDF
-          </Button>
-        </Group>
-      </Group>
-
-      <Divider />
-
-      {/* Compliance overview */}
-      <SimpleGrid cols={{ base: 1, sm: 3 }}>
-        <Card p="md" radius="md" withBorder>
-          <Stack align="center" gap="xs">
-            <RingProgress
-              size={100}
-              thickness={10}
-              roundCaps
-              sections={[{
-                value: avgPct,
-                color: avgPct >= 95 ? 'green' : avgPct >= 90 ? 'yellow' : 'red',
-              }]}
-              label={
-                <Text ta="center" fw={700} fz="lg">{avgPct}%</Text>
-              }
-            />
-            <Text size="xs" c="dimmed">Average Compliance</Text>
-          </Stack>
-        </Card>
-        <Card p="md" radius="md" withBorder>
-          <Stack align="center" justify="center" style={{ height: '100%' }}>
-            <Text fz={36} fw={700}>{report.compliance.totalWindows}</Text>
-            <Text size="xs" c="dimmed">Total 10-min Windows</Text>
-          </Stack>
-        </Card>
-        <Card p="md" radius="md" withBorder>
-          <Stack align="center" justify="center" style={{ height: '100%' }}>
-            <Text fz={36} fw={700} c={report.totalAnomalies > 0 ? 'red' : undefined}>
-              {report.totalAnomalies}
-            </Text>
-            <Text size="xs" c="dimmed">Anomalies Detected</Text>
-            {report.criticalCount > 0 && (
-              <Badge color="red" size="sm">{report.criticalCount} CRITICAL</Badge>
-            )}
-          </Stack>
-        </Card>
-      </SimpleGrid>
-
-      {showAdvanced && (
-        <Card p="md" radius="md" withBorder>
-          <Text fw={700} mb="md">Per-Phase Compliance</Text>
-          <Table.ScrollContainer minWidth={500}>
-            <Table>
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>Phase</Table.Th>
-                  <Table.Th>Compliant Windows</Table.Th>
-                  <Table.Th>Compliance</Table.Th>
-                  <Table.Th>Status</Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {(['L1', 'L2', 'L3'] as const).map((phase) => {
-                  const pct =
-                    phase === 'L1'
-                      ? report.compliance.compliancePctL1
-                      : phase === 'L2'
-                        ? report.compliance.compliancePctL2
-                        : report.compliance.compliancePctL3;
-                  const compliant =
-                    phase === 'L1'
-                      ? report.compliance.compliantWindowsL1
-                      : phase === 'L2'
-                        ? report.compliance.compliantWindowsL2
-                        : report.compliance.compliantWindowsL3;
-
-                  return (
-                    <Table.Tr key={phase}>
-                      <Table.Td><Badge variant="light">{phase}</Badge></Table.Td>
-                      <Table.Td>{compliant} / {report.compliance.totalWindows}</Table.Td>
-                      <Table.Td>
-                        <Group gap="xs">
-                          <Progress
-                            value={pct}
-                            color={pct >= 95 ? 'green' : pct >= 90 ? 'yellow' : 'red'}
-                            size="sm"
-                            radius="xl"
-                            style={{ flex: 1 }}
-                          />
-                          <Text size="sm" fw={600} style={{ minWidth: 48 }}>{pct}%</Text>
-                        </Group>
-                      </Table.Td>
-                      <Table.Td>
-                        <Badge color={pct >= 95 ? 'green' : 'red'} variant="light">
-                          {pct >= 95 ? 'PASS' : 'FAIL'}
-                        </Badge>
-                      </Table.Td>
-                    </Table.Tr>
-                  );
-                })}
-              </Table.Tbody>
-            </Table>
-          </Table.ScrollContainer>
-        </Card>
-      )}
-
-      <Card p="md" radius="md" withBorder>
-        <Group justify="space-between" mb="xs">
-          <Text fw={700}>Power Quality Snapshot</Text>
-          <Badge color={quality.pass ? 'green' : 'red'} variant="light">
-            {quality.pass ? 'COMPLIANT' : 'NON-COMPLIANT'}
-          </Badge>
-        </Group>
-        <Text size="sm" mb={4}>{quality.assessmentText}</Text>
-        <Text size="sm" c="dimmed">
-          Detailed quality metrics, energy trends, and appendices are available in Advanced details.
-        </Text>
-      </Card>
-
-      {showAdvanced && (
-        <>
-          <Card p="md" radius="md" withBorder>
-            <Group justify="space-between" mb="xs">
-              <Text fw={700}>Power Quality Assessment</Text>
-              <Badge color={quality.pass ? 'green' : 'red'} variant="light">
-                {quality.pass ? 'COMPLIANT' : 'NON-COMPLIANT'}
-              </Badge>
+            <Group justify="space-between" align="flex-start">
+              <div>
+                <Title order={3}>
+                  {reportUseLabel(report.reportUse)} Report ({periodLabel(report.periodType)})
+                </Title>
+                <Text c="dimmed" size="sm">
+                  {report.deviceName} &middot; {formatDate(report.startsAt)} – {formatDate(report.endsAt)}
+                </Text>
+              </div>
+              <Group gap="sm">
+                <Badge
+                  size="xl"
+                  color={healthColor(report.healthScore)}
+                  variant="light"
+                >
+                  {report.healthScore}
+                </Badge>
+                {isTechnicalReport && (
+                  <Switch
+                    label="Advanced details"
+                    checked={showAdvanced}
+                    onChange={(event) => setShowAdvanced(event.currentTarget.checked)}
+                  />
+                )}
+                <Button variant="light" onClick={handlePrint}>
+                  Print / PDF
+                </Button>
+              </Group>
             </Group>
 
-            <SimpleGrid cols={{ base: 1, sm: 4 }} mb="md">
-              <Card p="sm" withBorder>
-                <Text size="xs" c="dimmed">Average compliance</Text>
-                <Text fw={700} fz="lg">{quality.averageCompliancePct.toFixed(2)}%</Text>
-              </Card>
-              <Card p="sm" withBorder>
-                <Text size="xs" c="dimmed">Worst phase</Text>
-                <Text fw={700} fz="lg">{quality.worstPhase}</Text>
-              </Card>
-              <Card p="sm" withBorder>
-                <Text size="xs" c="dimmed">Worst-phase compliance</Text>
-                <Text fw={700} fz="lg">{quality.worstPhaseCompliancePct.toFixed(2)}%</Text>
-              </Card>
-              <Card p="sm" withBorder>
-                <Text size="xs" c="dimmed">Dominant anomaly</Text>
-                <Text fw={700} fz="lg">{quality.dominantAnomalyType ?? 'None'}</Text>
-              </Card>
-            </SimpleGrid>
+            <Divider />
 
-            <Text size="sm" mb={4}>{quality.assessmentText}</Text>
-            <Text size="sm" c="dimmed">{quality.recommendationText}</Text>
-          </Card>
-
-          <Card p="md" radius="md" withBorder>
-            <Text fw={700} mb="xs">Report summary</Text>
-            <Text size="sm" c="dimmed">{insights.narrative}</Text>
-
-            <SimpleGrid cols={{ base: 1, sm: 4 }} mt="md">
-              <Card p="sm" withBorder>
-                <Text size="xs" c="dimmed">Total consumed</Text>
-                <Text fw={700} fz="xl">{insights.totalEnergyConsumedKwh.toFixed(2)} kWh</Text>
-              </Card>
-              <Card p="sm" withBorder>
-                <Text size="xs" c="dimmed">Total returned</Text>
-                <Text fw={700} fz="xl">{insights.totalEnergyReturnedKwh.toFixed(2)} kWh</Text>
-              </Card>
-              <Card p="sm" withBorder>
-                <Text size="xs" c="dimmed">Avg efficiency</Text>
-                <Text fw={700} fz="xl">
-                  {insights.averageEfficiencyPct != null
-                    ? `${insights.averageEfficiencyPct.toFixed(1)}%`
-                    : '—'}
-                </Text>
-              </Card>
-              <Card p="sm" withBorder>
-                <Text size="xs" c="dimmed">Avg hourly electricity</Text>
-                <Text fw={700} fz="xl">
-                  {insights.averageHourlyElectricityKwh != null
-                    ? `${insights.averageHourlyElectricityKwh.toFixed(3)} kWh`
-                    : '—'}
-                </Text>
-              </Card>
-            </SimpleGrid>
-          </Card>
-
-          {shouldShowCharts && (
-            <SimpleGrid cols={{ base: 1, lg: 2 }}>
-              <Card p="md" radius="md" withBorder>
-                <Text fw={700} mb="md">
-                  {useHourlyCharts ? 'Hourly electricity consumption' : 'Daily electricity consumption'}
-                </Text>
-                <ResponsiveContainer width="100%" height={260}>
-                  <BarChart data={trendChartData}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                    <XAxis dataKey="x" />
-                    <YAxis unit=" kWh" />
-                    <Tooltip cursor={{ fill: 'rgba(255, 255, 255, 0.1)' }} />
-                    <Bar
-                      dataKey="value"
-                      fill="#8ACDEA"
-                      name="Consumed"
-                      radius={[4, 4, 0, 0]}
+            {!isSolarReport && (
+              <SimpleGrid cols={{ base: 1, sm: 3 }}>
+                <Card p="md" radius="md" withBorder>
+                  <Stack align="center" gap="xs">
+                    <RingProgress
+                      size={100}
+                      thickness={10}
+                      roundCaps
+                      sections={[{
+                        value: avgPct,
+                        color: avgPct >= 95 ? 'green' : avgPct >= 90 ? 'yellow' : 'red',
+                      }]}
+                      label={
+                        <Text ta="center" fw={700} fz="lg">{avgPct}%</Text>
+                      }
                     />
-                  </BarChart>
-                </ResponsiveContainer>
-              </Card>
+                    <Text size="xs" c="dimmed">Average Compliance</Text>
+                  </Stack>
+                </Card>
+                <Card p="md" radius="md" withBorder>
+                  <Stack align="center" justify="center" style={{ height: '100%' }}>
+                    <Text fz={36} fw={700}>{report.compliance.totalWindows}</Text>
+                    <Text size="xs" c="dimmed">Total 10-min Windows</Text>
+                  </Stack>
+                </Card>
+                <Card p="md" radius="md" withBorder>
+                  <Stack align="center" justify="center" style={{ height: '100%' }}>
+                    <Text fz={36} fw={700} c={report.totalAnomalies > 0 ? 'red' : undefined}>
+                      {report.totalAnomalies}
+                    </Text>
+                    <Text size="xs" c="dimmed">Anomalies Detected</Text>
+                    {report.criticalCount > 0 && (
+                      <Badge color="red" size="sm">{report.criticalCount} CRITICAL</Badge>
+                    )}
+                  </Stack>
+                </Card>
+              </SimpleGrid>
+            )}
 
+            {!isSolarReport && (
               <Card p="md" radius="md" withBorder>
-                <Text fw={700} mb="md">
-                  {useHourlyCharts ? 'Hourly efficiency trend' : 'Efficiency and avg hourly use'}
+                <Group justify="space-between" mb="xs">
+                  <Text fw={700}>Power Quality Snapshot</Text>
+                  <Badge color={quality.pass ? 'green' : 'red'} variant="light">
+                    {quality.pass ? 'COMPLIANT' : 'NON-COMPLIANT'}
+                  </Badge>
+                </Group>
+                <Text size="sm" mb={4}>{quality.assessmentText}</Text>
+                <Text size="sm" c="dimmed">
+                  {isTechnicalReport
+                    ? 'Detailed quality metrics, energy trends, and appendices are available in Advanced details.'
+                    : 'This summary highlights the overall supply quality during the report period.'}
                 </Text>
-                <ResponsiveContainer width="100%" height={260}>
-                  <BarChart data={trendChartData}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                    <XAxis dataKey="x" />
-                    <YAxis yAxisId="left" unit=" %" />
-                    {!useHourlyCharts && <YAxis yAxisId="right" orientation="right" unit=" kWh" />}
-                    <Tooltip cursor={{ fill: 'rgba(255, 255, 255, 0.1)' }} />
-                    <Legend />
-                    <Bar
-                      yAxisId="left"
-                      dataKey="efficiency"
-                      fill="#FFCC59"
-                      name="Efficiency %"
-                      radius={[4, 4, 0, 0]}
-                    />
-                    {!useHourlyCharts && (
+              </Card>
+            )}
+
+            {isTechnicalReport && showAdvanced && (
+              <>
+                <Card p="md" radius="md" withBorder>
+                  <Text fw={700} mb="md">Per-Phase Compliance</Text>
+                  <Table.ScrollContainer minWidth={500}>
+                    <Table>
+                      <Table.Thead>
+                        <Table.Tr>
+                          <Table.Th>Phase</Table.Th>
+                          <Table.Th>Compliant Windows</Table.Th>
+                          <Table.Th>Compliance</Table.Th>
+                          <Table.Th>Status</Table.Th>
+                        </Table.Tr>
+                      </Table.Thead>
+                      <Table.Tbody>
+                        {(['L1', 'L2', 'L3'] as const).map((phase) => {
+                          const pct =
+                            phase === 'L1'
+                              ? report.compliance.compliancePctL1
+                              : phase === 'L2'
+                                ? report.compliance.compliancePctL2
+                                : report.compliance.compliancePctL3;
+                          const compliant =
+                            phase === 'L1'
+                              ? report.compliance.compliantWindowsL1
+                              : phase === 'L2'
+                                ? report.compliance.compliantWindowsL2
+                                : report.compliance.compliantWindowsL3;
+
+                          return (
+                            <Table.Tr key={phase}>
+                              <Table.Td><Badge variant="light">{phase}</Badge></Table.Td>
+                              <Table.Td>{compliant} / {report.compliance.totalWindows}</Table.Td>
+                              <Table.Td>
+                                <Group gap="xs">
+                                  <Progress
+                                    value={pct}
+                                    color={pct >= 95 ? 'green' : pct >= 90 ? 'yellow' : 'red'}
+                                    size="sm"
+                                    radius="xl"
+                                    style={{ flex: 1 }}
+                                  />
+                                  <Text size="sm" fw={600} style={{ minWidth: 48 }}>{pct}%</Text>
+                                </Group>
+                              </Table.Td>
+                              <Table.Td>
+                                <Badge color={pct >= 95 ? 'green' : 'red'} variant="light">
+                                  {pct >= 95 ? 'PASS' : 'FAIL'}
+                                </Badge>
+                              </Table.Td>
+                            </Table.Tr>
+                          );
+                        })}
+                      </Table.Tbody>
+                    </Table>
+                  </Table.ScrollContainer>
+                </Card>
+
+                <Card p="md" radius="md" withBorder>
+                  <Group justify="space-between" mb="xs">
+                    <Text fw={700}>Power Quality Assessment</Text>
+                    <Badge color={quality.pass ? 'green' : 'red'} variant="light">
+                      {quality.pass ? 'COMPLIANT' : 'NON-COMPLIANT'}
+                    </Badge>
+                  </Group>
+
+                  <SimpleGrid cols={{ base: 1, sm: 4 }} mb="md">
+                    <Card p="sm" withBorder>
+                      <Text size="xs" c="dimmed">Average compliance</Text>
+                      <Text fw={700} fz="lg">{quality.averageCompliancePct.toFixed(2)}%</Text>
+                    </Card>
+                    <Card p="sm" withBorder>
+                      <Text size="xs" c="dimmed">Worst phase</Text>
+                      <Text fw={700} fz="lg">{quality.worstPhase}</Text>
+                    </Card>
+                    <Card p="sm" withBorder>
+                      <Text size="xs" c="dimmed">Worst-phase compliance</Text>
+                      <Text fw={700} fz="lg">{quality.worstPhaseCompliancePct.toFixed(2)}%</Text>
+                    </Card>
+                    <Card p="sm" withBorder>
+                      <Text size="xs" c="dimmed">Dominant anomaly</Text>
+                      <Text fw={700} fz="lg">{quality.dominantAnomalyType ?? 'None'}</Text>
+                    </Card>
+                  </SimpleGrid>
+
+                  <Text size="sm" mb={4}>{quality.assessmentText}</Text>
+                  <Text size="sm" c="dimmed">{quality.recommendationText}</Text>
+                </Card>
+              </>
+            )}
+
+            <Card p="md" radius="md" withBorder>
+              <Text fw={700} mb="xs">
+                {isSolarReport ? 'Solar energy summary' : 'Report summary'}
+              </Text>
+              <Text size="sm" c="dimmed">{insights.narrative}</Text>
+
+              <SimpleGrid cols={{ base: 1, sm: 4 }} mt="md">
+                <Card p="sm" withBorder>
+                  <Text size="xs" c="dimmed">{isSolarReport ? 'Total imported' : 'Total consumed'}</Text>
+                  <Text fw={700} fz="xl">{insights.totalEnergyConsumedKwh.toFixed(2)} kWh</Text>
+                </Card>
+                <Card p="sm" withBorder>
+                  <Text size="xs" c="dimmed">{isSolarReport ? 'Total exported' : 'Total returned'}</Text>
+                  <Text fw={700} fz="xl">{insights.totalEnergyReturnedKwh.toFixed(2)} kWh</Text>
+                </Card>
+                <Card p="sm" withBorder>
+                  <Text size="xs" c="dimmed">Avg efficiency</Text>
+                  <Text fw={700} fz="xl">
+                    {insights.averageEfficiencyPct != null
+                      ? `${insights.averageEfficiencyPct.toFixed(1)}%`
+                      : '—'}
+                  </Text>
+                </Card>
+                <Card p="sm" withBorder>
+                  <Text size="xs" c="dimmed">Avg hourly electricity</Text>
+                  <Text fw={700} fz="xl">
+                    {insights.averageHourlyElectricityKwh != null
+                      ? `${insights.averageHourlyElectricityKwh.toFixed(3)} kWh`
+                      : '—'}
+                  </Text>
+                </Card>
+              </SimpleGrid>
+            </Card>
+
+            {shouldShowCharts && (
+              isHomeReport ? (
+                <Card p="md" radius="md" withBorder>
+                  <Text fw={700} mb="md">
+                    {useHourlyCharts ? 'Hourly electricity consumption' : 'Daily electricity consumption'}
+                  </Text>
+                  <ResponsiveContainer width="100%" height={260}>
+                    <BarChart data={trendChartData}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                      <XAxis dataKey="x" />
+                      <YAxis unit=" kWh" />
+                      <Tooltip cursor={{ fill: 'rgba(255, 255, 255, 0.1)' }} />
                       <Bar
-                        yAxisId="right"
-                        dataKey="hourly"
+                        dataKey="value"
                         fill="#8ACDEA"
-                        name="Avg hourly kWh"
+                        name="Consumed"
                         radius={[4, 4, 0, 0]}
                       />
-                    )}
-                  </BarChart>
-                </ResponsiveContainer>
-              </Card>
-            </SimpleGrid>
-          )}
+                    </BarChart>
+                  </ResponsiveContainer>
+                </Card>
+              ) : (
+                <SimpleGrid cols={{ base: 1, lg: 2 }}>
+                  <Card p="md" radius="md" withBorder>
+                    <Text fw={700} mb="md">
+                      {isSolarReport
+                        ? (useHourlyCharts ? 'Hourly exported energy' : 'Daily exported energy')
+                        : (useHourlyCharts ? 'Hourly electricity consumption' : 'Daily electricity consumption')}
+                    </Text>
+                    <ResponsiveContainer width="100%" height={260}>
+                      <BarChart data={trendChartData}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                        <XAxis dataKey="x" />
+                        <YAxis unit=" kWh" />
+                        <Tooltip cursor={{ fill: 'rgba(255, 255, 255, 0.1)' }} />
+                        <Bar
+                          dataKey={isSolarReport ? 'returned' : 'value'}
+                          fill="#8ACDEA"
+                          name={isSolarReport ? 'Returned' : 'Consumed'}
+                          radius={[4, 4, 0, 0]}
+                        />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </Card>
 
-          {!shouldShowCharts && (
-            <Text size="xs" c="dimmed" ta="center">
-              {useHourlyCharts
-                ? 'Not enough hourly points for trend charts in this interval.'
-                : 'Not enough full-day points for trend charts in this period.'}
-            </Text>
-          )}
-
-          {fullDays.length < insights.daily.length && (
-            <Text size="xs" c="dimmed" ta="center">
-              Partial first/last day points are excluded from charts to reduce boundary skew.
-            </Text>
-          )}
-        </>
-      )}
-
-      {showAdvanced && insights.anomalyTypeDistribution.length > 0 && (
-        <SimpleGrid cols={{ base: 1, lg: 2 }}>
-          <Card p="md" radius="md" withBorder>
-            <Text fw={700} mb="md">Anomaly type distribution</Text>
-            <ResponsiveContainer width="100%" height={260}>
-              <PieChart>
-                <Pie
-                  data={insights.anomalyTypeDistribution}
-                  dataKey="count"
-                  nameKey="type"
-                  outerRadius={90}
-                  label
-                >
-                  {insights.anomalyTypeDistribution.map((entry, idx) => (
-                    <Cell key={`${entry.type}-${idx}`} fill={anomalyColor(entry.type, idx)} />
-                  ))}
-                </Pie>
-                <Tooltip />
-                <Legend />
-              </PieChart>
-            </ResponsiveContainer>
-          </Card>
-
-          <Card p="md" radius="md" withBorder>
-            <Text fw={700} mb="md">Transmission error appendix</Text>
-            <Table.ScrollContainer minWidth={400}>
-              <Table>
-                <Table.Thead>
-                  <Table.Tr>
-                    <Table.Th>Type</Table.Th>
-                    <Table.Th>Meaning</Table.Th>
-                  </Table.Tr>
-                </Table.Thead>
-                <Table.Tbody>
-                  {insights.anomalyAppendix.map((item) => (
-                    <Table.Tr key={item.type}>
-                      <Table.Td>{item.type}</Table.Td>
-                      <Table.Td>{item.description}</Table.Td>
-                    </Table.Tr>
-                  ))}
-                </Table.Tbody>
-              </Table>
-            </Table.ScrollContainer>
-          </Card>
-        </SimpleGrid>
-      )}
-
-      <Card p="md" radius="md" withBorder>
-        <Text fw={700} mb="xs">Voltage anomaly analysis (60-minute context)</Text>
-        <Text size="sm" c="dimmed" mb="md">
-          Open an anomaly to view a 30-minute pre-event and 30-minute post-event context window.
-        </Text>
-
-        {report.anomalySummary.length === 0 ? (
-          <Alert color="green" title="Clean Health Status">
-            No anomalies detected in this reporting period.
-          </Alert>
-        ) : (
-          <Accordion
-            value={openedAnomalyKey}
-            onChange={handleAnomalyAccordionChange}
-            chevronPosition="left"
-          >
-            {report.anomalySummary.map((a, index) => {
-              const itemKey = String(index);
-              const context = a.id != null ? contextByAnomalyId[a.id] : undefined;
-              const contextError = a.id != null ? contextErrorByAnomalyId[a.id] : undefined;
-              const isLoading = a.id != null && loadingAnomalyId === a.id;
-
-              return (
-                <Accordion.Item key={`${a.startsAt}-${a.phase}-${index}`} value={itemKey}>
-                  <Accordion.Control>
-                    <Group justify="space-between" wrap="wrap" gap="xs">
-                      <Group gap="xs" wrap="wrap">
-                        <Badge color={severityColor(a.severity)} variant="light">{a.severity}</Badge>
-                        <Badge variant="light">{a.type}</Badge>
-                        <Badge variant="outline">{a.phase}</Badge>
-                        <Text size="sm" fw={600}>{formatDate(a.startsAt)}</Text>
-                      </Group>
-                      <Group gap="md" wrap="wrap">
-                        <Text size="xs" c="dimmed">Duration: {formatDuration(a.durationSeconds)}</Text>
-                        <Text size="xs" c="dimmed">
-                          Min/Max: {a.minVoltage != null ? `${a.minVoltage.toFixed(1)} V` : '—'} / {a.maxVoltage != null ? `${a.maxVoltage.toFixed(1)} V` : '—'}
-                        </Text>
-                      </Group>
-                    </Group>
-                  </Accordion.Control>
-                  <Accordion.Panel>
-                    <SimpleGrid cols={{ base: 1, sm: 3 }} mb="md">
-                      <Card p="sm" withBorder>
-                        <Text size="xs" c="dimmed">Start time</Text>
-                        <Text fw={600}>{formatDate(a.startsAt)}</Text>
-                      </Card>
-                      <Card p="sm" withBorder>
-                        <Text size="xs" c="dimmed">End time</Text>
-                        <Text fw={600}>{a.endsAt ? formatDate(a.endsAt) : '—'}</Text>
-                      </Card>
-                      <Card p="sm" withBorder>
-                        <Text size="xs" c="dimmed">Type / phase</Text>
-                        <Text fw={600}>{a.type} / {a.phase}</Text>
-                      </Card>
-                    </SimpleGrid>
-
-                    {a.id == null && (
-                      <Alert color="yellow" title="Context unavailable">
-                        This anomaly does not have a stored identifier yet. Re-generate this report to enable context slicing.
-                      </Alert>
-                    )}
-
-                    {isLoading && (
-                      <Group gap="sm" mt="xs">
-                        <Loader size="sm" />
-                        <Text size="sm" c="dimmed">Loading anomaly context...</Text>
-                      </Group>
-                    )}
-
-                    {contextError && (
-                      <Alert mt="xs" color="red" title="Failed to load anomaly context">
-                        {contextError}
-                      </Alert>
-                    )}
-
-                    {context && (
-                      <>
-                        <Group justify="space-between" mb="xs">
-                          <Text size="sm" c="dimmed">
-                            Context range: {formatDate(context.context.startsAt)} – {formatDate(context.context.endsAt)}
-                          </Text>
-                          <Text size="xs" c="dimmed">
-                            Points: {context.context.returnedPointCount}/{context.context.rawPointCount}
-                            {context.context.downsampled ? ' (downsampled)' : ''}
-                          </Text>
-                        </Group>
-                        <Text size="xs" c="dimmed" mb="xs">
-                          Dashed gray lines are compliance limits: 220V and 240V.
-                        </Text>
-
-                        <ResponsiveContainer width="100%" height={320}>
-                          <LineChart data={context.points}>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                            <XAxis
-                              dataKey="timestamp"
-                              tickFormatter={toChartTimeOnlyLabel}
-                              minTickGap={28}
-                            />
-                            <YAxis yAxisId="voltage" unit=" V" />
-                            <YAxis yAxisId="power" orientation="right" unit=" kW" />
-                            <ReferenceLine yAxisId="voltage" y={220} stroke="#868e96" strokeDasharray="4 4" />
-                            <ReferenceLine yAxisId="voltage" y={240} stroke="#868e96" strokeDasharray="4 4" />
-                            <Tooltip
-                              labelFormatter={(label) => formatDate(String(label))}
-                              formatter={(value, name) => {
-                                if (typeof value !== 'number') return ['—', name];
-                                if (String(name).toLowerCase().includes('voltage')) {
-                                  return [`${value.toFixed(2)} V`, name];
-                                }
-                                return [`${value.toFixed(3)} kW`, name];
-                              }}
-                            />
+                  <Card p="md" radius="md" withBorder>
+                    <Text fw={700} mb="md">
+                      {isSolarReport
+                        ? (useHourlyCharts ? 'Hourly import/export trend' : 'Import and export comparison')
+                        : (useHourlyCharts ? 'Hourly efficiency trend' : 'Efficiency and avg hourly use')}
+                    </Text>
+                    <ResponsiveContainer width="100%" height={260}>
+                      <BarChart data={trendChartData}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                        <XAxis dataKey="x" />
+                        {isSolarReport ? (
+                          <>
+                            <YAxis yAxisId="left" unit=" kWh" />
+                            <Tooltip cursor={{ fill: 'rgba(255, 255, 255, 0.1)' }} />
                             <Legend />
-                            <Line
-                              yAxisId="voltage"
-                              type="monotone"
-                              dataKey="voltage"
-                              name={`${phaseName(a.phase)} voltage`}
-                              stroke="#c92a2a"
-                              strokeWidth={2}
-                              dot={false}
-                              connectNulls
+                            <Bar
+                              yAxisId="left"
+                              dataKey="value"
+                              fill="#FFCC59"
+                              name="Consumed"
+                              radius={[4, 4, 0, 0]}
                             />
-                            {a.phase !== 'L1' && (
-                              <Line
-                                yAxisId="voltage"
-                                type="monotone"
-                                dataKey="voltageL1"
-                                name="L1 voltage"
-                                stroke="#495057"
-                                strokeWidth={1}
-                                dot={false}
-                                connectNulls
-                              />
-                            )}
-                            {a.phase !== 'L2' && (
-                              <Line
-                                yAxisId="voltage"
-                                type="monotone"
-                                dataKey="voltageL2"
-                                name="L2 voltage"
-                                stroke="#868e96"
-                                strokeWidth={1}
-                                dot={false}
-                                connectNulls
-                              />
-                            )}
-                            {a.phase !== 'L3' && (
-                              <Line
-                                yAxisId="voltage"
-                                type="monotone"
-                                dataKey="voltageL3"
-                                name="L3 voltage"
-                                stroke="#adb5bd"
-                                strokeWidth={1}
-                                dot={false}
-                                connectNulls
-                              />
-                            )}
-                            <Line
-                              yAxisId="power"
-                              type="monotone"
-                              dataKey="powerKw"
-                              name="Total Power Delivered"
-                              stroke="#1c7ed6"
-                              strokeWidth={2}
-                              dot={false}
-                              connectNulls
+                            <Bar
+                              yAxisId="left"
+                              dataKey="returned"
+                              fill="#8ACDEA"
+                              name="Returned"
+                              radius={[4, 4, 0, 0]}
                             />
-                          </LineChart>
-                        </ResponsiveContainer>
-                      </>
-                    )}
-                  </Accordion.Panel>
-                </Accordion.Item>
-              );
-            })}
-          </Accordion>
-        )}
-      </Card>
+                          </>
+                        ) : (
+                          <>
+                            <YAxis yAxisId="left" unit=" %" />
+                            {!useHourlyCharts && <YAxis yAxisId="right" orientation="right" unit=" kWh" />}
+                            <Tooltip cursor={{ fill: 'rgba(255, 255, 255, 0.1)' }} />
+                            <Legend />
+                            <Bar
+                              yAxisId="left"
+                              dataKey="efficiency"
+                              fill="#FFCC59"
+                              name="Efficiency %"
+                              radius={[4, 4, 0, 0]}
+                            />
+                            {!useHourlyCharts && (
+                              <Bar
+                                yAxisId="right"
+                                dataKey="hourly"
+                                fill="#8ACDEA"
+                                name="Avg hourly kWh"
+                                radius={[4, 4, 0, 0]}
+                              />
+                            )}
+                          </>
+                        )}
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </Card>
+                </SimpleGrid>
+              )
+            )}
 
-      <Text size="xs" c="dimmed" ta="center">
-        Standard: LST EN 50160 — ≥95% of 10-min RMS windows must be within 230V ±10V
-      </Text>
+            {!shouldShowCharts && (
+              <Text size="xs" c="dimmed" ta="center">
+                {useHourlyCharts
+                  ? 'Not enough hourly points for trend charts in this interval.'
+                  : 'Not enough full-day points for trend charts in this period.'}
+              </Text>
+            )}
+
+            {fullDays.length < insights.daily.length && (
+              <Text size="xs" c="dimmed" ta="center">
+                Partial first/last day points are excluded from charts to reduce boundary skew.
+              </Text>
+            )}
+
+            {isTechnicalReport && showAdvanced && insights.anomalyTypeDistribution.length > 0 && (
+              <SimpleGrid cols={{ base: 1, lg: 2 }}>
+                <Card p="md" radius="md" withBorder>
+                  <Text fw={700} mb="md">Anomaly type distribution</Text>
+                  <ResponsiveContainer width="100%" height={260}>
+                    <PieChart>
+                      <Pie
+                        data={insights.anomalyTypeDistribution}
+                        dataKey="count"
+                        nameKey="type"
+                        outerRadius={90}
+                        label
+                      >
+                        {insights.anomalyTypeDistribution.map((entry, idx) => (
+                          <Cell key={`${entry.type}-${idx}`} fill={anomalyColor(entry.type, idx)} />
+                        ))}
+                      </Pie>
+                      <Tooltip />
+                      <Legend />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </Card>
+
+                <Card p="md" radius="md" withBorder>
+                  <Text fw={700} mb="md">Transmission error appendix</Text>
+                  <Table.ScrollContainer minWidth={400}>
+                    <Table>
+                      <Table.Thead>
+                        <Table.Tr>
+                          <Table.Th>Type</Table.Th>
+                          <Table.Th>Meaning</Table.Th>
+                        </Table.Tr>
+                      </Table.Thead>
+                      <Table.Tbody>
+                        {insights.anomalyAppendix.map((item) => (
+                          <Table.Tr key={item.type}>
+                            <Table.Td>{item.type}</Table.Td>
+                            <Table.Td>{item.description}</Table.Td>
+                          </Table.Tr>
+                        ))}
+                      </Table.Tbody>
+                    </Table>
+                  </Table.ScrollContainer>
+                </Card>
+              </SimpleGrid>
+            )}
+
+            {isTechnicalReport && showAdvanced && (
+              <Card p="md" radius="md" withBorder>
+                <Text fw={700} mb="xs">Voltage anomaly analysis (60-minute context)</Text>
+                <Text size="sm" c="dimmed" mb="md">
+                  Open an anomaly to view a 30-minute pre-event and 30-minute post-event context window.
+                </Text>
+
+                {report.anomalySummary.length === 0 ? (
+                  <Alert color="green" title="Clean Health Status">
+                    No anomalies detected in this reporting period.
+                  </Alert>
+                ) : (
+                  <Accordion
+                    value={openedAnomalyKey}
+                    onChange={handleAnomalyAccordionChange}
+                    chevronPosition="left"
+                  >
+                    {report.anomalySummary.map((a, index) => {
+                      const itemKey = String(index);
+                      const context = a.id != null ? contextByAnomalyId[a.id] : undefined;
+                      const contextError = a.id != null ? contextErrorByAnomalyId[a.id] : undefined;
+                      const isLoading = a.id != null && loadingAnomalyId === a.id;
+
+                      return (
+                        <Accordion.Item key={`${a.startsAt}-${a.phase}-${index}`} value={itemKey}>
+                          <Accordion.Control>
+                            <Group justify="space-between" wrap="wrap" gap="xs">
+                              <Group gap="xs" wrap="wrap">
+                                <Badge color={severityColor(a.severity)} variant="light">{a.severity}</Badge>
+                                <Badge variant="light">{a.type}</Badge>
+                                <Badge variant="outline">{a.phase}</Badge>
+                                <Text size="sm" fw={600}>{formatDate(a.startsAt)}</Text>
+                              </Group>
+                              <Group gap="md" wrap="wrap">
+                                <Text size="xs" c="dimmed">Duration: {formatDuration(a.durationSeconds)}</Text>
+                                <Text size="xs" c="dimmed">
+                                  Min/Max: {a.minVoltage != null ? `${a.minVoltage.toFixed(1)} V` : '—'} / {a.maxVoltage != null ? `${a.maxVoltage.toFixed(1)} V` : '—'}
+                                </Text>
+                              </Group>
+                            </Group>
+                          </Accordion.Control>
+                          <Accordion.Panel>
+                            <SimpleGrid cols={{ base: 1, sm: 3 }} mb="md">
+                              <Card p="sm" withBorder>
+                                <Text size="xs" c="dimmed">Start time</Text>
+                                <Text fw={600}>{formatDate(a.startsAt)}</Text>
+                              </Card>
+                              <Card p="sm" withBorder>
+                                <Text size="xs" c="dimmed">End time</Text>
+                                <Text fw={600}>{a.endsAt ? formatDate(a.endsAt) : '—'}</Text>
+                              </Card>
+                              <Card p="sm" withBorder>
+                                <Text size="xs" c="dimmed">Type / phase</Text>
+                                <Text fw={600}>{a.type} / {a.phase}</Text>
+                              </Card>
+                            </SimpleGrid>
+
+                            {a.id == null && (
+                              <Alert color="yellow" title="Context unavailable">
+                                This anomaly does not have a stored identifier yet. Re-generate this report to enable context slicing.
+                              </Alert>
+                            )}
+
+                            {isLoading && (
+                              <Group gap="sm" mt="xs">
+                                <Loader size="sm" />
+                                <Text size="sm" c="dimmed">Loading anomaly context...</Text>
+                              </Group>
+                            )}
+
+                            {contextError && (
+                              <Alert mt="xs" color="red" title="Failed to load anomaly context">
+                                {contextError}
+                              </Alert>
+                            )}
+
+                            {context && (
+                              <>
+                                <Group justify="space-between" mb="xs">
+                                  <Text size="sm" c="dimmed">
+                                    Context range: {formatDate(context.context.startsAt)} – {formatDate(context.context.endsAt)}
+                                  </Text>
+                                  <Text size="xs" c="dimmed">
+                                    Points: {context.context.returnedPointCount}/{context.context.rawPointCount}
+                                    {context.context.downsampled ? ' (downsampled)' : ''}
+                                  </Text>
+                                </Group>
+                                <Text size="xs" c="dimmed" mb="xs">
+                                  Dashed gray lines are compliance limits: 220V and 240V.
+                                </Text>
+
+                                <ResponsiveContainer width="100%" height={320}>
+                                  <LineChart data={context.points}>
+                                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                    <XAxis
+                                      dataKey="timestamp"
+                                      tickFormatter={toChartTimeOnlyLabel}
+                                      minTickGap={28}
+                                    />
+                                    <YAxis yAxisId="voltage" unit=" V" />
+                                    <YAxis yAxisId="power" orientation="right" unit=" kW" />
+                                    <ReferenceLine yAxisId="voltage" y={220} stroke="#868e96" strokeDasharray="4 4" />
+                                    <ReferenceLine yAxisId="voltage" y={240} stroke="#868e96" strokeDasharray="4 4" />
+                                    <Tooltip
+                                      labelFormatter={(label) => formatDate(String(label))}
+                                      formatter={(value, name) => {
+                                        if (typeof value !== 'number') return ['—', name];
+                                        if (String(name).toLowerCase().includes('voltage')) {
+                                          return [`${value.toFixed(2)} V`, name];
+                                        }
+                                        return [`${value.toFixed(3)} kW`, name];
+                                      }}
+                                    />
+                                    <Legend />
+                                    <Line
+                                      yAxisId="voltage"
+                                      type="monotone"
+                                      dataKey="voltage"
+                                      name={`${phaseName(a.phase)} voltage`}
+                                      stroke="#c92a2a"
+                                      strokeWidth={2}
+                                      dot={false}
+                                      connectNulls
+                                    />
+                                    {a.phase !== 'L1' && (
+                                      <Line
+                                        yAxisId="voltage"
+                                        type="monotone"
+                                        dataKey="voltageL1"
+                                        name="L1 voltage"
+                                        stroke="#495057"
+                                        strokeWidth={1}
+                                        dot={false}
+                                        connectNulls
+                                      />
+                                    )}
+                                    {a.phase !== 'L2' && (
+                                      <Line
+                                        yAxisId="voltage"
+                                        type="monotone"
+                                        dataKey="voltageL2"
+                                        name="L2 voltage"
+                                        stroke="#868e96"
+                                        strokeWidth={1}
+                                        dot={false}
+                                        connectNulls
+                                      />
+                                    )}
+                                    {a.phase !== 'L3' && (
+                                      <Line
+                                        yAxisId="voltage"
+                                        type="monotone"
+                                        dataKey="voltageL3"
+                                        name="L3 voltage"
+                                        stroke="#adb5bd"
+                                        strokeWidth={1}
+                                        dot={false}
+                                        connectNulls
+                                      />
+                                    )}
+                                    <Line
+                                      yAxisId="power"
+                                      type="monotone"
+                                      dataKey="powerKw"
+                                      name="Total Power Delivered"
+                                      stroke="#1c7ed6"
+                                      strokeWidth={2}
+                                      dot={false}
+                                      connectNulls
+                                    />
+                                  </LineChart>
+                                </ResponsiveContainer>
+                              </>
+                            )}
+                          </Accordion.Panel>
+                        </Accordion.Item>
+                      );
+                    })}
+                  </Accordion>
+                )}
+              </Card>
+            )}
+
+            <Text size="xs" c="dimmed" ta="center">
+              Standard: LST EN 50160 — ≥95% of 10-min RMS windows must be within 230V ±10V
+            </Text>
           </>
         );
       })()}
@@ -1071,8 +1142,8 @@ export function ReportsPage() {
   const [selectedReportId, setSelectedReportId] = useState<number | null>(null);
   const [generating, setGenerating] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [reportUse, setReportUse] = useState<'home' | 'technical' | 'solar'>('home');
 
-  // Fetch devices for the generate form
   const { data: devicesRaw } = usePolling<DeviceListResponse[]>(
     ['settings', 'all'],
     '/api/settings',
@@ -1083,29 +1154,65 @@ export function ReportsPage() {
     name: d.name,
   }));
 
-  // Report list
   const { data: reportList, refetch: refetchReports } = usePolling<ReportListResponse>(
     ['reports', 'list'],
     '/api/reports?limit=50',
     { intervalSeconds: 30 },
   );
 
-  // Report detail (only fetched when selected)
   const { data: reportDetail } = usePolling<ReportDetail>(
     ['reports', 'detail', String(selectedReportId)],
     selectedReportId != null ? `/api/reports/${selectedReportId}` : '',
     { intervalSeconds: 300, enabled: selectedReportId != null },
   );
 
-  // Generate form state
   const [genDeviceId, setGenDeviceId] = useState<string | null>(null);
-  const [genPeriod, setGenPeriod] = useState<string | null>('daily');
+  const [genPeriod, setGenPeriod] = useState<string | null>('monthly');
   const [genCustomStartDate, setGenCustomStartDate] = useState<string>(() => {
     const d = new Date();
     d.setDate(d.getDate() - 7);
     return toDateInputValue(d);
   });
   const [genCustomEndDate, setGenCustomEndDate] = useState<string>(() => toDateInputValue(new Date()));
+
+  const HOME_PERIOD_OPTIONS = [
+    { value: 'daily', label: '1 day' },
+    { value: 'weekly', label: '1 week' },
+    { value: 'monthly', label: '1 month' },
+  ];
+
+  const TECHNICAL_PERIOD_OPTIONS = [
+    { value: 'daily', label: '1 day' },
+    { value: 'weekly', label: '1 week' },
+    { value: 'biweekly', label: '2 weeks' },
+    { value: 'monthly', label: '1 month' },
+    { value: 'custom', label: 'Custom range' },
+  ];
+
+  const SOLAR_PERIOD_OPTIONS = [
+    { value: 'daily', label: '1 day' },
+    { value: 'monthly', label: '1 month' },
+  ];
+
+  useEffect(() => {
+    setFormError(null);
+
+    if (reportUse === 'home') {
+      setGenPeriod((prev) =>
+        prev && ['daily', 'weekly', 'monthly'].includes(prev) ? prev : 'monthly',
+      );
+    } else if (reportUse === 'technical') {
+      setGenPeriod((prev) =>
+        prev && ['daily', 'weekly', 'biweekly', 'monthly', 'custom'].includes(prev)
+          ? prev
+          : 'weekly',
+      );
+    } else {
+      setGenPeriod((prev) =>
+        prev && ['daily', 'monthly'].includes(prev) ? prev : 'monthly',
+      );
+    }
+  }, [reportUse]);
 
   const handleGenerate = useCallback(async () => {
     if (!genDeviceId || !genPeriod) return;
@@ -1139,6 +1246,7 @@ export function ReportsPage() {
     try {
       await apiPost('/api/reports/generate', {
         deviceId: parseInt(genDeviceId, 10),
+        reportUse,
         periodType: genPeriod,
         ...(genPeriod === 'custom'
           ? {
@@ -1152,6 +1260,7 @@ export function ReportsPage() {
             }
           : {}),
       });
+
       refetchReports();
     } catch (err) {
       console.error('Report generation failed:', err);
@@ -1165,9 +1274,9 @@ export function ReportsPage() {
     genDeviceId,
     genPeriod,
     refetchReports,
+    reportUse,
   ]);
 
-  // If viewing a report detail
   if (selectedReportId != null && reportDetail) {
     return (
       <Stack p="lg" gap="md" style={{ width: '100%' }}>
@@ -1183,56 +1292,131 @@ export function ReportsPage() {
     );
   }
 
+  const renderGenerateForm = (
+    periodOptions: { value: string; label: string }[],
+    title: string,
+    description: string,
+    bulletPoints: string[],
+  ) => (
+    <Stack gap="sm">
+      <div>
+        <Text fw={600}>{title}</Text>
+        <Text c="dimmed" size="sm" mt={4}>
+          {description}
+        </Text>
+      </div>
+
+      <Stack gap={4}>
+        {bulletPoints.map((item) => (
+          <Text key={item} size="sm" c="dimmed">
+            • {item}
+          </Text>
+        ))}
+      </Stack>
+
+      <Group gap="sm" align="flex-end" wrap="wrap">
+        <Select
+          label="Device"
+          placeholder="Select device"
+          data={devices.map((d) => ({ value: String(d.id), label: d.name }))}
+          value={genDeviceId}
+          onChange={setGenDeviceId}
+          style={{ minWidth: 220 }}
+        />
+
+        <Select
+          label="Data period"
+          data={periodOptions}
+          value={genPeriod}
+          onChange={setGenPeriod}
+          style={{ minWidth: 220 }}
+        />
+
+        {genPeriod === 'custom' && (
+          <>
+            <TextInput
+              label="Start date"
+              type="date"
+              value={genCustomStartDate}
+              onChange={(e) => setGenCustomStartDate(e.currentTarget.value)}
+            />
+            <TextInput
+              label="End date"
+              type="date"
+              value={genCustomEndDate}
+              onChange={(e) => setGenCustomEndDate(e.currentTarget.value)}
+            />
+          </>
+        )}
+
+        <Button
+          onClick={handleGenerate}
+          loading={generating}
+          disabled={!genDeviceId || !genPeriod}
+        >
+          Generate
+        </Button>
+      </Group>
+    </Stack>
+  );
+
   return (
     <Stack p="lg" gap="md" style={{ width: '100%' }}>
       <Title order={2}>Reports</Title>
 
-      {/* Generate new report */}
       <Card p="md" radius="md" withBorder>
         <Text fw={700} mb="md">Generate Report</Text>
-        <Group gap="sm" align="flex-end">
-          <Select
-            label="Device"
-            placeholder="Select device"
-            data={devices.map((d) => ({ value: String(d.id), label: d.name }))}
-            value={genDeviceId}
-            onChange={setGenDeviceId}
-            style={{ minWidth: 200 }}
-          />
-          <Select
-            label="Data period"
-            data={PERIOD_OPTIONS}
-            value={genPeriod}
-            onChange={setGenPeriod}
-            style={{ minWidth: 200 }}
-          />
-          {genPeriod === 'custom' && (
-            <>
-              <TextInput
-                label="Start date"
-                type="date"
-                value={genCustomStartDate}
-                onChange={(e) => setGenCustomStartDate(e.currentTarget.value)}
-              />
-              <TextInput
-                label="End date"
-                type="date"
-                value={genCustomEndDate}
-                onChange={(e) => setGenCustomEndDate(e.currentTarget.value)}
-              />
-            </>
-          )}
-          <Button
-            onClick={handleGenerate}
-            loading={generating}
-            disabled={!genDeviceId || !genPeriod}
-          >
-            Generate
-          </Button>
-        </Group>
-        <Text c="dimmed" size="sm" mt="sm">
-          Available periods: 1 day, 1 week, 2 weeks, 1 month, or custom range (max 2 months / 62 days).
-        </Text>
+
+        <Tabs value={reportUse} onChange={(value) => setReportUse((value as typeof reportUse) ?? 'home')}>
+          <Tabs.List>
+            <Tabs.Tab value="home">Home report</Tabs.Tab>
+            <Tabs.Tab value="technical">Technical report</Tabs.Tab>
+            <Tabs.Tab value="solar">Solar report</Tabs.Tab>
+          </Tabs.List>
+
+          <Tabs.Panel value="home" pt="md">
+            {renderGenerateForm(
+              HOME_PERIOD_OPTIONS,
+              'Homeowner report',
+              'A simple report focused on household electricity use, anomalies, and supply quality.',
+              [
+                'Energy usage over time',
+                'Basic consumption insights',
+                'Anomaly count and summary',
+                'ESO compliance overview',
+              ],
+            )}
+          </Tabs.Panel>
+
+          <Tabs.Panel value="technical" pt="md">
+            {renderGenerateForm(
+              TECHNICAL_PERIOD_OPTIONS,
+              'Technical / professional report',
+              'A more detailed report intended for technical inspection and power-quality analysis.',
+              [
+                'Voltage quality and compliance',
+                'Anomaly review',
+                'Energy and efficiency insights',
+                'Supports custom range investigation',
+              ],
+            )}
+          </Tabs.Panel>
+
+          <Tabs.Panel value="solar" pt="md">
+            {renderGenerateForm(
+              SOLAR_PERIOD_OPTIONS,
+              'Solar owner report',
+              'A basic report for users who want to review exported/generated energy using currently available data.',
+              [
+                'Returned energy insights',
+                'Energy trend review',
+                'Basic anomaly and supply overview',
+                'Single-device basic solar use case',
+              ],
+            )}
+          </Tabs.Panel>
+        </Tabs>
+
         {formError && (
           <Alert color="red" mt="sm" title="Could not generate report">
             {formError}
@@ -1240,18 +1424,18 @@ export function ReportsPage() {
         )}
       </Card>
 
-      {/* Report list */}
       <Card p="md" radius="md" withBorder>
         <Text fw={700} mb="md">
           Generated Reports ({reportList?.count ?? 0})
         </Text>
 
         {reportList && reportList.count > 0 ? (
-          <Table.ScrollContainer minWidth={800}>
+          <Table.ScrollContainer minWidth={900}>
             <Table striped highlightOnHover>
               <Table.Thead>
                 <Table.Tr>
                   <Table.Th>Device</Table.Th>
+                  <Table.Th>Type</Table.Th>
                   <Table.Th>Period</Table.Th>
                   <Table.Th>Date Range</Table.Th>
                   <Table.Th>Health</Table.Th>
@@ -1261,70 +1445,76 @@ export function ReportsPage() {
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
-              {reportList.data.map((r) => {
-                const avgPct = +(
-                  (r.compliancePctL1 + r.compliancePctL2 + r.compliancePctL3) / 3
-                ).toFixed(1);
-                return (
-                  <Table.Tr key={r.id}>
-                    <Table.Td>{r.deviceName}</Table.Td>
-                    <Table.Td>
-                      <Badge variant="light" size="sm">
-                        {periodLabel(r.periodType)}
-                      </Badge>
-                    </Table.Td>
-                    <Table.Td>
-                      {formatDate(r.startsAt)} – {formatDate(r.endsAt)}
-                    </Table.Td>
-                    <Table.Td>
-                      <Badge color={healthColor(r.healthScore)} variant="light">
-                        {r.healthScore}
-                      </Badge>
-                    </Table.Td>
-                    <Table.Td>
-                      <Group gap="xs">
-                        <Progress
-                          value={avgPct}
-                          color={avgPct >= 95 ? 'green' : avgPct >= 90 ? 'yellow' : 'red'}
-                          size="sm"
-                          radius="xl"
-                          style={{ width: 60 }}
-                        />
-                        <Text size="sm">{avgPct}%</Text>
-                      </Group>
-                    </Table.Td>
-                    <Table.Td>
-                      {r.totalAnomalies > 0 ? (
-                        <Group gap={4}>
-                          <Text size="sm">{r.totalAnomalies}</Text>
-                          {r.criticalCount > 0 && (
-                            <Badge color="red" size="xs">{r.criticalCount} crit</Badge>
-                          )}
+                {reportList.data.map((r) => {
+                  const avgPct = +(
+                    (r.compliancePctL1 + r.compliancePctL2 + r.compliancePctL3) / 3
+                  ).toFixed(1);
+
+                  return (
+                    <Table.Tr key={r.id}>
+                      <Table.Td>{r.deviceName}</Table.Td>
+                      <Table.Td>
+                        <Badge variant="light" size="sm">
+                          {reportUseLabel(r.reportUse)}
+                        </Badge>
+                      </Table.Td>
+                      <Table.Td>
+                        <Badge variant="light" size="sm">
+                          {periodLabel(r.periodType)}
+                        </Badge>
+                      </Table.Td>
+                      <Table.Td>
+                        {formatDate(r.startsAt)} – {formatDate(r.endsAt)}
+                      </Table.Td>
+                      <Table.Td>
+                        <Badge color={healthColor(r.healthScore)} variant="light">
+                          {r.healthScore}
+                        </Badge>
+                      </Table.Td>
+                      <Table.Td>
+                        <Group gap="xs">
+                          <Progress
+                            value={avgPct}
+                            color={avgPct >= 95 ? 'green' : avgPct >= 90 ? 'yellow' : 'red'}
+                            size="sm"
+                            radius="xl"
+                            style={{ width: 60 }}
+                          />
+                          <Text size="sm">{avgPct}%</Text>
                         </Group>
-                      ) : (
-                        <Text size="sm" c="dimmed">0</Text>
-                      )}
-                    </Table.Td>
-                    <Table.Td>
-                      <Button
-                        variant="light"
-                        size="xs"
-                        onClick={() => setSelectedReportId(r.id)}
-                      >
-                        View
-                      </Button>
-                    </Table.Td>
-                  </Table.Tr>
-                );
-              })}
-            </Table.Tbody>
-          </Table>
-        </Table.ScrollContainer>
+                      </Table.Td>
+                      <Table.Td>
+                        {r.totalAnomalies > 0 ? (
+                          <Group gap={4}>
+                            <Text size="sm">{r.totalAnomalies}</Text>
+                            {r.criticalCount > 0 && (
+                              <Badge color="red" size="xs">{r.criticalCount} crit</Badge>
+                            )}
+                          </Group>
+                        ) : (
+                          <Text size="sm" c="dimmed">0</Text>
+                        )}
+                      </Table.Td>
+                      <Table.Td>
+                        <Button
+                          variant="light"
+                          size="xs"
+                          onClick={() => setSelectedReportId(r.id)}
+                        >
+                          View
+                        </Button>
+                      </Table.Td>
+                    </Table.Tr>
+                  );
+                })}
+              </Table.Tbody>
+            </Table>
+          </Table.ScrollContainer>
         ) : (
           <Box py="xl">
             <Text c="dimmed" ta="center">
-              No reports generated yet. Use the form above or wait for the weekly
-              automatic report (runs every Monday at 00:01).
+              No reports generated yet. Use one of the report sections above or wait for the weekly
+              automatic report.
             </Text>
           </Box>
         )}
