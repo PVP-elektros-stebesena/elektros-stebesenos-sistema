@@ -3,15 +3,9 @@
  *
  * Compiles stored aggregated windows and anomalies into
  * LST EN 50160 compliance reports for a given device and date range.
- *
- * Health-score logic:
- *   GREEN  — compliance >= 95% on all phases AND zero CRITICAL anomalies
- *   YELLOW — compliance 90-95% on any phase OR any WARNING deviations present
- *   RED    — compliance < 90% on any phase OR any LONG_INTERRUPTION (CRITICAL)
  */
 
 import prisma from '../lib/prisma.js';
-import { ESO } from '../config/eso.js';
 import type { RmsWindowResult, WeeklyComplianceResult } from './voltageAnalysis.js';
 import { calculateWeeklyCompliance } from './voltageAnalysis.js';
 
@@ -19,6 +13,7 @@ import { calculateWeeklyCompliance } from './voltageAnalysis.js';
 
 export type HealthScore = 'GREEN' | 'YELLOW' | 'RED';
 export type PeriodType = 'daily' | 'weekly' | 'biweekly' | 'monthly' | 'custom';
+export type ReportUse = 'home' | 'technical' | 'solar';
 
 export interface PeriodRange {
   startsAt: Date;
@@ -39,6 +34,7 @@ export interface AnomalySummaryRow {
 
 export interface GeneratedReport {
   deviceId: number;
+  reportUse: ReportUse;
   periodType: PeriodType;
   startsAt: Date;
   endsAt: Date;
@@ -100,20 +96,13 @@ export function computeHealthScore(
     compliance.compliancePctL3,
   ];
 
-  const hasLongInterruption = anomalies.some(
-    (a) => a.type === 'LONG_INTERRUPTION',
-  );
+  const hasLongInterruption = anomalies.some((a) => a.type === 'LONG_INTERRUPTION');
   const hasCritical = anomalies.some((a) => a.severity === 'CRITICAL');
   const hasWarning = anomalies.some((a) => a.severity === 'WARNING');
   const minPct = Math.min(...pcts);
 
-  // RED conditions
   if (minPct < 90 || hasLongInterruption) return 'RED';
-
-  // YELLOW conditions
   if (minPct < 95 || hasWarning) return 'YELLOW';
-
-  // GREEN: all phases >= 95% AND no CRITICAL anomalies
   if (hasCritical) return 'YELLOW';
 
   return 'GREEN';
@@ -121,7 +110,6 @@ export function computeHealthScore(
 
 // ── Week boundary helpers ──────────────────────────────────────
 
-/** Get the Monday 00:00 of the week containing `date` */
 export function getWeekStart(date: Date): Date {
   const d = new Date(date);
   const day = d.getDay();
@@ -131,24 +119,20 @@ export function getWeekStart(date: Date): Date {
   return d;
 }
 
-/** Get the first day of the month containing `date` */
 export function getMonthStart(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), 1, 0, 0, 0, 0);
 }
 
-/** Get the first day of the next month */
 export function getMonthEnd(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth() + 1, 1, 0, 0, 0, 0);
 }
 
-/** Start of day in local time */
 function getDayStart(date: Date): Date {
   const d = new Date(date);
   d.setHours(0, 0, 0, 0);
   return d;
 }
 
-/** ISO week number (1-53) */
 function getIsoWeekNumber(date: Date): number {
   const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
   d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
@@ -156,7 +140,6 @@ function getIsoWeekNumber(date: Date): number {
   return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
 }
 
-/** Resolve deterministic report ranges for preset period types.*/
 export function resolvePresetPeriodRange(
   periodType: Exclude<PeriodType, 'custom'>,
   referenceDate: Date,
@@ -192,17 +175,13 @@ export function resolvePresetPeriodRange(
 
 // ── Core report generation ─────────────────────────────────────
 
-/**
- * Generate a report for a specific device and date range.
- * Does NOT persist — call `saveReport()` separately.
- */
 export async function generateReport(
   deviceId: number,
+  reportUse: ReportUse,
   periodType: PeriodType,
   startsAt: Date,
   endsAt: Date,
 ): Promise<GeneratedReport> {
-  // 1. Fetch aggregated windows
   const windowRows = await prisma.aggregatedData.findMany({
     where: {
       deviceId,
@@ -214,12 +193,9 @@ export async function generateReport(
 
   const windows = windowRows.map(toRmsWindow);
 
-  // 2. Calculate compliance using existing helper
   const compliance = calculateWeeklyCompliance(windows, startsAt);
-  // Override weekEnd to match our actual period end
   compliance.weekEnd = endsAt;
 
-  // 3. Fetch anomalies for the period
   const anomalyRows = await prisma.anomaly.findMany({
     where: {
       deviceId,
@@ -243,12 +219,11 @@ export async function generateReport(
 
   const criticalCount = anomalies.filter((a) => a.severity === 'CRITICAL').length;
   const warningCount = anomalies.filter((a) => a.severity === 'WARNING').length;
-
-  // 4. Compute health score
   const healthScore = computeHealthScore(compliance, anomalies);
 
   return {
     deviceId,
+    reportUse,
     periodType,
     startsAt,
     endsAt,
@@ -261,21 +236,19 @@ export async function generateReport(
   };
 }
 
-/**
- * Persist a generated report to the database.
- * Uses upsert to avoid duplicates if re-generated.
- */
 export async function saveReport(report: GeneratedReport) {
   return prisma.report.upsert({
     where: {
-      deviceId_periodType_startsAt_endsAt: {
+      deviceId_reportUse_periodType_startsAt_endsAt: {
         deviceId: report.deviceId,
+        reportUse: report.reportUse,
         periodType: report.periodType,
         startsAt: report.startsAt,
         endsAt: report.endsAt,
       },
     },
     update: {
+      reportUse: report.reportUse,
       totalWindows: report.compliance.totalWindows,
       compliantWindowsL1: report.compliance.compliantWindowsL1,
       compliantWindowsL2: report.compliance.compliantWindowsL2,
@@ -293,6 +266,7 @@ export async function saveReport(report: GeneratedReport) {
     },
     create: {
       deviceId: report.deviceId,
+      reportUse: report.reportUse,
       periodType: report.periodType,
       startsAt: report.startsAt,
       endsAt: report.endsAt,
@@ -313,45 +287,37 @@ export async function saveReport(report: GeneratedReport) {
   });
 }
 
-/**
- * Generate AND persist a weekly report for one device.
- * `weekDate` — any date within the target week.
- */
 export async function generateWeeklyReport(
   deviceId: number,
+  reportUse: ReportUse,
   weekDate?: Date,
 ): Promise<GeneratedReport> {
   const d = weekDate ?? new Date();
   const startsAt = getWeekStart(d);
   const endsAt = new Date(startsAt.getTime() + 7 * 24 * 3600_000);
 
-  const report = await generateReport(deviceId, 'weekly', startsAt, endsAt);
+  const report = await generateReport(deviceId, reportUse, 'weekly', startsAt, endsAt);
   await saveReport(report);
   return report;
 }
 
-/**
- * Generate AND persist a monthly report for one device.
- * `monthDate` — any date within the target month.
- */
 export async function generateMonthlyReport(
   deviceId: number,
+  reportUse: ReportUse,
   monthDate?: Date,
 ): Promise<GeneratedReport> {
   const d = monthDate ?? new Date();
   const startsAt = getMonthStart(d);
   const endsAt = getMonthEnd(d);
 
-  const report = await generateReport(deviceId, 'monthly', startsAt, endsAt);
+  const report = await generateReport(deviceId, reportUse, 'monthly', startsAt, endsAt);
   await saveReport(report);
   return report;
 }
 
-/**
- * Cron handler: generate weekly reports for ALL active devices.
- * Called every Monday at 00:01 for the previous week.
- */
-export async function generateAllWeeklyReports(): Promise<GeneratedReport[]> {
+export async function generateAllWeeklyReports(
+  reportUse: ReportUse = 'technical',
+): Promise<GeneratedReport[]> {
   const lastWeek = new Date(Date.now() - 7 * 24 * 3600_000);
 
   const devices = await prisma.device.findMany({
@@ -362,20 +328,18 @@ export async function generateAllWeeklyReports(): Promise<GeneratedReport[]> {
   const reports: GeneratedReport[] = [];
 
   for (const device of devices) {
-      try {
-        const report = await generateWeeklyReport(device.id, lastWeek);
-        reports.push(report);
-        console.log(
-          '[ReportGenerator] Weekly report for device %d: %s (compliance L1=%s%% L2=%s%% L3=%s%%)',
-          device.id,
-          report.healthScore,
-          report.compliance.compliancePctL1,
-          report.compliance.compliancePctL2,
-          report.compliance.compliancePctL3,
-        );
-      } catch (err) {
-        console.error(`[ReportGenerator] Failed for device ${device.id}:`, err);
-      }
+    try {
+      const report = await generateWeeklyReport(device.id, reportUse, lastWeek);
+      reports.push(report);
+      console.log(
+        '[ReportGenerator] Weekly report for device %d: %s (%s)',
+        device.id,
+        report.healthScore,
+        report.reportUse,
+      );
+    } catch (err) {
+      console.error(`[ReportGenerator] Failed for device ${device.id}:`, err);
+    }
   }
 
   return reports;
