@@ -5,6 +5,7 @@ import { theme } from '../components/theme';
 import { Navbar } from '../components/navbar';
 import { CurrentDataPage } from '../pages/currentDataPage';
 import { VoltagePage } from '../pages/voltagePage';
+import { PowerPage } from '../pages/powerPage';
 import { SettingsPage } from '../pages/settingsPage';
 import { ReportsPage } from '../pages/reportsPage';
 import type { Page } from '../types/energy';
@@ -20,6 +21,7 @@ export default function App() {
         <Box component="main" p="md">
           <Box display={page === 'currentData' ? undefined : 'none'}><CurrentDataPage /></Box>
           <Box display={page === 'voltage' ? undefined : 'none'}><VoltagePage /></Box>
+          <Box display={page === 'power' ? undefined : 'none'}><PowerPage /></Box>
           <Box display={page === 'reports' ? undefined : 'none'}><ReportsPage /></Box>
           <Box display={page === 'settings' ? undefined : 'none'}><SettingsPage /></Box>
         </Box>

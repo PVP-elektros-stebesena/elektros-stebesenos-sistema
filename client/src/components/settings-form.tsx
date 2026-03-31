@@ -1,7 +1,7 @@
-import { Button, Card, Stack, TextInput, NumberInput, Switch, Text, Select, MultiSelect } from '@mantine/core'
+import { Button, Card, Stack, TextInput, NumberInput, Switch, Text, Select, MultiSelect, Group } from '@mantine/core'
 import { useState, useEffect } from 'react'
 import type { AppSettings } from '../types/energy'
-import { apiFetch, apiPost, apiPatch } from '../services/apiClient'
+import { apiDelete, apiFetch, apiPost, apiPatch } from '../services/apiClient'
 
 interface Device {
   id: number
@@ -77,63 +77,185 @@ const DEFAULT_SELECTED_EVENTS: NotificationEventType[] = [
   'REPORT_GENERATED',
 ]
 
+const EMPTY_DEVICE_SETTINGS: AppSettings = {
+  ...DEFAULT,
+  device_ip: '',
+  mqtt_broker: '',
+  mqtt_port: 1883,
+  mqtt_topic: '',
+  poll_interval: 10,
+  notifications_enabled: true,
+  notification_channel: 'email',
+  notification_target: '',
+}
+
 export function SettingsForm() {
-  const [s, setS] = useState<AppSettings>(DEFAULT)
+  const [s, setS] = useState<AppSettings>(EMPTY_DEVICE_SETTINGS)
+  const [devices, setDevices] = useState<Device[]>([])
   const [deviceName, setDeviceName] = useState('P1 Device')
   const [deviceId, setDeviceId] = useState<number | null>(null)
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [selectedEvents, setSelectedEvents] = useState<NotificationEventType[]>(DEFAULT_SELECTED_EVENTS)
 
+  const selectedDevice = deviceId ? devices.find((device) => device.id === deviceId) ?? null : null
+
+  const applyDeviceToForm = (device: Device) => {
+    setDeviceId(device.id)
+    setDeviceName(device.name)
+    setS((prev) => ({
+      ...prev,
+      device_ip: device.deviceIp || '',
+      mqtt_broker: device.mqttBroker || '',
+      mqtt_port: device.mqttPort || 1883,
+      mqtt_topic: device.mqttTopic || '',
+      poll_interval: device.pollInterval,
+      notification_channel: device.notificationChannel || 'email',
+      notification_target: device.notificationTarget || '',
+    }))
+  }
+
+  const resetFormForNewDevice = () => {
+    setDeviceId(null)
+    setDeviceName('P1 Device')
+    setS(EMPTY_DEVICE_SETTINGS)
+    setSelectedEvents(DEFAULT_SELECTED_EVENTS)
+  }
+
+  const loadNotificationSettings = async (id: number) => {
+    try {
+      const notificationSettings = await apiFetch<NotificationSettingsResponse>(
+        `/api/settings/${id}/notifications`,
+      )
+
+      setS((prev) => ({
+        ...prev,
+        notifications_enabled: notificationSettings.notificationsEnabled,
+      }))
+
+      setSelectedEvents(
+        notificationSettings.selectedEvents?.length
+          ? notificationSettings.selectedEvents
+          : [],
+      )
+    } catch (notificationErr) {
+      console.error('Failed to load notification settings:', notificationErr)
+    }
+  }
+
   useEffect(() => {
     const loadSettings = async () => {
       try {
-        const devices = await apiFetch<Device[]>('/api/settings')
+        const loadedDevices = await apiFetch<Device[]>('/api/settings')
+        setDevices(loadedDevices)
 
-        if (devices.length === 0) {
+        if (loadedDevices.length === 0) {
+          resetFormForNewDevice()
           return
         }
 
-        const device = devices[0]
-        setDeviceId(device.id)
-        setDeviceName(device.name)
-
-        setS((prev) => ({
-          ...prev,
-          device_ip: device.deviceIp || '',
-          mqtt_broker: device.mqttBroker || '',
-          mqtt_port: device.mqttPort || 1883,
-          mqtt_topic: device.mqttTopic || '',
-          poll_interval: device.pollInterval,
-          notification_channel: device.notificationChannel || 'email',
-          notification_target: device.notificationTarget || '',
-        }))
-
-        try {
-          const notificationSettings = await apiFetch<NotificationSettingsResponse>(
-            `/api/settings/${device.id}/notifications`,
-          )
-
-          setS((prev) => ({
-            ...prev,
-            notifications_enabled: notificationSettings.notificationsEnabled,
-          }))
-
-          setSelectedEvents(
-            notificationSettings.selectedEvents?.length
-              ? notificationSettings.selectedEvents
-              : [],
-          )
-        } catch (notificationErr) {
-          console.error('Failed to load notification settings:', notificationErr)
-        }
+        const device = loadedDevices[0]
+        applyDeviceToForm(device)
+        await loadNotificationSettings(device.id)
       } catch (err) {
         console.error('Failed to load settings:', err)
       }
     }
 
-    loadSettings()
+    void loadSettings()
   }, [])
+
+  const handleSelectDevice = async (value: string | null) => {
+    if (!value) {
+      return
+    }
+
+    const nextDeviceId = Number(value)
+    const nextDevice = devices.find((device) => device.id === nextDeviceId)
+
+    if (!nextDevice) {
+      return
+    }
+
+    setMessage(null)
+    applyDeviceToForm(nextDevice)
+    await loadNotificationSettings(nextDevice.id)
+  }
+
+  const handleCreateNewDevice = () => {
+    setMessage(null)
+    resetFormForNewDevice()
+  }
+
+  const handleToggleConnection = async () => {
+    if (!selectedDevice) {
+      setMessage({ type: 'error', text: 'Select a device first.' })
+      return
+    }
+
+    setLoading(true)
+    setMessage(null)
+
+    try {
+      const updatedDevice = await apiPatch<Device, { isActive: boolean }>(
+        `/api/settings/${selectedDevice.id}`,
+        { isActive: !selectedDevice.isActive },
+      )
+
+      setDevices((prev) =>
+        prev.map((device) => (device.id === updatedDevice.id ? updatedDevice : device)),
+      )
+
+      setMessage({
+        type: 'success',
+        text: updatedDevice.isActive
+          ? `Connected to ${updatedDevice.name}.`
+          : `Disconnected ${updatedDevice.name}.`,
+      })
+    } catch (err) {
+      console.error('Failed to toggle device connection:', err)
+      setMessage({ type: 'error', text: 'Failed to update connection state.' })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleRemoveDevice = async () => {
+    if (!selectedDevice) {
+      setMessage({ type: 'error', text: 'Select a device first.' })
+      return
+    }
+
+    const shouldDelete = window.confirm(`Remove device "${selectedDevice.name}"?`)
+    if (!shouldDelete) {
+      return
+    }
+
+    setLoading(true)
+    setMessage(null)
+
+    try {
+      await apiDelete(`/api/settings/${selectedDevice.id}`)
+
+      const remainingDevices = devices.filter((device) => device.id !== selectedDevice.id)
+      setDevices(remainingDevices)
+
+      if (remainingDevices.length > 0) {
+        const nextDevice = remainingDevices[0]
+        applyDeviceToForm(nextDevice)
+        await loadNotificationSettings(nextDevice.id)
+      } else {
+        resetFormForNewDevice()
+      }
+
+      setMessage({ type: 'success', text: 'Device removed successfully.' })
+    } catch (err) {
+      console.error('Failed to remove device:', err)
+      setMessage({ type: 'error', text: 'Failed to remove device. Please try again.' })
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const handleSave = async () => {
     setMessage(null)
@@ -215,7 +337,7 @@ export function SettingsForm() {
         mqttPort: s.mqtt_port || null,
         mqttTopic: s.mqtt_topic || null,
         pollInterval: s.poll_interval,
-        isActive: true,
+        isActive: selectedDevice?.isActive ?? true,
         notificationChannel: s.notifications_enabled ? s.notification_channel : 'none',
         notificationTarget:
           s.notifications_enabled &&
@@ -227,9 +349,16 @@ export function SettingsForm() {
       let savedDeviceId = deviceId
 
       if (deviceId) {
-        await apiPatch<Device, Partial<typeof deviceData>>(`/api/settings/${deviceId}`, deviceData)
+        const updatedDevice = await apiPatch<Device, Partial<typeof deviceData>>(
+          `/api/settings/${deviceId}`,
+          deviceData,
+        )
+        setDevices((prev) =>
+          prev.map((device) => (device.id === updatedDevice.id ? updatedDevice : device)),
+        )
       } else {
         const newDevice = await apiPost<Device, typeof deviceData>('/api/settings', deviceData)
+        setDevices((prev) => [newDevice, ...prev])
         setDeviceId(newDevice.id)
         savedDeviceId = newDevice.id
       }
@@ -273,6 +402,91 @@ export function SettingsForm() {
         </Text>
 
         <Stack gap="sm">
+          <Button
+            radius="xl"
+            onClick={handleCreateNewDevice}
+            disabled={loading}
+            styles={{
+              root: {
+                backgroundColor: '#FFCC59',
+                color: '#000000',
+                border: '1px solid #FFCC59',
+                fontWeight: 400,
+                height: '44px',
+                transition: 'all 160ms ease',
+                '&:hover': {
+                  backgroundColor: '#ffd87a',
+                  borderColor: '#ffd87a',
+                },
+              },
+            }}
+          >
+            Add device
+          </Button>
+
+          <Select
+            label="Selected device"
+            placeholder={devices.length ? 'Choose a device' : 'No devices yet'}
+            value={deviceId !== null ? String(deviceId) : null}
+            onChange={(value) => {
+              void handleSelectDevice(value)
+            }}
+            data={devices.map((device) => ({ value: String(device.id), label: `${device.name} (#${device.id})` }))}
+            styles={inputStyles}
+          />
+
+          <Group grow>
+            <Button
+              radius="xl"
+              onClick={handleToggleConnection}
+              disabled={loading || !selectedDevice}
+              styles={{
+                root: {
+                  backgroundColor: '#404040',
+                  color: '#EBEBEB',
+                  border: '1px solid #4A4A4A',
+                  fontWeight: 400,
+                  height: '44px',
+                  transition: 'all 160ms ease',
+                  '&:hover': {
+                    backgroundColor: '#4a4a4a',
+                    borderColor: '#5a5a5a',
+                  },
+                },
+              }}
+            >
+              {selectedDevice?.isActive ? 'Disconnect' : 'Connect'}
+            </Button>
+
+            <Button
+              radius="xl"
+              onClick={() => {
+                void handleRemoveDevice()
+              }}
+              disabled={loading || !selectedDevice}
+              styles={{
+                root: {
+                  backgroundColor: '#4a2b2b',
+                  color: '#db9a9a',
+                  border: '1px solid #7c4747',
+                  fontWeight: 400,
+                  height: '44px',
+                  transition: 'all 160ms ease',
+                  '&:hover': {
+                    backgroundColor: '#5a3434',
+                    borderColor: '#935454',
+                  },
+                },
+              }}
+            >
+              Remove
+            </Button>
+          </Group>
+
+          <Text size="sm" c="#999999">
+            Status: {selectedDevice ? (selectedDevice.isActive ? 'Connected' : 'Disconnected') : 'New device'}
+          </Text>
+
           <TextInput
             label="Device Name"
             value={deviceName}
