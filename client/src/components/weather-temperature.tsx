@@ -2,34 +2,32 @@ import { Badge, Group, Loader, Text } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 
 const STATION_CODE = 'kauno-ams';
-const KAUNAS_METEO_URL =
-  import.meta.env.DEV
-    ? `/meteo/v1/stations/${STATION_CODE}/observations/latest`
-    : `https://api.meteo.lt/v1/stations/${STATION_CODE}/observations/latest`;
+const KAUNAS_METEO_URL = `/meteo/v1/stations/${STATION_CODE}/observations/latest`;
 
 interface MeteoObservation {
   observationTimeUtc: string;
   airTemperature: number;
 }
 
-interface MeteoLatestResponse {
-  observations: MeteoObservation[];
-}
-
 async function fetchKaunasTemperature(): Promise<MeteoObservation | null> {
-  const response = await fetch(KAUNAS_METEO_URL);
+  const response = await fetch(KAUNAS_METEO_URL, {
+    method: 'GET',
+    mode: 'cors',
+    cache: 'no-store',
+  });
 
   if (!response.ok) {
     throw new Error(`Meteo request failed: ${response.status} ${response.statusText}`);
   }
 
-  const payload = (await response.json()) as MeteoLatestResponse;
+  const payload = (await response.json()) as { observations?: MeteoObservation[] };
+  const observations = Array.isArray(payload.observations) ? payload.observations : [];
 
-  if (!payload.observations.length) {
+  if (!observations.length) {
     return null;
   }
 
-  return payload.observations[payload.observations.length - 1];
+  return observations[observations.length - 1];
 }
 
 export function WeatherTemperature() {
