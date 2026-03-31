@@ -3,6 +3,13 @@ import prisma from '../lib/prisma.js';
 import { analysePowerReading, evaluatePowerPolicyBreaches } from '../services/powerAnalysis.js';
 import { resolveEffectivePowerPolicy } from '../services/powerPolicy.js';
 import { toPowerReading, type P1ReadingData } from '../services/p1Parser.js';
+import {
+  parseDateOrDefault,
+  parseOptionalDate,
+  parseOptionalDeviceId,
+  parseRequiredDeviceId,
+  validateAscendingRange,
+} from './queryParsers.js';
 
 interface DeviceQuery {
   deviceId?: string;
@@ -23,18 +30,6 @@ interface AnomalyQuery extends TimeRangeQuery {
   metricName?: string;
   phase?: string;
   limit?: string;
-}
-
-function parseDate(val: string | undefined, fallback: Date): Date {
-  if (!val) return fallback;
-  const d = new Date(val);
-  return Number.isNaN(d.getTime()) ? fallback : d;
-}
-
-function parseDeviceId(val: string | undefined): number | undefined {
-  if (!val) return undefined;
-  const parsed = parseInt(val, 10);
-  return Number.isNaN(parsed) ? undefined : parsed;
 }
 
 function mapReadingToP1ReadingData(row: {
@@ -200,7 +195,11 @@ function toPowerPayload(row: {
 
 export async function powerRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get<{ Querystring: DeviceQuery }>('/api/power/latest', async (req, reply) => {
-    const deviceId = parseDeviceId(req.query.deviceId);
+    const parsedDeviceId = parseOptionalDeviceId(req.query.deviceId);
+    if (!parsedDeviceId.ok) {
+      return reply.code(parsedDeviceId.statusCode).send(parsedDeviceId.body);
+    }
+    const deviceId = parsedDeviceId.value;
 
     const latestRows = await prisma.reading.findMany({
       where: deviceId ? { deviceId } : undefined,
@@ -255,17 +254,30 @@ export async function powerRoutes(fastify: FastifyInstance): Promise<void> {
     '/api/power/history',
     async (req, reply) => {
       const now = new Date();
-      const from = parseDate(req.query.from, new Date(now.getTime() - 3600_000));
-      const to = parseDate(req.query.to, now);
+      const parsedFrom = parseDateOrDefault(req.query.from, new Date(now.getTime() - 3600_000), 'from');
+      if (!parsedFrom.ok) {
+        return reply.code(parsedFrom.statusCode).send(parsedFrom.body);
+      }
+
+      const parsedTo = parseDateOrDefault(req.query.to, now, 'to');
+      if (!parsedTo.ok) {
+        return reply.code(parsedTo.statusCode).send(parsedTo.body);
+      }
+
+      const parsedDeviceId = parseOptionalDeviceId(req.query.deviceId);
+      if (!parsedDeviceId.ok) {
+        return reply.code(parsedDeviceId.statusCode).send(parsedDeviceId.body);
+      }
+
+      const from = parsedFrom.value;
+      const to = parsedTo.value;
+      const deviceId = parsedDeviceId.value;
       const maxPoints = Math.min(parseInt(req.query.points ?? '500', 10) || 500, 5000);
       const interval = req.query.interval ?? 'raw';
-      const deviceId = parseDeviceId(req.query.deviceId);
 
-      if (from >= to) {
-        return reply.code(400).send({
-          error: 'INVALID_RANGE',
-          message: '"from" must be before "to"',
-        });
+      const validRange = validateAscendingRange(from, to);
+      if (!validRange.ok) {
+        return reply.code(validRange.statusCode).send(validRange.body);
       }
 
       if (interval === '10min') {
@@ -330,12 +342,34 @@ export async function powerRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get<{ Querystring: AnomalyQuery }>(
     '/api/power/anomalies',
-    async (req) => {
+    async (req, reply) => {
       const now = new Date();
-      const from = req.query.from ? parseDate(req.query.from, new Date(0)) : undefined;
-      const to = req.query.to ? parseDate(req.query.to, now) : undefined;
+      const parsedFrom = parseOptionalDate(req.query.from, 'from');
+      if (!parsedFrom.ok) {
+        return reply.code(parsedFrom.statusCode).send(parsedFrom.body);
+      }
+
+      const parsedTo = parseOptionalDate(req.query.to, 'to');
+      if (!parsedTo.ok) {
+        return reply.code(parsedTo.statusCode).send(parsedTo.body);
+      }
+
+      const parsedDeviceId = parseOptionalDeviceId(req.query.deviceId);
+      if (!parsedDeviceId.ok) {
+        return reply.code(parsedDeviceId.statusCode).send(parsedDeviceId.body);
+      }
+
+      const from = parsedFrom.value;
+      const to = parsedTo.value;
+      const deviceId = parsedDeviceId.value;
       const limit = Math.min(parseInt(req.query.limit ?? '100', 10) || 100, 1000);
-      const deviceId = parseDeviceId(req.query.deviceId);
+
+      const rangeFrom = from ?? new Date(0);
+      const rangeTo = to ?? now;
+      const validRange = validateAscendingRange(rangeFrom, rangeTo);
+      if (!validRange.ok) {
+        return reply.code(validRange.statusCode).send(validRange.body);
+      }
 
       const anomalies = await prisma.anomaly.findMany({
         where: {
@@ -364,8 +398,13 @@ export async function powerRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get<{ Querystring: DeviceQuery }>(
     '/api/power/summary',
-    async (req) => {
-      const deviceId = parseDeviceId(req.query.deviceId);
+    async (req, reply) => {
+      const parsedDeviceId = parseOptionalDeviceId(req.query.deviceId);
+      if (!parsedDeviceId.ok) {
+        return reply.code(parsedDeviceId.statusCode).send(parsedDeviceId.body);
+      }
+
+      const deviceId = parsedDeviceId.value;
       const where = deviceId ? { deviceId } : {};
 
       const [latest, readingCount, windowCount, breachWindowCount, anomalyCount, activeAnomalyCount] =
@@ -430,13 +469,12 @@ export async function powerRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get<{ Querystring: DeviceQuery }>(
     '/api/power/policy',
     async (req, reply) => {
-      const deviceId = parseDeviceId(req.query.deviceId);
-      if (!deviceId) {
-        return reply.code(400).send({
-          error: 'MISSING_DEVICE_ID',
-          message: 'deviceId query parameter is required',
-        });
+      const parsedDeviceId = parseRequiredDeviceId(req.query.deviceId);
+      if (!parsedDeviceId.ok) {
+        return reply.code(parsedDeviceId.statusCode).send(parsedDeviceId.body);
       }
+
+      const deviceId = parsedDeviceId.value;
 
       const policy = await resolveEffectivePowerPolicy(deviceId);
       return {

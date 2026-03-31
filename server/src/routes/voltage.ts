@@ -3,6 +3,12 @@ import { ESO } from '../config/eso.js';
 import { analyseVoltage } from '../services/voltageAnalysis.js';
 import type { Phase, AnomalyType } from '../config/eso.js';
 import prisma from '../lib/prisma.js';
+import {
+  parseDateOrDefault,
+  parseOptionalDate,
+  parseOptionalDeviceId,
+  validateAscendingRange,
+} from './queryParsers.js';
 
 // ── Query string schemas ──────────────────────────────────────────
 
@@ -28,20 +34,6 @@ interface AnomalyQuery extends TimeRangeQuery {
   limit?: string;
 }
 
-// ── Helpers ───────────────────────────────────────────────────────
-
-function parseDate(val: string | undefined, fallback: Date): Date {
-  if (!val) return fallback;
-  const d = new Date(val);
-  return isNaN(d.getTime()) ? fallback : d;
-}
-
-function parseDeviceId(val: string | undefined): number | undefined {
-  if (!val) return undefined;
-  const n = parseInt(val, 10);
-  return Number.isNaN(n) ? undefined : n;
-}
-
 // ── Plugin ────────────────────────────────────────────────────────
 
 export async function voltageRoutes(fastify: FastifyInstance): Promise<void> {
@@ -49,7 +41,11 @@ export async function voltageRoutes(fastify: FastifyInstance): Promise<void> {
   //  GET /api/voltage/latest?deviceId=
   //  Real-time: the most recent reading + ESO bounds analysis
   fastify.get<{ Querystring: DeviceQuery }>('/api/voltage/latest', async (req, reply) => {
-    const deviceId = parseDeviceId(req.query.deviceId);
+    const parsedDeviceId = parseOptionalDeviceId(req.query.deviceId);
+    if (!parsedDeviceId.ok) {
+      return reply.code(parsedDeviceId.statusCode).send(parsedDeviceId.body);
+    }
+    const deviceId = parsedDeviceId.value;
 
     const reading = await prisma.reading.findFirst({
       where: deviceId ? { deviceId } : undefined,
@@ -92,17 +88,30 @@ export async function voltageRoutes(fastify: FastifyInstance): Promise<void> {
     '/api/voltage/history',
     async (req, reply) => {
       const now = new Date();
-      const from = parseDate(req.query.from, new Date(now.getTime() - 3600_000));
-      const to = parseDate(req.query.to, now);
+      const parsedFrom = parseDateOrDefault(req.query.from, new Date(now.getTime() - 3600_000), 'from');
+      if (!parsedFrom.ok) {
+        return reply.code(parsedFrom.statusCode).send(parsedFrom.body);
+      }
+
+      const parsedTo = parseDateOrDefault(req.query.to, now, 'to');
+      if (!parsedTo.ok) {
+        return reply.code(parsedTo.statusCode).send(parsedTo.body);
+      }
+
+      const parsedDeviceId = parseOptionalDeviceId(req.query.deviceId);
+      if (!parsedDeviceId.ok) {
+        return reply.code(parsedDeviceId.statusCode).send(parsedDeviceId.body);
+      }
+
+      const from = parsedFrom.value;
+      const to = parsedTo.value;
+      const deviceId = parsedDeviceId.value;
       const maxPoints = Math.min(parseInt(req.query.points ?? '500', 10) || 500, 5000);
       const interval = req.query.interval ?? 'raw';
-      const deviceId = parseDeviceId(req.query.deviceId);
 
-      if (from >= to) {
-        return reply.code(400).send({
-          error: 'INVALID_RANGE',
-          message: '"from" must be before "to"',
-        });
+      const validRange = validateAscendingRange(from, to);
+      if (!validRange.ok) {
+        return reply.code(validRange.statusCode).send(validRange.body);
       }
 
       if (interval === '10min') {
@@ -239,12 +248,34 @@ export async function voltageRoutes(fastify: FastifyInstance): Promise<void> {
   //  Anomaly history
   fastify.get<{ Querystring: AnomalyQuery }>(
     '/api/voltage/anomalies',
-    async (req) => {
+    async (req, reply) => {
       const now = new Date();
-      const from = req.query.from ? parseDate(req.query.from, new Date(0)) : undefined;
-      const to = req.query.to ? parseDate(req.query.to, now) : undefined;
+      const parsedFrom = parseOptionalDate(req.query.from, 'from');
+      if (!parsedFrom.ok) {
+        return reply.code(parsedFrom.statusCode).send(parsedFrom.body);
+      }
+
+      const parsedTo = parseOptionalDate(req.query.to, 'to');
+      if (!parsedTo.ok) {
+        return reply.code(parsedTo.statusCode).send(parsedTo.body);
+      }
+
+      const parsedDeviceId = parseOptionalDeviceId(req.query.deviceId);
+      if (!parsedDeviceId.ok) {
+        return reply.code(parsedDeviceId.statusCode).send(parsedDeviceId.body);
+      }
+
+      const from = parsedFrom.value;
+      const to = parsedTo.value;
+      const deviceId = parsedDeviceId.value;
       const limit = Math.min(parseInt(req.query.limit ?? '100', 10) || 100, 1000);
-      const deviceId = parseDeviceId(req.query.deviceId);
+
+      const rangeFrom = from ?? new Date(0);
+      const rangeTo = to ?? now;
+      const validRange = validateAscendingRange(rangeFrom, rangeTo);
+      if (!validRange.ok) {
+        return reply.code(validRange.statusCode).send(validRange.body);
+      }
 
       const anomalies = await prisma.anomaly.findMany({
         where: {
@@ -272,8 +303,12 @@ export async function voltageRoutes(fastify: FastifyInstance): Promise<void> {
 
   //  GET /api/voltage/anomalies/active?deviceId=
   //  Currently ongoing anomalies (endsAt is null)
-  fastify.get<{ Querystring: DeviceQuery }>('/api/voltage/anomalies/active', async (req) => {
-    const deviceId = parseDeviceId(req.query.deviceId);
+  fastify.get<{ Querystring: DeviceQuery }>('/api/voltage/anomalies/active', async (req, reply) => {
+    const parsedDeviceId = parseOptionalDeviceId(req.query.deviceId);
+    if (!parsedDeviceId.ok) {
+      return reply.code(parsedDeviceId.statusCode).send(parsedDeviceId.body);
+    }
+    const deviceId = parsedDeviceId.value;
 
     const active = await prisma.anomaly.findMany({
       where: {
@@ -294,9 +329,19 @@ export async function voltageRoutes(fastify: FastifyInstance): Promise<void> {
   //  ESO weekly 95% compliance report
   fastify.get<{ Querystring: DeviceQuery & { date?: string } }>(
     '/api/voltage/compliance/weekly',
-    async (req) => {
-      const date = req.query.date ? parseDate(req.query.date, new Date()) : new Date();
-      const deviceId = parseDeviceId(req.query.deviceId);
+    async (req, reply) => {
+      const parsedDate = parseDateOrDefault(req.query.date, new Date(), 'date');
+      if (!parsedDate.ok) {
+        return reply.code(parsedDate.statusCode).send(parsedDate.body);
+      }
+
+      const parsedDeviceId = parseOptionalDeviceId(req.query.deviceId);
+      if (!parsedDeviceId.ok) {
+        return reply.code(parsedDeviceId.statusCode).send(parsedDeviceId.body);
+      }
+
+      const date = parsedDate.value;
+      const deviceId = parsedDeviceId.value;
 
       // Calculate week boundaries (Mon–Sun)
       const day = date.getDay();
@@ -345,8 +390,12 @@ export async function voltageRoutes(fastify: FastifyInstance): Promise<void> {
 
   //  GET /api/voltage/summary?deviceId=
   //  Dashboard summary stats
-  fastify.get<{ Querystring: DeviceQuery }>('/api/voltage/summary', async (req) => {
-    const deviceId = parseDeviceId(req.query.deviceId);
+  fastify.get<{ Querystring: DeviceQuery }>('/api/voltage/summary', async (req, reply) => {
+    const parsedDeviceId = parseOptionalDeviceId(req.query.deviceId);
+    if (!parsedDeviceId.ok) {
+      return reply.code(parsedDeviceId.statusCode).send(parsedDeviceId.body);
+    }
+    const deviceId = parsedDeviceId.value;
     const where = deviceId ? { deviceId } : {};
 
     const [latestReading, readingCount, windowCount, anomalyCount, activeAnomalyCount] =
@@ -409,7 +458,11 @@ export async function voltageRoutes(fastify: FastifyInstance): Promise<void> {
   });
   
   fastify.get<{ Querystring: DeviceQuery }>('/api/live/raw', async (req, reply) => {
-    const deviceId = parseDeviceId(req.query.deviceId);
+    const parsedDeviceId = parseOptionalDeviceId(req.query.deviceId);
+    if (!parsedDeviceId.ok) {
+      return reply.code(parsedDeviceId.statusCode).send(parsedDeviceId.body);
+    }
+    const deviceId = parsedDeviceId.value;
 
     const reading = await prisma.reading.findFirst({
       where: deviceId ? { deviceId } : undefined,

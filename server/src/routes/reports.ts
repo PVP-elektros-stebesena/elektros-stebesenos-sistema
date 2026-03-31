@@ -15,6 +15,12 @@ import {
   getSchedulerStatus,
 } from '../services/reportScheduler.js';
 import { notificationService } from '../services/notificationService.js';
+import {
+  parseDateOrDefault,
+  parseOptionalDate,
+  parseOptionalDeviceId,
+  validateAscendingRange,
+} from './queryParsers.js';
 
 type RawAnomalySummaryRow = {
   id?: number;
@@ -36,18 +42,6 @@ type ContextChartPoint = {
   voltageL3: number | null;
   powerKw: number | null;
 };
-
-function parseDeviceId(val: string | undefined): number | undefined {
-  if (!val) return undefined;
-  const n = parseInt(val, 10);
-  return Number.isNaN(n) ? undefined : n;
-}
-
-function parseDate(val: string | undefined, fallback: Date): Date {
-  if (!val) return fallback;
-  const d = new Date(val);
-  return isNaN(d.getTime()) ? fallback : d;
-}
 
 const MAX_CUSTOM_RANGE_DAYS = 62;
 const MS_PER_DAY = 24 * 3600_000;
@@ -167,15 +161,11 @@ function downsampleContextPoints(
   return [...keepIndexes].sort((a, b) => a - b).map((index) => points[index]);
 }
 
-function isValidDate(value: string | undefined): value is string {
-  if (!value) return false;
-  return !Number.isNaN(new Date(value).getTime());
-}
-
 function parseCustomRange(startDate?: string, endDate?: string):
   | { startsAt: Date; endsAt: Date }
   | { error: { code: string; message: string } } {
-  if (!isValidDate(startDate) || !isValidDate(endDate)) {
+  const parsedStart = parseOptionalDate(startDate, 'startDate');
+  if (!parsedStart.ok || !parsedStart.value) {
     return {
       error: {
         code: 'INVALID_CUSTOM_RANGE',
@@ -184,10 +174,21 @@ function parseCustomRange(startDate?: string, endDate?: string):
     };
   }
 
-  const startsAt = new Date(startDate);
-  const endsAt = new Date(endDate);
+  const parsedEnd = parseOptionalDate(endDate, 'endDate');
+  if (!parsedEnd.ok || !parsedEnd.value) {
+    return {
+      error: {
+        code: 'INVALID_CUSTOM_RANGE',
+        message: 'Custom period requires valid startDate and endDate',
+      },
+    };
+  }
 
-  if (endsAt <= startsAt) {
+  const startsAt = parsedStart.value;
+  const endsAt = parsedEnd.value;
+
+  const validRange = validateAscendingRange(startsAt, endsAt, 'startDate', 'endDate');
+  if (!validRange.ok) {
     return {
       error: {
         code: 'INVALID_CUSTOM_RANGE',
@@ -325,8 +326,13 @@ export async function reportRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get<{
     Querystring: { deviceId?: string; periodType?: string; limit?: string; reportUse?: string };
-  }>('/api/reports', async (req) => {
-    const deviceId = parseDeviceId(req.query.deviceId);
+  }>('/api/reports', async (req, reply) => {
+    const parsedDeviceId = parseOptionalDeviceId(req.query.deviceId);
+    if (!parsedDeviceId.ok) {
+      return reply.code(parsedDeviceId.statusCode).send(parsedDeviceId.body);
+    }
+
+    const deviceId = parsedDeviceId.value;
     const periodType = req.query.periodType as PeriodType | undefined;
     const reportUse = req.query.reportUse as ReportUse | undefined;
     const limit = Math.min(parseInt(req.query.limit ?? '20', 10) || 20, 100);
@@ -522,7 +528,12 @@ export async function reportRoutes(fastify: FastifyInstance): Promise<void> {
       });
     }
 
-    const targetDate = dateStr ? parseDate(dateStr, new Date()) : new Date();
+    const parsedTargetDate = parseDateOrDefault(dateStr, new Date(), 'date');
+    if (!parsedTargetDate.ok) {
+      return reply.code(parsedTargetDate.statusCode).send(parsedTargetDate.body);
+    }
+
+    const targetDate = parsedTargetDate.value;
     let startsAt: Date;
     let endsAt: Date;
 
