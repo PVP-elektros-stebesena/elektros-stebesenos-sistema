@@ -50,14 +50,7 @@ export function CurrentDataPage() {
 
     const loadData = async () => {
       try {
-        const response = await fetch(`${import.meta.env.VITE_API_URL}/api/live/raw`)
-        const text = await response.text()
-
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${text}`)
-        }
-
-        const result = JSON.parse(text) as LiveData
+        const result = await apiFetch<LiveData>('/api/live/raw')
 
         if (active) {
           setData(result)

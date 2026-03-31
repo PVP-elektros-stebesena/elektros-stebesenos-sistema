@@ -1,5 +1,6 @@
-import { Group, UnstyledButton, Text, ActionIcon, Flex, Box } from "@mantine/core"
+import { Group, UnstyledButton, Text, Flex, Box } from "@mantine/core"
 import type { Page } from '../types/energy';
+import { WeatherTemperature } from './weather-temperature';
 
 
 function IconBolt({ size = 20, color = "currentColor" }: { size?: number; color?: string }) {
@@ -10,23 +11,7 @@ function IconBolt({ size = 20, color = "currentColor" }: { size?: number; color?
   );
 }
 
-function IconBell({ size = 20, color = "currentColor" }: { size?: number; color?: string }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" xmlns="http://www.w3.org/2000/svg">
-      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-    </svg>
-  );
-}
 
-function IconBellFilled({ size = 20, color = "currentColor" }: { size?: number; color?: string }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill={color} xmlns="http://www.w3.org/2000/svg">
-      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-    </svg>
-  );
-}
 
 const navItems: { label: string; page: Page }[] = [
   { label: "Voltage", page: "voltage" },
@@ -63,35 +48,7 @@ export function Navbar({ page, onNavigate }: NavbarProps) {
     </Group>
   );
 
-  const notifications = (
-    <Group gap="xs">
-      <ActionIcon
-        variant="filled"
-        size="lg"
-        radius="xl"
-        style={{
-          backgroundColor: "#FFCC59",
-          color: "#000000",
-        }}
-        aria-label="Notifications"
-      >
-        <IconBellFilled size={18} color="#000000" />
-      </ActionIcon>
-      <ActionIcon
-        variant="outline"
-        size="lg"
-        radius="xl"
-        style={{
-          borderColor: "#EBEBEB",
-          color: "#EBEBEB",
-          backgroundColor: "transparent",
-        }}
-        aria-label="Notification preferences"
-      >
-        <IconBell size={18} color="#EBEBEB" />
-      </ActionIcon>
-    </Group>
-  );
+
 
   return (
     <Box
@@ -107,7 +64,7 @@ export function Navbar({ page, onNavigate }: NavbarProps) {
         mb="md"
       >
         {logo}
-        {notifications}
+        <WeatherTemperature />
       </Flex>
 
       <Flex
@@ -154,7 +111,7 @@ export function Navbar({ page, onNavigate }: NavbarProps) {
         </Group>
 
         <Box display={{ base: 'none', md: 'block' }}>
-          {notifications}
+          <WeatherTemperature />
         </Box>
       </Flex>
     </Box>
