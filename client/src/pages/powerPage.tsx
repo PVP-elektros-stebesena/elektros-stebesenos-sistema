@@ -38,17 +38,17 @@ interface DeviceOption {
 interface PowerLatest {
   deviceId: number;
   timestamp: string;
-  activePowerTotalKw: number;
-  reactivePowerTotalKvar: number;
-  apparentPowerTotalKva: number;
-  powerFactor: number;
-  phaseImbalancePct: number;
-  activePowerL1Kw: number;
-  activePowerL2Kw: number;
-  activePowerL3Kw: number;
-  reactivePowerL1Kvar: number;
-  reactivePowerL2Kvar: number;
-  reactivePowerL3Kvar: number;
+  activePowerTotalKw: number | null;
+  reactivePowerTotalKvar: number | null;
+  apparentPowerTotalKva: number | null;
+  powerFactor: number | null;
+  phaseImbalancePct: number | null;
+  activePowerL1Kw: number | null;
+  activePowerL2Kw: number | null;
+  activePowerL3Kw: number | null;
+  reactivePowerL1Kvar: number | null;
+  reactivePowerL2Kvar: number | null;
+  reactivePowerL3Kvar: number | null;
   breaches: { metric: string; message: string }[];
 }
 
@@ -66,10 +66,10 @@ interface PowerSummary {
 
 interface PowerHistoryPoint {
   timestamp: string;
-  activePowerTotalKw: number;
-  reactivePowerTotalKvar: number;
-  apparentPowerTotalKva: number;
-  powerFactor: number;
+  activePowerTotalKw: number | null;
+  reactivePowerTotalKvar: number | null;
+  apparentPowerTotalKva: number | null;
+  powerFactor: number | null;
 }
 
 interface PowerHistoryResponse {
@@ -127,10 +127,10 @@ interface ReportDetail {
 
 interface PowerTrendPoint {
   time: string;
-  active: number;
-  reactive: number;
-  apparent: number;
-  pf: number;
+  active: number | null;
+  reactive: number | null;
+  apparent: number | null;
+  pf: number | null;
 }
 
 function anomalyColor(index: number): string {
@@ -157,6 +157,10 @@ function BigStat({ value, label }: { value: string; label: string }) {
       </Group>
     </Card>
   );
+}
+
+function formatFixed(value: number | null | undefined, decimals: number): string {
+  return value == null ? '—' : value.toFixed(decimals);
 }
 
 export function PowerPage() {
@@ -336,15 +340,15 @@ export function PowerPage() {
               <SimpleGrid cols={{ base: 1, lg: 3 }}>
                 <Card p="md" radius="md">
                   <Text size="sm" c="dimmed">Active power</Text>
-                  <Text fw={700} fz={32}>{latest ? `${latest.activePowerTotalKw.toFixed(3)} kW` : '—'}</Text>
+                  <Text fw={700} fz={32}>{latest ? `${formatFixed(latest.activePowerTotalKw, 3)} kW` : '—'}</Text>
                 </Card>
                 <Card p="md" radius="md">
                   <Text size="sm" c="dimmed">Reactive power</Text>
-                  <Text fw={700} fz={32}>{latest ? `${latest.reactivePowerTotalKvar.toFixed(3)} kvar` : '—'}</Text>
+                  <Text fw={700} fz={32}>{latest ? `${formatFixed(latest.reactivePowerTotalKvar, 3)} kvar` : '—'}</Text>
                 </Card>
                 <Card p="md" radius="md">
                   <Text size="sm" c="dimmed">Apparent power</Text>
-                  <Text fw={700} fz={32}>{latest ? `${latest.apparentPowerTotalKva.toFixed(3)} kVA` : '—'}</Text>
+                  <Text fw={700} fz={32}>{latest ? `${formatFixed(latest.apparentPowerTotalKva, 3)} kVA` : '—'}</Text>
                 </Card>
               </SimpleGrid>
 
@@ -392,7 +396,7 @@ export function PowerPage() {
                           value: Math.max(0, Math.min(100, (latest?.powerFactor ?? 0) * 100)),
                           color: (latest?.powerFactor ?? 0) >= 0.95 ? '#8ACDEA' : '#DB3C3C',
                         }]}
-                        label={<Text ta="center" fw={700}>{latest ? latest.powerFactor.toFixed(3) : '—'}</Text>}
+                        label={<Text ta="center" fw={700}>{latest ? formatFixed(latest.powerFactor, 3) : '—'}</Text>}
                       />
                       <Text size="xs" c="dimmed">Power factor</Text>
                     </Stack>
@@ -402,11 +406,11 @@ export function PowerPage() {
                         <Group justify="space-between" mb={4}>
                           <Text size="sm">Phase imbalance</Text>
                           <Text size="sm" fw={600}>
-                            {latest ? `${latest.phaseImbalancePct.toFixed(1)}%` : '—'}
+                            {latest ? `${formatFixed(latest.phaseImbalancePct, 1)}%` : '—'}
                           </Text>
                         </Group>
                         <Progress
-                          value={latest ? Math.max(0, Math.min(100, latest.phaseImbalancePct)) : 0}
+                          value={Math.max(0, Math.min(100, latest?.phaseImbalancePct ?? 0))}
                           color={(latest?.phaseImbalancePct ?? 0) <= 20 ? '#8ACDEA' : '#DB3C3C'}
                           radius="xl"
                         />
