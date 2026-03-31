@@ -1,11 +1,28 @@
-import { useEffect, useRef, useState, memo } from 'react';
+import { useEffect, useMemo, useRef, useState, memo } from 'react';
 import {
-  Badge, Card, Group, Progress, RingProgress,
-  SimpleGrid, Stack, Table, Text, Title,
+  Alert,
+  Badge,
+  Card,
+  Group,
+  Progress,
+  RingProgress,
+  Select,
+  SimpleGrid,
+  Stack,
+  Table,
+  Text,
+  Title,
 } from '@mantine/core';
 import {
-  CartesianGrid, Legend, Line, LineChart, ReferenceLine,
-  ResponsiveContainer, Tooltip, XAxis, YAxis,
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
 } from 'recharts';
 import { usePolling } from '../hooks/usePolling';
 import { apiFetch } from '../services/apiClient';
@@ -13,6 +30,11 @@ import { apiFetch } from '../services/apiClient';
 const MAX_POINTS = 60;
 
 /* ── API response types ─────────────────────────────────────────── */
+
+interface DeviceOption {
+  id: number;
+  name: string;
+}
 
 interface PhaseResult {
   phase: string;
@@ -108,7 +130,7 @@ const EMPTY_HISTORY: VoltagePoint[] = Array.from({ length: MAX_POINTS }, () => (
   L3: 0,
 }));
 
-/* ── Stat card matching Figma layout (big value + unit + label) ── */
+/* ── Stat card ──────────────────────────────────────────────────── */
 
 const BigStat = memo(function BigStat({
   value,
@@ -136,7 +158,7 @@ const BigStat = memo(function BigStat({
   );
 });
 
-/* ── Phase voltage card (coloured by in-bounds) ──────────────── */
+/* ── Phase voltage card ─────────────────────────────────────────── */
 
 const PhaseCard = memo(function PhaseCard({ p }: { p: PhaseResult }) {
   const color = p.isZero ? 'danger' : p.inBounds ? 'secondary' : 'primary';
@@ -149,358 +171,531 @@ const PhaseCard = memo(function PhaseCard({ p }: { p: PhaseResult }) {
   return (
     <Card p="md" radius="md">
       <Group justify="space-between" mb="xs">
-        <Text fw={700} fz="lg">{p.phase}</Text>
-        <Badge color={color} variant="light" size="lg">{statusLabel}</Badge>
+        <Text fw={700} fz="lg">
+          {p.phase}
+        </Text>
+        <Badge color={color} variant="light" size="lg">
+          {statusLabel}
+        </Badge>
       </Group>
+
       <Text fz={36} fw={700} ta="center" my="xs">
-        {p.voltage.toFixed(1)} <Text span fz="md" c="dimmed">V</Text>
+        {p.voltage.toFixed(1)}{' '}
+        <Text span fz="md" c="dimmed">
+          V
+        </Text>
       </Text>
+
       <Group justify="space-between">
-        <Text size="xs" c="dimmed">Deviation</Text>
+        <Text size="xs" c="dimmed">
+          Deviation
+        </Text>
         <Text size="sm" fw={600} c={p.inBounds ? undefined : 'primary'}>
-          {p.deviation >= 0 ? '+' : ''}{p.deviation.toFixed(1)} V
+          {p.deviation >= 0 ? '+' : ''}
+          {p.deviation.toFixed(1)} V
         </Text>
       </Group>
+
       <Group justify="space-between">
-        <Text size="xs" c="dimmed">Bounds</Text>
-        <Text size="sm">{p.min}–{p.max} V</Text>
+        <Text size="xs" c="dimmed">
+          Bounds
+        </Text>
+        <Text size="sm">
+          {p.min}–{p.max} V
+        </Text>
       </Group>
     </Card>
   );
 });
 
-/* ── Main page ───────────────────────────────────────────────── */
+/* ── Main page ──────────────────────────────────────────────────── */
 
 export function VoltagePage() {
-  /* ─ Data fetching ─ */
+  const [devices, setDevices] = useState<DeviceOption[]>([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
+  const [devicesError, setDevicesError] = useState<string | null>(null);
+
+  const [voltageHistory, setVoltageHistory] = useState<VoltagePoint[]>(() => [...EMPTY_HISTORY]);
+  const prevTs = useRef<string | null>(null);
+  const historyLoadedFor = useRef<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+
+    apiFetch<DeviceOption[]>('/api/settings')
+      .then((res) => {
+        if (!active) return;
+
+        setDevices(res);
+        if (res.length > 0) {
+          setSelectedDeviceId((prev) => prev ?? String(res[0].id));
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to load devices:', err);
+        if (active) {
+          setDevicesError('Failed to load devices.');
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const deviceQuery = useMemo(
+    () => (selectedDeviceId ? `?deviceId=${selectedDeviceId}` : ''),
+    [selectedDeviceId],
+  );
+
+  const historyQuery = useMemo(
+    () =>
+      selectedDeviceId
+        ? `/api/voltage/history?interval=latest&points=${MAX_POINTS}&deviceId=${selectedDeviceId}`
+        : '',
+    [selectedDeviceId],
+  );
+
+  const anomaliesQuery = useMemo(
+    () => (selectedDeviceId ? `/api/voltage/anomalies?limit=10&deviceId=${selectedDeviceId}` : ''),
+    [selectedDeviceId],
+  );
 
   const { data: latest } = usePolling<VoltageLatest>(
-    ['voltage', 'latest'],
-    '/api/voltage/latest',
+    ['voltage', 'latest', selectedDeviceId ?? 'none'],
+    selectedDeviceId ? `/api/voltage/latest${deviceQuery}` : '',
     { intervalSeconds: 5 },
   );
 
   const { data: summary } = usePolling<VoltageSummary>(
-    ['voltage', 'summary'],
-    '/api/voltage/summary',
+    ['voltage', 'summary', selectedDeviceId ?? 'none'],
+    selectedDeviceId ? `/api/voltage/summary${deviceQuery}` : '',
     { intervalSeconds: 10 },
   );
 
   const { data: compliance } = usePolling<ComplianceWeekly>(
-    ['voltage', 'compliance'],
-    '/api/voltage/compliance/weekly',
+    ['voltage', 'compliance', selectedDeviceId ?? 'none'],
+    selectedDeviceId ? `/api/voltage/compliance/weekly${deviceQuery}` : '',
     { intervalSeconds: 30 },
   );
 
   const { data: activeAnomalies } = usePolling<AnomalyResponse>(
-    ['voltage', 'anomalies', 'active'],
-    '/api/voltage/anomalies/active',
+    ['voltage', 'anomalies', 'active', selectedDeviceId ?? 'none'],
+    selectedDeviceId ? `/api/voltage/anomalies/active${deviceQuery}` : '',
     { intervalSeconds: 5 },
   );
 
   const { data: recentAnomalies } = usePolling<AnomalyResponse>(
-    ['voltage', 'anomalies', 'recent'],
-    '/api/voltage/anomalies?limit=10',
+    ['voltage', 'anomalies', 'recent', selectedDeviceId ?? 'none'],
+    selectedDeviceId ? anomaliesQuery : '',
     { intervalSeconds: 10 },
   );
 
-  /* ─ Realtime chart history ─ */
-
-  const [voltageHistory, setVoltageHistory] = useState<VoltagePoint[]>(
-    () => [...EMPTY_HISTORY],
-  );
-  const prevTs = useRef<string | null>(null);
-  const historyLoaded = useRef(false);
-
-  // Seed the chart with the last MAX_POINTS readings from the DB (no downsampling)
   useEffect(() => {
-    if (historyLoaded.current) return;
-    historyLoaded.current = true;
+    if (!selectedDeviceId) return;
 
-    apiFetch<VoltageHistoryResponse>(
-      `/api/voltage/history?interval=latest&points=${MAX_POINTS}`,
-    )
-      .then(res => {
+    historyLoadedFor.current = null;
+    prevTs.current = null;
+    setVoltageHistory([...EMPTY_HISTORY]);
+  }, [selectedDeviceId]);
+
+  useEffect(() => {
+    if (!selectedDeviceId || !historyQuery) return;
+    if (historyLoadedFor.current === selectedDeviceId) return;
+
+    historyLoadedFor.current = selectedDeviceId;
+
+    apiFetch<VoltageHistoryResponse>(historyQuery)
+      .then((res) => {
         if (!res.data.length) return;
 
-        const points: VoltagePoint[] = res.data.map(d => ({
+        const points: VoltagePoint[] = res.data.map((d) => ({
           time: new Date(d.timestamp).toLocaleTimeString(),
           L1: d.voltage_l1,
           L2: d.voltage_l2,
           L3: d.voltage_l3,
         }));
 
-        // Take only the last MAX_POINTS from whatever the server returned
         const tail = points.slice(-MAX_POINTS);
-
-        // Pad the front with empty points if we got fewer than MAX_POINTS
         const padded = [
           ...EMPTY_HISTORY.slice(0, MAX_POINTS - tail.length),
           ...tail,
         ];
 
         setVoltageHistory(padded);
-        // Set prevTs so polling doesn't duplicate the last point
+
         if (res.data.length > 0) {
           prevTs.current = res.data[res.data.length - 1].timestamp;
         }
       })
-      .catch(() => { /* history unavailable, start from empty */ });
-  }, []);
+      .catch(() => {
+        setVoltageHistory([...EMPTY_HISTORY]);
+      });
+  }, [selectedDeviceId, historyQuery]);
 
   useEffect(() => {
     if (!latest) return;
     if (prevTs.current === latest.timestamp) return;
+
     prevTs.current = latest.timestamp;
 
-    const phaseMap = Object.fromEntries(latest.phases.map(ph => [ph.phase, ph.voltage]));
+    const phaseMap = Object.fromEntries(latest.phases.map((ph) => [ph.phase, ph.voltage]));
 
     const point: VoltagePoint = {
       time: new Date(latest.timestamp).toLocaleTimeString(),
-      L1: phaseMap['L1'] ?? 0,
-      L2: phaseMap['L2'] ?? 0,
-      L3: phaseMap['L3'] ?? 0,
+      L1: phaseMap.L1 ?? 0,
+      L2: phaseMap.L2 ?? 0,
+      L3: phaseMap.L3 ?? 0,
     };
 
-    setVoltageHistory(prev => [...prev.slice(1), point]);
+    setVoltageHistory((prev) => [...prev.slice(1), point]);
   }, [latest]);
 
-  /* ─ Derived values ─ */
-
   const avgCompliance = compliance
-    ? +((compliance.compliancePctL1 + compliance.compliancePctL2 + compliance.compliancePctL3) / 3).toFixed(1)
+    ? +(
+        (compliance.compliancePctL1 +
+          compliance.compliancePctL2 +
+          compliance.compliancePctL3) /
+        3
+      ).toFixed(1)
     : 0;
 
   return (
     <Stack p="lg" gap="md" style={{ width: '100%' }}>
-      {/* ── Section title ────────────────────────────────────── */}
       <Title order={2}>Voltage analytics</Title>
 
-      {/* ── Top stats row ────────────────────────────────────── */}
-      <SimpleGrid cols={{ base: 2, sm: 4 }}>
-        <BigStat
-          label="Total readings"
-          value={summary ? summary.stats.totalReadings.toLocaleString() : '—'}
-          unit=""
-        />
-        <BigStat
-          label="Active anomalies"
-          value={activeAnomalies ? String(activeAnomalies.count) : '—'}
-          unit=""
-        />
-        <BigStat
-          label="Weekly compliance"
-          value={compliance ? `${avgCompliance}` : '—'}
-          unit="%"
-        />
-        <BigStat
-          label="Total anomalies"
-          value={summary ? String(summary.stats.totalAnomalies) : '—'}
-          unit=""
-        />
-      </SimpleGrid>
-
-      {/* ── Per-phase live cards ─────────────────────────────── */}
-      {latest && (
-        <SimpleGrid cols={{ base: 1, sm: 3 }}>
-          {latest.phases.map(p => (
-            <PhaseCard key={p.phase} p={p} />
-          ))}
-        </SimpleGrid>
-      )}
-
-      {/* ── Live voltage chart ───────────────────────────────── */}
       <Card p="md" radius="md">
-        <Group justify="space-between" mb="sm">
-          <Text fw={700}>Live voltage</Text>
-          {latest && (
-            <Text size="sm" c="dimmed">
-              {new Date(latest.timestamp).toLocaleTimeString()}
+        <Stack gap="sm">
+          <div>
+            <Text fw={700} mb={4}>
+              Device selection
             </Text>
-          )}
-        </Group>
+            <Text size="sm" c="dimmed">
+              Choose which device to display on the voltage page.
+            </Text>
+          </div>
 
-        <ResponsiveContainer width="100%" height={280}>
-          <LineChart data={voltageHistory}>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} />
-            <XAxis dataKey="time" interval="preserveStartEnd" tick={{ fontSize: 11 }} />
-            <YAxis domain={[210, 250]} unit=" V" tick={{ fontSize: 11 }} />
-            <Tooltip />
-            <Legend />
-            {latest && (
-              <>
-                <ReferenceLine y={latest.bounds.max} stroke="#DB3C3C" strokeDasharray="6 3" label={{ value: `${latest.bounds.max}V`, position: 'right', fontSize: 10, fill: '#DB3C3C' }} />
-                <ReferenceLine y={latest.bounds.min} stroke="#DB3C3C" strokeDasharray="6 3" label={{ value: `${latest.bounds.min}V`, position: 'right', fontSize: 10, fill: '#DB3C3C' }} />
-                <ReferenceLine y={latest.bounds.nominal} stroke="#656565" strokeDasharray="3 3" />
-              </>
-            )}
-            <Line dataKey="L1" stroke="#FFCC59" dot={false} strokeWidth={2} name="L1" isAnimationActive={false} />
-            <Line dataKey="L2" stroke="#8ACDEA" dot={false} strokeWidth={2} name="L2" isAnimationActive={false} />
-            <Line dataKey="L3" stroke="#DB3C3C" dot={false} strokeWidth={2} name="L3" isAnimationActive={false} />
-          </LineChart>
-        </ResponsiveContainer>
-      </Card>
+          <Select
+            placeholder="Select device"
+            data={devices.map((d) => ({
+              value: String(d.id),
+              label: d.name,
+            }))}
+            value={selectedDeviceId}
+            onChange={setSelectedDeviceId}
+            style={{ maxWidth: 320 }}
+            disabled={devices.length === 0}
+          />
+        </Stack>
 
-      {/* ── ESO Weekly Compliance + Active anomalies row ──── */}
-      <SimpleGrid cols={{ base: 1, sm: 2 }}>
-        {/* Compliance card */}
-        <Card p="md" radius="md">
-          <Group justify="space-between" mb="md">
-            <Text fw={700}>ESO weekly compliance</Text>
-            {compliance && (
-              <Badge
-                color={compliance.overallCompliant ? 'secondary' : 'danger'}
-                variant="light"
-                size="lg"
-              >
-                {compliance.overallCompliant ? 'PASS' : 'FAIL'}
-              </Badge>
-            )}
-          </Group>
+        {devicesError && (
+          <Alert mt="md" color="red" title="Failed to load devices">
+            {devicesError}
+          </Alert>
+        )}
 
-          {compliance ? (
-            <Stack gap="md">
-              <Group justify="center">
-                <RingProgress
-                  size={120}
-                  thickness={12}
-                  roundCaps
-                  sections={[{ value: avgCompliance, color: avgCompliance >= 95 ? '#8ACDEA' : '#DB3C3C' }]}
-                  label={
-                    <Text ta="center" fw={700} fz="lg">
-                      {avgCompliance}%
-                    </Text>
-                  }
-                />
-              </Group>
-
-              <Stack gap="xs">
-                {(['L1', 'L2', 'L3'] as const).map(phase => {
-                  const pct = phase === 'L1'
-                    ? compliance.compliancePctL1
-                    : phase === 'L2'
-                      ? compliance.compliancePctL2
-                      : compliance.compliancePctL3;
-                  return (
-                    <div key={phase}>
-                      <Group justify="space-between" mb={4}>
-                        <Text size="sm">{phase}</Text>
-                        <Text size="sm" fw={600}>{pct}%</Text>
-                      </Group>
-                      <Progress
-                        value={pct}
-                        color={pct >= 95 ? '#8ACDEA' : '#DB3C3C'}
-                        size="sm"
-                        radius="xl"
-                      />
-                    </div>
-                  );
-                })}
-              </Stack>
-
-              <Text size="xs" c="dimmed" ta="center">
-                Threshold: {compliance.eso_threshold_pct}% of {compliance.window_duration_minutes}-min windows
-              </Text>
-            </Stack>
-          ) : (
-            <Text c="dimmed" ta="center">Loading…</Text>
-          )}
-        </Card>
-
-        {/* Active anomalies card */}
-        <Card p="md" radius="md">
-          <Group justify="space-between" mb="md">
-            <Text fw={700}>Active anomalies</Text>
-            <Badge
-              color={activeAnomalies && activeAnomalies.count > 0 ? 'danger' : 'secondary'}
-              variant="light"
-              size="lg"
-            >
-              {activeAnomalies ? activeAnomalies.count : '—'}
-            </Badge>
-          </Group>
-
-          {activeAnomalies && activeAnomalies.count > 0 ? (
-            <Table.ScrollContainer minWidth={400}>
-              <Table striped highlightOnHover>
-                <Table.Thead>
-                  <Table.Tr>
-                    <Table.Th>Phase</Table.Th>
-                    <Table.Th>Type</Table.Th>
-                    <Table.Th>Voltage</Table.Th>
-                    <Table.Th>Started</Table.Th>
-                  </Table.Tr>
-                </Table.Thead>
-              <Table.Tbody>
-                {activeAnomalies.data.map(a => (
-                  <Table.Tr key={a.id}>
-                    <Table.Td><Badge color="danger" variant="light" size="sm">{a.phase}</Badge></Table.Td>
-                    <Table.Td>{a.type}</Table.Td>
-                    <Table.Td>{a.minVoltage != null ? `${a.minVoltage.toFixed(1)} V` : '—'}</Table.Td>
-                    <Table.Td>{new Date(a.startsAt).toLocaleTimeString()}</Table.Td>
-                  </Table.Tr>
-                ))}
-              </Table.Tbody>
-            </Table>
-            </Table.ScrollContainer>
-          ) : (
-            <Stack align="center" justify="center" style={{ flex: 1, minHeight: 120 }}>
-              <Text c="dimmed" fz="lg">No active anomalies</Text>
-              <Text c="dimmed" size="xs">All phases within ESO bounds</Text>
-            </Stack>
-          )}
-        </Card>
-      </SimpleGrid>
-
-      {/* ── Recent anomaly history ───────────────────────────── */}
-      <Card p="md" radius="md">
-        <Text fw={700} mb="md">Recent anomaly history</Text>
-
-        {recentAnomalies && recentAnomalies.count > 0 ? (
-          <Table.ScrollContainer minWidth={600}>
-            <Table striped highlightOnHover>
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>Phase</Table.Th>
-                  <Table.Th>Type</Table.Th>
-                  <Table.Th>Min V</Table.Th>
-                  <Table.Th>Max V</Table.Th>
-                  <Table.Th>Started</Table.Th>
-                  <Table.Th>Duration</Table.Th>
-                  <Table.Th>Status</Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-            <Table.Tbody>
-              {recentAnomalies.data.map(a => (
-                <Table.Tr key={a.id}>
-                  <Table.Td>{a.phase}</Table.Td>
-                  <Table.Td>{a.type}</Table.Td>
-                  <Table.Td>{a.minVoltage != null ? `${a.minVoltage.toFixed(1)} V` : '—'}</Table.Td>
-                  <Table.Td>{a.maxVoltage != null ? `${a.maxVoltage.toFixed(1)} V` : '—'}</Table.Td>
-                  <Table.Td>{new Date(a.startsAt).toLocaleString()}</Table.Td>
-                  <Table.Td>
-                    {a.duration != null
-                      ? `${a.duration}s`
-                      : 'ongoing'}
-                  </Table.Td>
-                  <Table.Td>
-                    <Badge
-                      color={a.endsAt ? 'secondary' : 'danger'}
-                      variant="light"
-                      size="sm"
-                    >
-                      {a.endsAt ? 'Resolved' : 'Active'}
-                    </Badge>
-                  </Table.Td>
-                </Table.Tr>
-              ))}
-            </Table.Tbody>
-          </Table>
-          </Table.ScrollContainer>
-        ) : (
-          <Text c="dimmed" ta="center">No anomalies recorded yet</Text>
+        {!devicesError && devices.length === 0 && (
+          <Alert mt="md" color="yellow" title="No devices available">
+            Add at least one device in Settings to view voltage analytics.
+          </Alert>
         )}
       </Card>
+
+      {selectedDeviceId && (
+        <>
+          <SimpleGrid cols={{ base: 2, sm: 4 }}>
+            <BigStat
+              label="Total readings"
+              value={summary ? summary.stats.totalReadings.toLocaleString() : '—'}
+              unit=""
+            />
+            <BigStat
+              label="Active anomalies"
+              value={activeAnomalies ? String(activeAnomalies.count) : '—'}
+              unit=""
+            />
+            <BigStat
+              label="Weekly compliance"
+              value={compliance ? `${avgCompliance}` : '—'}
+              unit="%"
+            />
+            <BigStat
+              label="Total anomalies"
+              value={summary ? String(summary.stats.totalAnomalies) : '—'}
+              unit=""
+            />
+          </SimpleGrid>
+
+          {latest && (
+            <SimpleGrid cols={{ base: 1, sm: 3 }}>
+              {latest.phases.map((p) => (
+                <PhaseCard key={p.phase} p={p} />
+              ))}
+            </SimpleGrid>
+          )}
+
+          <Card p="md" radius="md">
+            <Group justify="space-between" mb="sm">
+              <Text fw={700}>Live voltage</Text>
+              {latest && (
+                <Text size="sm" c="dimmed">
+                  {new Date(latest.timestamp).toLocaleTimeString()}
+                </Text>
+              )}
+            </Group>
+
+            <ResponsiveContainer width="100%" height={280}>
+              <LineChart data={voltageHistory}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="time" interval="preserveStartEnd" tick={{ fontSize: 11 }} />
+                <YAxis domain={[210, 250]} unit=" V" tick={{ fontSize: 11 }} />
+                <Tooltip />
+                <Legend />
+
+                {latest && (
+                  <>
+                    <ReferenceLine
+                      y={latest.bounds.max}
+                      stroke="#DB3C3C"
+                      strokeDasharray="6 3"
+                      label={{
+                        value: `${latest.bounds.max}V`,
+                        position: 'right',
+                        fontSize: 10,
+                        fill: '#DB3C3C',
+                      }}
+                    />
+                    <ReferenceLine
+                      y={latest.bounds.min}
+                      stroke="#DB3C3C"
+                      strokeDasharray="6 3"
+                      label={{
+                        value: `${latest.bounds.min}V`,
+                        position: 'right',
+                        fontSize: 10,
+                        fill: '#DB3C3C',
+                      }}
+                    />
+                    <ReferenceLine
+                      y={latest.bounds.nominal}
+                      stroke="#656565"
+                      strokeDasharray="3 3"
+                    />
+                  </>
+                )}
+
+                <Line
+                  dataKey="L1"
+                  stroke="#FFCC59"
+                  dot={false}
+                  strokeWidth={2}
+                  name="L1"
+                  isAnimationActive={false}
+                />
+                <Line
+                  dataKey="L2"
+                  stroke="#8ACDEA"
+                  dot={false}
+                  strokeWidth={2}
+                  name="L2"
+                  isAnimationActive={false}
+                />
+                <Line
+                  dataKey="L3"
+                  stroke="#DB3C3C"
+                  dot={false}
+                  strokeWidth={2}
+                  name="L3"
+                  isAnimationActive={false}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </Card>
+
+          <SimpleGrid cols={{ base: 1, sm: 2 }}>
+            <Card p="md" radius="md">
+              <Group justify="space-between" mb="md">
+                <Text fw={700}>ESO weekly compliance</Text>
+                {compliance && (
+                  <Badge
+                    color={compliance.overallCompliant ? 'secondary' : 'danger'}
+                    variant="light"
+                    size="lg"
+                  >
+                    {compliance.overallCompliant ? 'PASS' : 'FAIL'}
+                  </Badge>
+                )}
+              </Group>
+
+              {compliance ? (
+                <Stack gap="md">
+                  <Group justify="center">
+                    <RingProgress
+                      size={120}
+                      thickness={12}
+                      roundCaps
+                      sections={[
+                        {
+                          value: avgCompliance,
+                          color: avgCompliance >= 95 ? '#8ACDEA' : '#DB3C3C',
+                        },
+                      ]}
+                      label={
+                        <Text ta="center" fw={700} fz="lg">
+                          {avgCompliance}%
+                        </Text>
+                      }
+                    />
+                  </Group>
+
+                  <Stack gap="xs">
+                    {(['L1', 'L2', 'L3'] as const).map((phase) => {
+                      const pct =
+                        phase === 'L1'
+                          ? compliance.compliancePctL1
+                          : phase === 'L2'
+                            ? compliance.compliancePctL2
+                            : compliance.compliancePctL3;
+
+                      return (
+                        <div key={phase}>
+                          <Group justify="space-between" mb={4}>
+                            <Text size="sm">{phase}</Text>
+                            <Text size="sm" fw={600}>
+                              {pct}%
+                            </Text>
+                          </Group>
+                          <Progress
+                            value={pct}
+                            color={pct >= 95 ? '#8ACDEA' : '#DB3C3C'}
+                            size="sm"
+                            radius="xl"
+                          />
+                        </div>
+                      );
+                    })}
+                  </Stack>
+
+                  <Text size="xs" c="dimmed" ta="center">
+                    Threshold: {compliance.eso_threshold_pct}% of{' '}
+                    {compliance.window_duration_minutes}-min windows
+                  </Text>
+                </Stack>
+              ) : (
+                <Text c="dimmed" ta="center">
+                  Loading…
+                </Text>
+              )}
+            </Card>
+
+            <Card p="md" radius="md">
+              <Group justify="space-between" mb="md">
+                <Text fw={700}>Active anomalies</Text>
+                <Badge
+                  color={activeAnomalies && activeAnomalies.count > 0 ? 'danger' : 'secondary'}
+                  variant="light"
+                  size="lg"
+                >
+                  {activeAnomalies ? activeAnomalies.count : '—'}
+                </Badge>
+              </Group>
+
+              {activeAnomalies && activeAnomalies.count > 0 ? (
+                <Table.ScrollContainer minWidth={400}>
+                  <Table striped highlightOnHover>
+                    <Table.Thead>
+                      <Table.Tr>
+                        <Table.Th>Phase</Table.Th>
+                        <Table.Th>Type</Table.Th>
+                        <Table.Th>Voltage</Table.Th>
+                        <Table.Th>Started</Table.Th>
+                      </Table.Tr>
+                    </Table.Thead>
+                    <Table.Tbody>
+                      {activeAnomalies.data.map((a) => (
+                        <Table.Tr key={a.id}>
+                          <Table.Td>
+                            <Badge color="danger" variant="light" size="sm">
+                              {a.phase}
+                            </Badge>
+                          </Table.Td>
+                          <Table.Td>{a.type}</Table.Td>
+                          <Table.Td>
+                            {a.minVoltage != null ? `${a.minVoltage.toFixed(1)} V` : '—'}
+                          </Table.Td>
+                          <Table.Td>{new Date(a.startsAt).toLocaleTimeString()}</Table.Td>
+                        </Table.Tr>
+                      ))}
+                    </Table.Tbody>
+                  </Table>
+                </Table.ScrollContainer>
+              ) : (
+                <Stack align="center" justify="center" style={{ flex: 1, minHeight: 120 }}>
+                  <Text c="dimmed" fz="lg">
+                    No active anomalies
+                  </Text>
+                  <Text c="dimmed" size="xs">
+                    All phases within ESO bounds
+                  </Text>
+                </Stack>
+              )}
+            </Card>
+          </SimpleGrid>
+
+          <Card p="md" radius="md">
+            <Text fw={700} mb="md">
+              Recent anomaly history
+            </Text>
+
+            {recentAnomalies && recentAnomalies.count > 0 ? (
+              <Table.ScrollContainer minWidth={600}>
+                <Table striped highlightOnHover>
+                  <Table.Thead>
+                    <Table.Tr>
+                      <Table.Th>Phase</Table.Th>
+                      <Table.Th>Type</Table.Th>
+                      <Table.Th>Min V</Table.Th>
+                      <Table.Th>Max V</Table.Th>
+                      <Table.Th>Started</Table.Th>
+                      <Table.Th>Duration</Table.Th>
+                      <Table.Th>Status</Table.Th>
+                    </Table.Tr>
+                  </Table.Thead>
+                  <Table.Tbody>
+                    {recentAnomalies.data.map((a) => (
+                      <Table.Tr key={a.id}>
+                        <Table.Td>{a.phase}</Table.Td>
+                        <Table.Td>{a.type}</Table.Td>
+                        <Table.Td>
+                          {a.minVoltage != null ? `${a.minVoltage.toFixed(1)} V` : '—'}
+                        </Table.Td>
+                        <Table.Td>
+                          {a.maxVoltage != null ? `${a.maxVoltage.toFixed(1)} V` : '—'}
+                        </Table.Td>
+                        <Table.Td>{new Date(a.startsAt).toLocaleString()}</Table.Td>
+                        <Table.Td>{a.duration != null ? `${a.duration}s` : 'ongoing'}</Table.Td>
+                        <Table.Td>
+                          <Badge
+                            color={a.endsAt ? 'secondary' : 'danger'}
+                            variant="light"
+                            size="sm"
+                          >
+                            {a.endsAt ? 'Resolved' : 'Active'}
+                          </Badge>
+                        </Table.Td>
+                      </Table.Tr>
+                    ))}
+                  </Table.Tbody>
+                </Table>
+              </Table.ScrollContainer>
+            ) : (
+              <Text c="dimmed" ta="center">
+                No anomalies recorded yet
+              </Text>
+            )}
+          </Card>
+        </>
+      )}
     </Stack>
   );
 }
