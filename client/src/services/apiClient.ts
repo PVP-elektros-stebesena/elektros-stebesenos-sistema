@@ -78,6 +78,22 @@ export async function apiPatch<TData, TBody = unknown>(
   return response.json() as Promise<TData>;
 }
 
+export async function apiDelete(endpoint: string): Promise<void> {
+  const url = endpoint.startsWith('http') ? endpoint : `${BASE_URL}${endpoint}`;
+
+  const response = await fetch(url, {
+    method: 'DELETE',
+  });
+
+  if (!response.ok) {
+    throw new ApiError(
+      response.status,
+      response.statusText,
+      `Request failed: ${response.status} ${response.statusText} — ${url}`,
+    );
+  }
+}
+
 export async function apiDownload(endpoint: string, filename?: string): Promise<void> {
   const url = endpoint.startsWith('http') ? endpoint : `${BASE_URL}${endpoint}`;
 
