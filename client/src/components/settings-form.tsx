@@ -1,6 +1,6 @@
 import { Button, Card, Stack, TextInput, NumberInput, Switch, Text, Select, MultiSelect, Group } from '@mantine/core'
 import { useState, useEffect } from 'react'
-import type { AppSettings } from '../types/energy'
+import type { AppSettings, PowerProfilePreset } from '../types/energy'
 import { apiDelete, apiFetch, apiPost, apiPatch } from '../services/apiClient'
 
 interface Device {
@@ -10,6 +10,7 @@ interface Device {
   mqttBroker: string | null
   mqttPort: number | null
   mqttTopic: string | null
+  powerProfile: PowerProfilePreset
   pollInterval: number
   isActive: boolean
   notificationChannel: 'email' | 'sms' | 'push' | 'none' | null
@@ -35,6 +36,7 @@ const DEFAULT: AppSettings = {
   mqtt_broker: '192.168.1.10',
   mqtt_port: 1883,
   mqtt_topic: 'smartgateways/p1',
+  power_profile: 'HOUSE_3P_11KW',
   poll_interval: 10,
   timezone: 'Europe/Amsterdam',
   dsmr_version: 'DSMR 5.0',
@@ -77,12 +79,21 @@ const DEFAULT_SELECTED_EVENTS: NotificationEventType[] = [
   'REPORT_GENERATED',
 ]
 
+const POWER_PROFILE_OPTIONS: { value: PowerProfilePreset; label: string }[] = [
+  { value: 'APARTMENT_1P_5KW', label: '1-Phase Apartment (5 kW / 25 A)' },
+  { value: 'APARTMENT_1P_7KW', label: '1-Phase Apartment Plus (7 kW / 32 A)' },
+  { value: 'HOUSE_3P_11KW', label: '11 kW 3-Phase House (16 A)' },
+  { value: 'HOUSE_3P_18KW', label: '18 kW 3-Phase House (25 A)' },
+  { value: 'SOLAR_PROSUMER_3P_22KW', label: 'Solar Prosumer (22 kW / 32 A)' },
+]
+
 const EMPTY_DEVICE_SETTINGS: AppSettings = {
   ...DEFAULT,
   device_ip: '',
   mqtt_broker: '',
   mqtt_port: 1883,
   mqtt_topic: '',
+  power_profile: 'HOUSE_3P_11KW',
   poll_interval: 10,
   notifications_enabled: true,
   notification_channel: 'email',
@@ -109,6 +120,7 @@ export function SettingsForm() {
       mqtt_broker: device.mqttBroker || '',
       mqtt_port: device.mqttPort || 1883,
       mqtt_topic: device.mqttTopic || '',
+      power_profile: device.powerProfile,
       poll_interval: device.pollInterval,
       notification_channel: device.notificationChannel || 'email',
       notification_target: device.notificationTarget || '',
@@ -336,6 +348,7 @@ export function SettingsForm() {
         mqttBroker: s.mqtt_broker || null,
         mqttPort: s.mqtt_port || null,
         mqttTopic: s.mqtt_topic || null,
+        powerProfile: s.power_profile,
         pollInterval: s.poll_interval,
         isActive: selectedDevice?.isActive ?? true,
         notificationChannel: s.notifications_enabled ? s.notification_channel : 'none',
@@ -529,6 +542,19 @@ export function SettingsForm() {
             value={s.poll_interval}
             onChange={(v) => setS({ ...s, poll_interval: Number(v) })}
             min={1}
+            styles={inputStyles}
+          />
+
+          <Select
+            label="Installation Type / Main Breaker Profile"
+            value={s.power_profile}
+            onChange={(value) =>
+              setS({
+                ...s,
+                power_profile: (value as PowerProfilePreset) ?? 'HOUSE_3P_11KW',
+              })
+            }
+            data={POWER_PROFILE_OPTIONS}
             styles={inputStyles}
           />
         </Stack>

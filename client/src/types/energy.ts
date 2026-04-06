@@ -92,11 +92,19 @@ export interface TimeSeriesPoint {
   value: number;
 }
 
+export type PowerProfilePreset =
+  | 'APARTMENT_1P_5KW'
+  | 'APARTMENT_1P_7KW'
+  | 'HOUSE_3P_11KW'
+  | 'HOUSE_3P_18KW'
+  | 'SOLAR_PROSUMER_3P_22KW';
+
 export interface AppSettings {
   device_ip: string;
   mqtt_broker: string;
   mqtt_port: number;
   mqtt_topic: string;
+  power_profile: PowerProfilePreset;
   poll_interval: number;
   timezone: string;
   dsmr_version: string;
