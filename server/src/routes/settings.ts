@@ -1,5 +1,10 @@
 import type { FastifyInstance, FastifyError } from 'fastify';
 import prisma from '../lib/prisma.js';
+import {
+  DEFAULT_POWER_PROFILE,
+  POWER_PROFILE_PRESET_VALUES,
+  type PowerProfilePreset,
+} from '../config/powerPolicy.js';
 import { devicePoller } from '../services/devicePoller.js';
 import {
   listNotificationSettings,
@@ -9,6 +14,10 @@ import {
   NOTIFICATION_EVENT_TYPES,
   type NotificationEventType,
 } from '../services/notificationTypes.js';
+import {
+  clearPowerPolicyCache,
+  syncPowerProfileOverride,
+} from '../services/powerPolicy.js';
 // JSON Schemas
 
 const idParamSchema = {
@@ -29,6 +38,7 @@ const deviceBodySchema = {
     mqttBroker:          { type: ['string', 'null'] },
     mqttPort:            { type: ['integer', 'null'], minimum: 1, maximum: 65535 },
     mqttTopic:           { type: ['string', 'null'] },
+    powerProfile:        { type: 'string', enum: [...POWER_PROFILE_PRESET_VALUES] },
     pollInterval:        { type: 'integer', minimum: 1 },
     isActive:            { type: 'boolean' },
     notificationChannel: { type: ['string', 'null'], enum: ['email', 'sms', 'push', 'none', null] },
@@ -46,6 +56,7 @@ const patchBodySchema = {
     mqttBroker:          { type: ['string', 'null'] },
     mqttPort:            { type: ['integer', 'null'], minimum: 1, maximum: 65535 },
     mqttTopic:           { type: ['string', 'null'] },
+    powerProfile:        { type: 'string', enum: [...POWER_PROFILE_PRESET_VALUES] },
     pollInterval:        { type: 'integer', minimum: 1 },
     isActive:            { type: 'boolean' },
     notificationChannel: { type: ['string', 'null'], enum: ['email', 'sms', 'push', 'none', null] },
@@ -83,6 +94,7 @@ interface DeviceBody {
   mqttBroker?: string | null;
   mqttPort?: number | null;
   mqttTopic?: string | null;
+  powerProfile?: PowerProfilePreset;
   pollInterval?: number;
   isActive?: boolean;
   notificationChannel?: 'email' | 'sms' | 'push' | 'none' | null;
@@ -94,6 +106,10 @@ interface IdParam {
 }
 
 export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
+  async function syncSelectedPowerProfile(deviceId: number, profile: PowerProfilePreset): Promise<void> {
+    await syncPowerProfileOverride(deviceId, profile);
+    clearPowerPolicyCache(deviceId);
+  }
 
   // Custom error format so validation errors use our { error, message } shape
   fastify.setErrorHandler((error: FastifyError, _req, reply) => {
@@ -131,7 +147,18 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.post<{ Body: DeviceBody }>('/api/settings', {
     schema: { body: deviceBodySchema },
   }, async (req, reply) => {
-  const { name, deviceIp, mqttBroker, mqttPort, mqttTopic, pollInterval, isActive, notificationChannel, notificationTarget } = req.body;
+  const {
+    name,
+    deviceIp,
+    mqttBroker,
+    mqttPort,
+    mqttTopic,
+    powerProfile,
+    pollInterval,
+    isActive,
+    notificationChannel,
+    notificationTarget,
+  } = req.body;
 
     const device = await prisma.device.create({
       data: {
@@ -140,12 +167,15 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
         mqttBroker: mqttBroker ?? null,
         mqttPort: mqttPort ?? null,
         mqttTopic: mqttTopic ?? null,
+        powerProfile: powerProfile ?? DEFAULT_POWER_PROFILE,
         pollInterval: pollInterval ?? 10,
         isActive: isActive ?? true,
         notificationChannel: notificationChannel ?? 'email',
         notificationTarget: notificationTarget ?? null,
 },
     });
+
+    await syncSelectedPowerProfile(device.id, powerProfile ?? DEFAULT_POWER_PROFILE);
 
     // Trigger poller to pick up the new device immediately
     devicePoller.syncDevices().catch((err) =>
@@ -165,7 +195,18 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
       return reply.code(404).send({ error: 'NOT_FOUND', message: `Device ${id} not found` });
     }
 
-    const { name, deviceIp, mqttBroker, mqttPort, mqttTopic, pollInterval, isActive, notificationChannel, notificationTarget } = req.body;
+    const {
+      name,
+      deviceIp,
+      mqttBroker,
+      mqttPort,
+      mqttTopic,
+      powerProfile,
+      pollInterval,
+      isActive,
+      notificationChannel,
+      notificationTarget,
+    } = req.body;
 
     const data: Record<string, unknown> = {};
     if (name !== undefined) data.name = name.trim();
@@ -173,12 +214,17 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
     if (mqttBroker !== undefined) data.mqttBroker = mqttBroker;
     if (mqttPort !== undefined) data.mqttPort = mqttPort;
     if (mqttTopic !== undefined) data.mqttTopic = mqttTopic;
+    if (powerProfile !== undefined) data.powerProfile = powerProfile;
     if (pollInterval !== undefined) data.pollInterval = pollInterval;
     if (isActive !== undefined) data.isActive = isActive;
     if (notificationChannel !== undefined) data.notificationChannel = notificationChannel;
     if (notificationTarget !== undefined) data.notificationTarget = notificationTarget;
 
     const updated = await prisma.device.update({ where: { id }, data });
+
+    if (powerProfile !== undefined) {
+      await syncSelectedPowerProfile(updated.id, powerProfile);
+    }
 
     // Trigger poller to reconcile changes immediately
     devicePoller.syncDevices().catch((err) =>

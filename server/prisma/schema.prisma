@@ -17,6 +17,7 @@ model Device {
   mqttBroker  String?
   mqttPort    Int?
   mqttTopic   String?
+  powerProfile String  @default("HOUSE_3P_11KW")
   pollInterval Int     @default(10)
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())

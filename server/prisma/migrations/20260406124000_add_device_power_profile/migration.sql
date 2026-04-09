@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "devices" ADD COLUMN "powerProfile" TEXT NOT NULL DEFAULT 'HOUSE_3P_11KW';
