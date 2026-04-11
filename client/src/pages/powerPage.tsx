@@ -29,6 +29,7 @@ import {
 } from 'recharts';
 import { usePolling } from '../hooks/usePolling';
 import { apiFetch } from '../services/apiClient';
+import { useI18n } from '../i18n/i18n';
 
 interface DeviceOption {
   id: number;
@@ -144,6 +145,27 @@ function severityBadgeColor(severity: number): string {
   return 'secondary';
 }
 
+function tr(language: 'en' | 'lt', en: string, lt: string): string {
+  return language === 'lt' ? lt : en;
+}
+
+function anomalyTypeLabel(type: string, language: 'en' | 'lt'): string {
+  const labels: Record<string, string> = {
+    LONG_INTERRUPTION: tr(language, 'Long interruption', 'Ilgas nutrūkimas'),
+    SHORT_INTERRUPTION: tr(language, 'Short interruption', 'Trumpas nutrūkimas'),
+    OVER_VOLTAGE: tr(language, 'Over-voltage', 'Viršįtampis'),
+    UNDER_VOLTAGE: tr(language, 'Under-voltage', 'Žema įtampa'),
+    VOLTAGE_DEVIATION: tr(language, 'Voltage deviation', 'Įtampos nuokrypis'),
+  };
+  return labels[type] ?? type;
+}
+
+function reportUseLabel(reportUse: 'home' | 'technical' | 'solar', language: 'en' | 'lt'): string {
+  if (reportUse === 'home') return tr(language, 'Home', 'Namų');
+  if (reportUse === 'technical') return tr(language, 'Technical', 'Techninė');
+  return tr(language, 'Solar', 'Saulės');
+}
+
 function BigStat({ value, label }: { value: string; label: string }) {
   return (
     <Card p="lg" radius="md">
@@ -160,6 +182,7 @@ function BigStat({ value, label }: { value: string; label: string }) {
 }
 
 export function PowerPage() {
+  const { t, language } = useI18n();
   const [devices, setDevices] = useState<DeviceOption[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
   const [devicesLoading, setDevicesLoading] = useState(true);
@@ -177,7 +200,7 @@ export function PowerPage() {
         }
       })
       .catch(() => {
-        if (active) setDevicesError('Failed to load devices.');
+        if (active) setDevicesError(t('power.failedLoadDevices'));
       })
       .finally(() => {
         if (active) setDevicesLoading(false);
@@ -254,19 +277,106 @@ export function PowerPage() {
     return [...byType.entries()].map(([type, count]) => ({ type, count }));
   }, [reportDetail, anomalies]);
 
+  const localizedAnomalyDistribution = useMemo(
+    () => anomalyDistribution.map((item) => ({ ...item, label: anomalyTypeLabel(item.type, language) })),
+    [anomalyDistribution, language],
+  );
+
+  const localizedQualityAssessment = reportDetail
+    ? reportDetail.powerQuality.pass
+      ? tr(
+        language,
+        `Power quality is compliant with the EN 50160 target (>=95% in-range 10-minute windows). Worst observed phase was ${reportDetail.powerQuality.worstPhase} at ${reportDetail.powerQuality.worstPhaseCompliancePct.toFixed(2)}%.`,
+        `Galios kokybė atitinka EN 50160 tikslą (>=95% į ribas patenkančių 10 min. langų). Blogiausia stebėta fazė buvo ${reportDetail.powerQuality.worstPhase} su ${reportDetail.powerQuality.worstPhaseCompliancePct.toFixed(2)}%.`,
+      )
+      : tr(
+        language,
+        `Power quality does not comply with the EN 50160 target. Worst observed phase was ${reportDetail.powerQuality.worstPhase} at ${reportDetail.powerQuality.worstPhaseCompliancePct.toFixed(2)}%, below the 95% threshold.`,
+        `Galios kokybė neatitinka EN 50160 tikslo. Blogiausia stebėta fazė buvo ${reportDetail.powerQuality.worstPhase} su ${reportDetail.powerQuality.worstPhaseCompliancePct.toFixed(2)}% — žemiau 95% ribos.`,
+      )
+    : null;
+
+  const localizedQualityRecommendation = reportDetail
+    ? reportDetail.powerQuality.dominantAnomalyType
+      ? tr(
+        language,
+        `Primary anomaly driver in this interval: ${anomalyTypeLabel(reportDetail.powerQuality.dominantAnomalyType, language)}. Review phase-level events and recurrence timing.`,
+        `Pagrindinis anomalijų šaltinis šiame intervale: ${anomalyTypeLabel(reportDetail.powerQuality.dominantAnomalyType, language)}. Peržiūrėkite fazių lygio įvykius ir pasikartojimo laiką.`,
+      )
+      : tr(
+        language,
+        'No dominant anomaly type detected in this interval.',
+        'Šiame intervale dominuojančio anomalijos tipo nenustatyta.',
+      )
+    : null;
+
+  const localizedNarrative = reportDetail
+    ? (() => {
+      const parts: string[] = [
+        tr(
+          language,
+          `During the selected period, total imported electricity was ${reportDetail.insights.totalEnergyConsumedKwh.toFixed(2)} kWh.`,
+          `Per pasirinktą laikotarpį bendra importuota elektros energija buvo ${reportDetail.insights.totalEnergyConsumedKwh.toFixed(2)} kWh.`,
+        ),
+      ];
+
+      if (reportDetail.insights.averageEfficiencyPct != null) {
+        parts.push(
+          tr(
+            language,
+            `The average self-consumption efficiency ratio (imported / (imported + returned)) was ${reportDetail.insights.averageEfficiencyPct.toFixed(1)}%.`,
+            `Vidutinis savosios vartosenos efektyvumo santykis (importuota / (importuota + grąžinta)) buvo ${reportDetail.insights.averageEfficiencyPct.toFixed(1)}%.`,
+          ),
+        );
+      } else {
+        parts.push(
+          tr(
+            language,
+            'The efficiency ratio could not be computed due to insufficient returned-energy signal in the selected range.',
+            'Efektyvumo santykio apskaičiuoti nepavyko dėl nepakankamo grąžintos energijos signalo pasirinktame intervale.',
+          ),
+        );
+      }
+
+      const topAnomaly = reportDetail.insights.anomalyTypeDistribution.length > 0
+        ? reportDetail.insights.anomalyTypeDistribution.reduce((acc, cur) => (cur.count > acc.count ? cur : acc))
+        : null;
+
+      if (topAnomaly) {
+        parts.push(
+          tr(
+            language,
+            `The most frequently observed anomaly category was ${anomalyTypeLabel(topAnomaly.type, language)} (${topAnomaly.count} occurrences).`,
+            `Dažniausiai stebėta anomalijų kategorija buvo ${anomalyTypeLabel(topAnomaly.type, language)} (${topAnomaly.count} atvejai).`,
+          ),
+        );
+      } else {
+        parts.push(
+          tr(
+            language,
+            'No transmission anomalies were detected within the selected reporting interval.',
+            'Pasirinktame ataskaitos intervale perdavimo anomalijų neaptikta.',
+          ),
+        );
+      }
+
+      return parts.join(' ');
+    })()
+    : null;
+
   return (
     <Stack p="lg" gap="md" style={{ width: '100%' }}>
-      <Title order={2}>Power analytics</Title>
+      <Title order={2}>{t('power.title')}</Title>
 
       <Card p="md" radius="md">
         <Stack gap="sm">
           <div>
-            <Text fw={700} mb={4}>Device selection</Text>
-            <Text size="sm" c="dimmed">Choose which device to display on the power page.</Text>
+            <Text fw={700} mb={4}>{t('power.deviceSelection')}</Text>
+            <Text size="sm" c="dimmed">{t('power.chooseDeviceDescription')}</Text>
           </div>
 
           <Select
-            placeholder={devicesLoading ? 'Loading devices...' : 'Select device'}
+            placeholder={devicesLoading ? t('power.loadingDevices') : t('power.selectDevice')}
             data={devices.map((device) => ({
               value: String(device.id),
               label: device.name,
@@ -279,14 +389,14 @@ export function PowerPage() {
         </Stack>
 
         {devicesError && (
-          <Alert mt="md" color="red" title="Failed to load devices">
+          <Alert mt="md" color="red" title={t('power.failedLoadDevicesTitle')}>
             {devicesError}
           </Alert>
         )}
 
         {!devicesError && !devicesLoading && devices.length === 0 && (
-          <Alert mt="md" color="yellow" title="No devices available">
-            Add at least one device in Settings to view power analytics.
+          <Alert mt="md" color="yellow" title={t('power.noDevicesTitle')}>
+            {t('power.noDevicesDescription')}
           </Alert>
         )}
       </Card>
@@ -296,19 +406,19 @@ export function PowerPage() {
           {(summaryLoading || latestLoading) && (
             <Group justify="center" py="md">
               <Loader size="sm" />
-              <Text size="sm" c="dimmed">Loading power data…</Text>
+              <Text size="sm" c="dimmed">{t('power.loadingData')}</Text>
             </Group>
           )}
 
           {(summaryError || latestError) && (
-            <Alert color="red" title="Failed to load live power data">
-              Power endpoints are unavailable right now. Check server logs and try again.
+            <Alert color="red" title={t('power.failedLiveTitle')}>
+              {t('power.failedLiveDescription')}
             </Alert>
           )}
 
           {summary && !summary.has_data && (
-            <Alert color="yellow" title="No power data yet">
-              Waiting for first readings from this device.
+            <Alert color="yellow" title={t('power.noDataTitle')}>
+              {t('power.noDataDescription')}
             </Alert>
           )}
 
@@ -316,34 +426,34 @@ export function PowerPage() {
             <>
               <SimpleGrid cols={{ base: 2, sm: 4 }}>
                 <BigStat
-                  label="Total readings"
+                  label={t('power.totalReadings')}
                   value={summary.stats.totalReadings.toLocaleString()}
                 />
                 <BigStat
-                  label="Active anomalies"
+                  label={t('power.activeAnomalies')}
                   value={String(summary.stats.activePowerAnomalies)}
                 />
                 <BigStat
-                  label="Policy-breached windows"
+                  label={t('power.policyBreachedWindows')}
                   value={String(summary.stats.policyBreachedWindows)}
                 />
                 <BigStat
-                  label="Total anomalies"
+                  label={t('power.totalAnomalies')}
                   value={String(summary.stats.totalPowerAnomalies)}
                 />
               </SimpleGrid>
 
               <SimpleGrid cols={{ base: 1, lg: 3 }}>
                 <Card p="md" radius="md">
-                  <Text size="sm" c="dimmed">Active power</Text>
+                  <Text size="sm" c="dimmed">{t('power.activePower')}</Text>
                   <Text fw={700} fz={32}>{latest ? `${latest.activePowerTotalKw.toFixed(3)} kW` : '—'}</Text>
                 </Card>
                 <Card p="md" radius="md">
-                  <Text size="sm" c="dimmed">Reactive power</Text>
+                  <Text size="sm" c="dimmed">{t('power.reactivePower')}</Text>
                   <Text fw={700} fz={32}>{latest ? `${latest.reactivePowerTotalKvar.toFixed(3)} kvar` : '—'}</Text>
                 </Card>
                 <Card p="md" radius="md">
-                  <Text size="sm" c="dimmed">Apparent power</Text>
+                  <Text size="sm" c="dimmed">{t('power.apparentPower')}</Text>
                   <Text fw={700} fz={32}>{latest ? `${latest.apparentPowerTotalKva.toFixed(3)} kVA` : '—'}</Text>
                 </Card>
               </SimpleGrid>
@@ -351,18 +461,18 @@ export function PowerPage() {
               <SimpleGrid cols={{ base: 1, lg: 2 }}>
                 <Card p="md" radius="md">
                   <Group justify="space-between" mb="sm">
-                    <Text fw={700}>Live power trends</Text>
+                    <Text fw={700}>{t('power.liveTrends')}</Text>
                     {latest && <Text size="sm" c="dimmed">{new Date(latest.timestamp).toLocaleTimeString()}</Text>}
                   </Group>
 
                   {historyError ? (
-                    <Alert color="red" title="Failed to load trend data">Could not load power history.</Alert>
+                    <Alert color="red" title={t('power.failedTrendTitle')}>{t('power.failedTrendDescription')}</Alert>
                   ) : historyLoading && trendData.length === 0 ? (
                     <Group justify="center" py="md">
                       <Loader size="sm" />
                     </Group>
                   ) : trendData.length === 0 ? (
-                    <Text c="dimmed" ta="center">No history yet.</Text>
+                    <Text c="dimmed" ta="center">{t('power.noHistory')}</Text>
                   ) : (
                     <ResponsiveContainer width="100%" height={300}>
                       <LineChart data={trendData}>
@@ -371,16 +481,16 @@ export function PowerPage() {
                         <YAxis tick={{ fontSize: 11 }} />
                         <Tooltip />
                         <Legend />
-                        <Line dataKey="active" stroke="#FFCC59" dot={false} strokeWidth={2} name="Active kW" isAnimationActive={false} />
-                        <Line dataKey="reactive" stroke="#8ACDEA" dot={false} strokeWidth={2} name="Reactive kvar" isAnimationActive={false} />
-                        <Line dataKey="apparent" stroke="#DB3C3C" dot={false} strokeWidth={2} name="Apparent kVA" isAnimationActive={false} />
+                        <Line dataKey="active" stroke="#FFCC59" dot={false} strokeWidth={2} name={t('power.legendActiveKw')} isAnimationActive={false} />
+                        <Line dataKey="reactive" stroke="#8ACDEA" dot={false} strokeWidth={2} name={t('power.legendReactiveKvar')} isAnimationActive={false} />
+                        <Line dataKey="apparent" stroke="#DB3C3C" dot={false} strokeWidth={2} name={t('power.legendApparentKva')} isAnimationActive={false} />
                       </LineChart>
                     </ResponsiveContainer>
                   )}
                 </Card>
 
                 <Card p="md" radius="md">
-                  <Text fw={700} mb="sm">Power factor and imbalance</Text>
+                  <Text fw={700} mb="sm">{t('power.pfImbalance')}</Text>
 
                   <SimpleGrid cols={{ base: 1, sm: 2 }}>
                     <Stack align="center" gap="xs">
@@ -394,13 +504,13 @@ export function PowerPage() {
                         }]}
                         label={<Text ta="center" fw={700}>{latest ? latest.powerFactor.toFixed(3) : '—'}</Text>}
                       />
-                      <Text size="xs" c="dimmed">Power factor</Text>
+                      <Text size="xs" c="dimmed">{t('power.powerFactor')}</Text>
                     </Stack>
 
                     <Stack justify="center" gap="md">
                       <div>
                         <Group justify="space-between" mb={4}>
-                          <Text size="sm">Phase imbalance</Text>
+                          <Text size="sm">{t('power.phaseImbalance')}</Text>
                           <Text size="sm" fw={600}>
                             {latest ? `${latest.phaseImbalancePct.toFixed(1)}%` : '—'}
                           </Text>
@@ -413,7 +523,7 @@ export function PowerPage() {
                       </div>
 
                       <div>
-                        <Text size="xs" c="dimmed" mb={2}>Policy breaches</Text>
+                        <Text size="xs" c="dimmed" mb={2}>{t('power.policyBreaches')}</Text>
                         {latest?.breaches?.length ? (
                           <Stack gap={4}>
                             {latest.breaches.slice(0, 2).map((breach) => (
@@ -423,7 +533,7 @@ export function PowerPage() {
                             ))}
                           </Stack>
                         ) : (
-                          <Text size="sm" c="dimmed">No active breaches</Text>
+                          <Text size="sm" c="dimmed">{t('power.noActiveBreaches')}</Text>
                         )}
                       </div>
                     </Stack>
@@ -433,64 +543,64 @@ export function PowerPage() {
 
               <SimpleGrid cols={{ base: 1, lg: 2 }}>
                 <Card p="md" radius="md">
-                  <Text fw={700} mb="md">Latest report: power quality</Text>
+                  <Text fw={700} mb="md">{t('power.latestReportQuality')}</Text>
 
                   {reportsError || reportDetailError ? (
-                    <Alert color="red" title="Failed to load report sections">
-                      Report power sections are temporarily unavailable.
+                    <Alert color="red" title={t('power.failedReportSectionsTitle')}>
+                      {t('power.failedReportSectionsDescription')}
                     </Alert>
                   ) : reportsLoading || reportDetailLoading ? (
                     <Group justify="center" py="md"><Loader size="sm" /></Group>
                   ) : !reportDetail ? (
-                    <Text c="dimmed" ta="center">No technical report available for this device.</Text>
+                    <Text c="dimmed" ta="center">{t('power.noTechnicalReport')}</Text>
                   ) : (
                     <Stack gap="md">
                       <Group justify="space-between">
                         <Badge color={reportDetail.powerQuality.pass ? 'secondary' : 'danger'} variant="light" size="lg">
-                          {reportDetail.powerQuality.pass ? 'COMPLIANT' : 'NON-COMPLIANT'}
+                          {reportDetail.powerQuality.pass ? t('power.compliant') : t('power.nonCompliant')}
                         </Badge>
-                        <Text size="sm" c="dimmed">{reportDetail.reportUse.toUpperCase()} report</Text>
+                        <Text size="sm" c="dimmed">{reportUseLabel(reportDetail.reportUse, language)} {t('power.report')}</Text>
                       </Group>
 
                       <SimpleGrid cols={{ base: 2, sm: 4 }}>
                         <Card p="sm" withBorder>
-                          <Text size="xs" c="dimmed">Avg compliance</Text>
+                          <Text size="xs" c="dimmed">{t('power.avgCompliance')}</Text>
                           <Text fw={700}>{reportDetail.powerQuality.averageCompliancePct.toFixed(1)}%</Text>
                         </Card>
                         <Card p="sm" withBorder>
-                          <Text size="xs" c="dimmed">Worst phase</Text>
+                          <Text size="xs" c="dimmed">{t('power.worstPhase')}</Text>
                           <Text fw={700}>{reportDetail.powerQuality.worstPhase}</Text>
                         </Card>
                         <Card p="sm" withBorder>
-                          <Text size="xs" c="dimmed">Worst-phase compliance</Text>
+                          <Text size="xs" c="dimmed">{t('power.worstPhaseCompliance')}</Text>
                           <Text fw={700}>{reportDetail.powerQuality.worstPhaseCompliancePct.toFixed(1)}%</Text>
                         </Card>
                         <Card p="sm" withBorder>
-                          <Text size="xs" c="dimmed">Dominant anomaly</Text>
-                          <Text fw={700}>{reportDetail.powerQuality.dominantAnomalyType ?? 'None'}</Text>
+                          <Text size="xs" c="dimmed">{t('power.dominantAnomaly')}</Text>
+                          <Text fw={700}>{reportDetail.powerQuality.dominantAnomalyType ? anomalyTypeLabel(reportDetail.powerQuality.dominantAnomalyType, language) : t('power.none')}</Text>
                         </Card>
                       </SimpleGrid>
 
-                      <Text size="sm">{reportDetail.powerQuality.assessmentText}</Text>
-                      <Text size="sm" c="dimmed">{reportDetail.powerQuality.recommendationText}</Text>
+                      <Text size="sm">{localizedQualityAssessment ?? reportDetail.powerQuality.assessmentText}</Text>
+                      <Text size="sm" c="dimmed">{localizedQualityRecommendation ?? reportDetail.powerQuality.recommendationText}</Text>
                     </Stack>
                   )}
                 </Card>
 
                 <Card p="md" radius="md">
-                  <Text fw={700} mb="md">Anomaly distribution</Text>
+                  <Text fw={700} mb="md">{t('power.anomalyDistribution')}</Text>
 
                   {anomaliesError ? (
-                    <Alert color="red" title="Failed to load anomaly data">Could not load anomalies.</Alert>
+                    <Alert color="red" title={t('power.failedAnomalyDataTitle')}>{t('power.failedAnomalyDataDescription')}</Alert>
                   ) : anomaliesLoading && anomalyDistribution.length === 0 ? (
                     <Group justify="center" py="md"><Loader size="sm" /></Group>
                   ) : anomalyDistribution.length === 0 ? (
-                    <Text c="dimmed" ta="center">No anomalies recorded yet.</Text>
+                    <Text c="dimmed" ta="center">{t('power.noAnomaliesYet')}</Text>
                   ) : (
                     <ResponsiveContainer width="100%" height={280}>
                       <PieChart>
-                        <Pie data={anomalyDistribution} dataKey="count" nameKey="type" outerRadius={95} label>
-                          {anomalyDistribution.map((entry, idx) => (
+                        <Pie data={localizedAnomalyDistribution} dataKey="count" nameKey="label" outerRadius={95} label>
+                          {localizedAnomalyDistribution.map((entry, idx) => (
                             <Cell key={`${entry.type}-${idx}`} fill={anomalyColor(idx)} />
                           ))}
                         </Pie>
@@ -503,31 +613,31 @@ export function PowerPage() {
               </SimpleGrid>
 
               <Card p="md" radius="md">
-                <Text fw={700} mb="md">Recent power anomalies</Text>
+                <Text fw={700} mb="md">{t('power.recentAnomalies')}</Text>
 
                 {anomaliesError ? (
-                  <Alert color="red" title="Failed to load anomalies">Could not fetch recent anomalies.</Alert>
+                  <Alert color="red" title={t('power.failedAnomaliesTitle')}>{t('power.failedAnomaliesDescription')}</Alert>
                 ) : anomaliesLoading ? (
                   <Group justify="center" py="md"><Loader size="sm" /></Group>
                 ) : !anomalies || anomalies.count === 0 ? (
-                  <Text c="dimmed" ta="center">No recent anomalies.</Text>
+                  <Text c="dimmed" ta="center">{t('power.noRecentAnomalies')}</Text>
                 ) : (
                   <Table.ScrollContainer minWidth={700}>
                     <Table striped highlightOnHover>
                       <Table.Thead>
                         <Table.Tr>
-                          <Table.Th>Type</Table.Th>
-                          <Table.Th>Metric</Table.Th>
-                          <Table.Th>Phase</Table.Th>
-                          <Table.Th>Severity</Table.Th>
-                          <Table.Th>Started</Table.Th>
-                          <Table.Th>Status</Table.Th>
+                          <Table.Th>{t('power.type')}</Table.Th>
+                          <Table.Th>{t('power.metric')}</Table.Th>
+                          <Table.Th>{t('power.phase')}</Table.Th>
+                          <Table.Th>{t('power.severity')}</Table.Th>
+                          <Table.Th>{t('power.started')}</Table.Th>
+                          <Table.Th>{t('power.status')}</Table.Th>
                         </Table.Tr>
                       </Table.Thead>
                       <Table.Tbody>
                         {anomalies.data.map((item) => (
                           <Table.Tr key={item.id}>
-                            <Table.Td>{item.type}</Table.Td>
+                            <Table.Td>{anomalyTypeLabel(item.type, language)}</Table.Td>
                             <Table.Td>{item.metricName ?? '—'}</Table.Td>
                             <Table.Td>{item.phase}</Table.Td>
                             <Table.Td>
@@ -536,7 +646,7 @@ export function PowerPage() {
                             <Table.Td>{new Date(item.startsAt).toLocaleString()}</Table.Td>
                             <Table.Td>
                               <Badge color={item.endsAt ? 'secondary' : 'danger'} variant="light">
-                                {item.endsAt ? 'Resolved' : 'Active'}
+                                {item.endsAt ? t('power.resolved') : t('power.active')}
                               </Badge>
                             </Table.Td>
                           </Table.Tr>
@@ -549,20 +659,20 @@ export function PowerPage() {
 
               {reportDetail && (
                 <Card p="md" radius="md">
-                  <Text fw={700} mb="xs">Report energy summary</Text>
-                  <Text size="sm" c="dimmed">{reportDetail.insights.narrative}</Text>
+                  <Text fw={700} mb="xs">{t('power.reportEnergySummary')}</Text>
+                  <Text size="sm" c="dimmed">{localizedNarrative ?? reportDetail.insights.narrative}</Text>
 
                   <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} mt="md">
                     <Card p="sm" withBorder>
-                      <Text size="xs" c="dimmed">Total consumed</Text>
+                      <Text size="xs" c="dimmed">{t('power.totalConsumed')}</Text>
                       <Text fw={700} fz="xl">{reportDetail.insights.totalEnergyConsumedKwh.toFixed(2)} kWh</Text>
                     </Card>
                     <Card p="sm" withBorder>
-                      <Text size="xs" c="dimmed">Total returned</Text>
+                      <Text size="xs" c="dimmed">{t('power.totalReturned')}</Text>
                       <Text fw={700} fz="xl">{reportDetail.insights.totalEnergyReturnedKwh.toFixed(2)} kWh</Text>
                     </Card>
                     <Card p="sm" withBorder>
-                      <Text size="xs" c="dimmed">Avg efficiency</Text>
+                      <Text size="xs" c="dimmed">{t('power.avgEfficiency')}</Text>
                       <Text fw={700} fz="xl">
                         {reportDetail.insights.averageEfficiencyPct != null
                           ? `${reportDetail.insights.averageEfficiencyPct.toFixed(1)}%`
@@ -570,7 +680,7 @@ export function PowerPage() {
                       </Text>
                     </Card>
                     <Card p="sm" withBorder>
-                      <Text size="xs" c="dimmed">Avg hourly electricity</Text>
+                      <Text size="xs" c="dimmed">{t('power.avgHourlyElectricity')}</Text>
                       <Text fw={700} fz="xl">
                         {reportDetail.insights.averageHourlyElectricityKwh != null
                           ? `${reportDetail.insights.averageHourlyElectricityKwh.toFixed(3)} kWh`

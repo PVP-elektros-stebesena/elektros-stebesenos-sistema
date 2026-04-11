@@ -1,5 +1,6 @@
 import { Group, UnstyledButton, Text, ActionIcon, Flex, Box } from "@mantine/core"
 import type { Page } from '../types/energy';
+import { useI18n } from '../i18n/i18n';
 
 
 function IconBolt({ size = 20, color = "currentColor" }: { size?: number; color?: string }) {
@@ -28,14 +29,6 @@ function IconBellFilled({ size = 20, color = "currentColor" }: { size?: number; 
   );
 }
 
-const navItems: { label: string; page: Page }[] = [
-  { label: "Voltage", page: "voltage" },
-  { label: "Power", page: "power" },
-  { label: "Reports", page: "reports" },
-  { label: "Current data", page: "currentData" },
-  { label: "Settings", page: "settings" },
-]
-
 interface NavbarProps {
   page: Page;
   onNavigate: (page: Page) => void;
@@ -43,6 +36,16 @@ interface NavbarProps {
 }
 
 export function Navbar({ page, onNavigate }: NavbarProps) {
+  const { t } = useI18n()
+
+  const navItems: { label: string; page: Page }[] = [
+    { label: t('nav.voltage'), page: 'voltage' },
+    { label: t('nav.power'), page: 'power' },
+    { label: t('nav.reports'), page: 'reports' },
+    { label: t('nav.currentData'), page: 'currentData' },
+    { label: t('nav.settings'), page: 'settings' },
+  ]
+
   const logo = (
     <Group gap="sm">
       <Box
@@ -74,7 +77,7 @@ export function Navbar({ page, onNavigate }: NavbarProps) {
           backgroundColor: "#FFCC59",
           color: "#000000",
         }}
-        aria-label="Notifications"
+        aria-label={t('nav.notifications')}
       >
         <IconBellFilled size={18} color="#000000" />
       </ActionIcon>
@@ -87,7 +90,7 @@ export function Navbar({ page, onNavigate }: NavbarProps) {
           color: "#EBEBEB",
           backgroundColor: "transparent",
         }}
-        aria-label="Notification preferences"
+        aria-label={t('nav.notificationPreferences')}
       >
         <IconBell size={18} color="#EBEBEB" />
       </ActionIcon>

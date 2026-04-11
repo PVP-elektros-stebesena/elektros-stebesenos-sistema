@@ -2,6 +2,7 @@ import { Button, Card, Stack, TextInput, NumberInput, Switch, Text, Select, Mult
 import { useState, useEffect } from 'react'
 import type { AppSettings } from '../types/energy'
 import { apiDelete, apiFetch, apiPost, apiPatch } from '../services/apiClient'
+import { useI18n } from '../i18n/i18n'
 
 interface Device {
   id: number
@@ -63,13 +64,6 @@ const inputStyles = {
   },
 }
 
-const EVENT_OPTIONS: { value: NotificationEventType; label: string }[] = [
-  { value: 'ANOMALY_DETECTED', label: 'Anomaly detected' },
-  { value: 'DEVICE_UNREACHABLE', label: 'Device unreachable' },
-  { value: 'DEVICE_RECOVERED', label: 'Device recovered' },
-  { value: 'REPORT_GENERATED', label: 'Report generated' },
-]
-
 const DEFAULT_SELECTED_EVENTS: NotificationEventType[] = [
   'ANOMALY_DETECTED',
   'DEVICE_UNREACHABLE',
@@ -90,9 +84,11 @@ const EMPTY_DEVICE_SETTINGS: AppSettings = {
 }
 
 export function SettingsForm() {
+  const { t, language, setLanguage } = useI18n()
+  const defaultDeviceName = t('settings.defaultDeviceName')
   const [s, setS] = useState<AppSettings>(EMPTY_DEVICE_SETTINGS)
   const [devices, setDevices] = useState<Device[]>([])
-  const [deviceName, setDeviceName] = useState('P1 Device')
+  const [deviceName, setDeviceName] = useState(defaultDeviceName)
   const [deviceId, setDeviceId] = useState<number | null>(null)
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
@@ -117,7 +113,7 @@ export function SettingsForm() {
 
   const resetFormForNewDevice = () => {
     setDeviceId(null)
-    setDeviceName('P1 Device')
+    setDeviceName(defaultDeviceName)
     setS(EMPTY_DEVICE_SETTINGS)
     setSelectedEvents(DEFAULT_SELECTED_EVENTS)
   }
@@ -189,7 +185,7 @@ export function SettingsForm() {
 
   const handleToggleConnection = async () => {
     if (!selectedDevice) {
-      setMessage({ type: 'error', text: 'Select a device first.' })
+      setMessage({ type: 'error', text: t('settings.errorSelectDeviceFirst') })
       return
     }
 
@@ -209,12 +205,12 @@ export function SettingsForm() {
       setMessage({
         type: 'success',
         text: updatedDevice.isActive
-          ? `Connected to ${updatedDevice.name}.`
-          : `Disconnected ${updatedDevice.name}.`,
+          ? t('settings.successDeviceConnected', { name: updatedDevice.name })
+          : t('settings.successDeviceDisconnected', { name: updatedDevice.name }),
       })
     } catch (err) {
       console.error('Failed to toggle device connection:', err)
-      setMessage({ type: 'error', text: 'Failed to update connection state.' })
+      setMessage({ type: 'error', text: t('settings.errorUpdateConnection') })
     } finally {
       setLoading(false)
     }
@@ -222,11 +218,11 @@ export function SettingsForm() {
 
   const handleRemoveDevice = async () => {
     if (!selectedDevice) {
-      setMessage({ type: 'error', text: 'Select a device first.' })
+      setMessage({ type: 'error', text: t('settings.errorSelectDeviceFirst') })
       return
     }
 
-    const shouldDelete = window.confirm(`Remove device "${selectedDevice.name}"?`)
+    const shouldDelete = window.confirm(t('settings.confirmRemoveDevice', { name: selectedDevice.name }))
     if (!shouldDelete) {
       return
     }
@@ -248,10 +244,10 @@ export function SettingsForm() {
         resetFormForNewDevice()
       }
 
-      setMessage({ type: 'success', text: 'Device removed successfully.' })
+      setMessage({ type: 'success', text: t('settings.successDeviceRemoved') })
     } catch (err) {
       console.error('Failed to remove device:', err)
-      setMessage({ type: 'error', text: 'Failed to remove device. Please try again.' })
+      setMessage({ type: 'error', text: t('settings.errorRemoveDevice') })
     } finally {
       setLoading(false)
     }
@@ -261,7 +257,7 @@ export function SettingsForm() {
     setMessage(null)
 
     if (!deviceName.trim()) {
-      setMessage({ type: 'error', text: 'Device name is required.' })
+      setMessage({ type: 'error', text: t('settings.errorDeviceNameRequired') })
       return
     }
 
@@ -273,43 +269,43 @@ export function SettingsForm() {
     if (!hasDeviceIp && !hasMqttBroker && !hasMqttTopic) {
       setMessage({
         type: 'error',
-        text: 'Please provide either a device endpoint or complete MQTT configuration (broker, port, and topic).',
+        text: t('settings.errorProvideEndpointOrMqtt'),
       })
       return
     }
 
     if (!hasDeviceIp) {
       if (!hasMqttBroker) {
-        setMessage({ type: 'error', text: 'MQTT broker is required when no Device IP is provided.' })
+        setMessage({ type: 'error', text: t('settings.errorMqttBrokerRequired') })
         return
       }
       if (!hasMqttTopic) {
-        setMessage({ type: 'error', text: 'MQTT topic is required when no Device IP is provided.' })
+        setMessage({ type: 'error', text: t('settings.errorMqttTopicRequired') })
         return
       }
       if (!hasMqttPort) {
-        setMessage({ type: 'error', text: 'MQTT port is required when no Device IP is provided.' })
+        setMessage({ type: 'error', text: t('settings.errorMqttPortRequired') })
         return
       }
       if (s.mqtt_port < 1 || s.mqtt_port > 65535) {
-        setMessage({ type: 'error', text: 'MQTT port must be between 1 and 65535.' })
+        setMessage({ type: 'error', text: t('settings.errorMqttPortRange') })
         return
       }
     }
 
     if (!s.poll_interval || s.poll_interval < 1) {
-      setMessage({ type: 'error', text: 'Poll interval must be at least 1 second.' })
+      setMessage({ type: 'error', text: t('settings.errorPollIntervalMin') })
       return
     }
 
     if (s.poll_interval > 3600) {
-      setMessage({ type: 'error', text: 'Poll interval cannot exceed 3600 seconds (1 hour).' })
+      setMessage({ type: 'error', text: t('settings.errorPollIntervalMax') })
       return
     }
 
     if (s.notifications_enabled) {
       if (!s.notification_channel || s.notification_channel === 'none') {
-        setMessage({ type: 'error', text: 'Please select a notification channel.' })
+        setMessage({ type: 'error', text: t('settings.errorNotificationChannel') })
         return
       }
 
@@ -317,12 +313,12 @@ export function SettingsForm() {
         (s.notification_channel === 'email' || s.notification_channel === 'sms') &&
         !s.notification_target.trim()
       ) {
-        setMessage({ type: 'error', text: 'Please enter a notification target.' })
+        setMessage({ type: 'error', text: t('settings.errorNotificationTarget') })
         return
       }
 
       if (selectedEvents.length === 0) {
-        setMessage({ type: 'error', text: 'Please select at least one notification event.' })
+        setMessage({ type: 'error', text: t('settings.errorSelectEvent') })
         return
       }
     }
@@ -364,7 +360,7 @@ export function SettingsForm() {
       }
 
       if (savedDeviceId === null) {
-        throw new Error('Device ID is missing after save.')
+        throw new Error(t('settings.errorMissingDeviceIdAfterSave'))
       }
 
       await apiPatch<
@@ -377,15 +373,22 @@ export function SettingsForm() {
 
       setMessage({
         type: 'success',
-        text: deviceId ? 'Settings updated successfully!' : 'Settings saved successfully!',
+        text: deviceId ? t('settings.successUpdated') : t('settings.successSaved'),
       })
     } catch (err) {
       console.error('Failed to save settings:', err)
-      setMessage({ type: 'error', text: 'Failed to save settings. Please try again.' })
+      setMessage({ type: 'error', text: t('settings.errorSave') })
     } finally {
       setLoading(false)
     }
   }
+
+  const eventOptions: { value: NotificationEventType; label: string }[] = [
+    { value: 'ANOMALY_DETECTED', label: t('settings.eventAnomalyDetected') },
+    { value: 'DEVICE_UNREACHABLE', label: t('settings.eventDeviceUnreachable') },
+    { value: 'DEVICE_RECOVERED', label: t('settings.eventDeviceRecovered') },
+    { value: 'REPORT_GENERATED', label: t('settings.eventReportGenerated') },
+  ]
 
   return (
     <Stack p="lg" gap="md" style={{ width: '100%', maxWidth: 600 }}>
@@ -398,7 +401,41 @@ export function SettingsForm() {
         }}
       >
         <Text fw={400} mb="sm" c="#EBEBEB">
-          Connection
+          {t('settings.interface')}
+        </Text>
+
+        <Stack gap="sm">
+          <Select
+            label={t('settings.language')}
+            value={language}
+            onChange={(value) => {
+              if (value === 'en' || value === 'lt') {
+                setLanguage(value)
+              }
+            }}
+            data={[
+              { value: 'en', label: t('settings.languageEnglish') },
+              { value: 'lt', label: t('settings.languageLithuanian') },
+            ]}
+            styles={inputStyles}
+          />
+
+          <Text size="sm" c="#999999">
+            {t('settings.languageDescription')}
+          </Text>
+        </Stack>
+      </Card>
+
+      <Card
+        p="md"
+        radius="lg"
+        style={{
+          backgroundColor: '#353535',
+          border: '1px solid #4A4A4A',
+        }}
+      >
+        <Text fw={400} mb="sm" c="#EBEBEB">
+          {t('settings.connection')}
         </Text>
 
         <Stack gap="sm">
@@ -421,12 +458,12 @@ export function SettingsForm() {
               },
             }}
           >
-            Add device
+            {t('settings.addDevice')}
           </Button>
 
           <Select
-            label="Selected device"
-            placeholder={devices.length ? 'Choose a device' : 'No devices yet'}
+            label={t('settings.selectedDevice')}
+            placeholder={devices.length ? t('settings.chooseDevice') : t('settings.noDevicesYet')}
             value={deviceId !== null ? String(deviceId) : null}
             onChange={(value) => {
               void handleSelectDevice(value)
@@ -455,7 +492,7 @@ export function SettingsForm() {
                 },
               }}
             >
-              {selectedDevice?.isActive ? 'Disconnect' : 'Connect'}
+              {selectedDevice?.isActive ? t('settings.disconnect') : t('settings.connect')}
             </Button>
 
             <Button
@@ -479,53 +516,55 @@ export function SettingsForm() {
                 },
               }}
             >
-              Remove
+              {t('settings.remove')}
             </Button>
           </Group>
 
           <Text size="sm" c="#999999">
-            Status: {selectedDevice ? (selectedDevice.isActive ? 'Connected' : 'Disconnected') : 'New device'}
+            {t('settings.status')}: {selectedDevice
+              ? (selectedDevice.isActive ? t('settings.statusConnected') : t('settings.statusDisconnected'))
+              : t('settings.statusNewDevice')}
           </Text>
 
           <TextInput
-            label="Device Name"
+            label={t('settings.deviceName')}
             value={deviceName}
             onChange={(e) => setDeviceName(e.target.value)}
-            placeholder="e.g., P1 Device"
+            placeholder={t('settings.deviceNamePlaceholder')}
             styles={inputStyles}
           />
 
           <TextInput
-            label="Device endpoint"
-            placeholder="e.g., 192.168.1.142 or http://gateway.local"
+            label={t('settings.deviceEndpoint')}
+            placeholder={t('settings.deviceEndpointPlaceholder')}
             value={s.device_ip}
             onChange={(e) => setS({ ...s, device_ip: e.target.value })}
             styles={inputStyles}
           />
 
           <TextInput
-            label="MQTT broker"
+            label={t('settings.mqttBroker')}
             value={s.mqtt_broker}
             onChange={(e) => setS({ ...s, mqtt_broker: e.target.value })}
             styles={inputStyles}
           />
 
           <NumberInput
-            label="MQTT port"
+            label={t('settings.mqttPort')}
             value={s.mqtt_port}
             onChange={(v) => setS({ ...s, mqtt_port: Number(v) })}
             styles={inputStyles}
           />
 
           <TextInput
-            label="MQTT topic"
+            label={t('settings.mqttTopic')}
             value={s.mqtt_topic}
             onChange={(e) => setS({ ...s, mqtt_topic: e.target.value })}
             styles={inputStyles}
           />
 
           <NumberInput
-            label="Poll interval (s)"
+            label={t('settings.pollInterval')}
             value={s.poll_interval}
             onChange={(v) => setS({ ...s, poll_interval: Number(v) })}
             min={1}
@@ -543,12 +582,12 @@ export function SettingsForm() {
         }}
       >
         <Text fw={400} mb="sm" c="#EBEBEB">
-          Alerts
+          {t('settings.alerts')}
         </Text>
 
         <Stack gap="sm">
           <Switch
-            label="Notifications"
+            label={t('settings.notifications')}
             checked={s.notifications_enabled}
             onChange={(e) => setS({ ...s, notifications_enabled: e.currentTarget.checked })}
             size="md"
@@ -574,7 +613,7 @@ export function SettingsForm() {
           {s.notifications_enabled && (
             <>
               <Select
-                label="Notification channel"
+                label={t('settings.notificationChannel')}
                 value={s.notification_channel as NotificationChannel}
                 onChange={(value) =>
                   setS({
@@ -583,18 +622,18 @@ export function SettingsForm() {
                   })
                 }
                 data={[
-                  { value: 'email', label: 'Email' },
-                  { value: 'sms', label: 'SMS' },
-                  { value: 'push', label: 'Push notification' },
-                  { value: 'none', label: 'None' },
+                  { value: 'email', label: t('settings.channelEmail') },
+                  { value: 'sms', label: t('settings.channelSms') },
+                  { value: 'push', label: t('settings.channelPush') },
+                  { value: 'none', label: t('settings.channelNone') },
                 ]}
                 styles={inputStyles}
               />
 
               {s.notification_channel === 'email' && (
                 <TextInput
-                  label="Email address"
-                  placeholder="e.g. user@example.com"
+                  label={t('settings.emailAddress')}
+                  placeholder={t('settings.emailPlaceholder')}
                   value={s.notification_target}
                   onChange={(e) => setS({ ...s, notification_target: e.target.value })}
                   styles={inputStyles}
@@ -603,8 +642,8 @@ export function SettingsForm() {
 
               {s.notification_channel === 'sms' && (
                 <TextInput
-                  label="Phone number"
-                  placeholder="e.g. +37061234567"
+                  label={t('settings.phoneNumber')}
+                  placeholder={t('settings.phonePlaceholder')}
                   value={s.notification_target}
                   onChange={(e) => setS({ ...s, notification_target: e.target.value })}
                   styles={inputStyles}
@@ -613,14 +652,14 @@ export function SettingsForm() {
 
               {s.notification_channel === 'push' && (
                 <Text size="sm" c="dimmed">
-                  Push notifications are sent to the connected application.
+                  {t('settings.pushInfo')}
                 </Text>
               )}
 
               <MultiSelect
-                label="Notification events"
-                placeholder="Select events"
-                data={EVENT_OPTIONS}
+                label={t('settings.notificationEvents')}
+                placeholder={t('settings.notificationEventsPlaceholder')}
+                data={eventOptions}
                 value={selectedEvents}
                 onChange={(values) => setSelectedEvents(values as NotificationEventType[])}
                 disabled={!s.notifications_enabled}
@@ -649,7 +688,7 @@ export function SettingsForm() {
           },
         }}
       >
-        Save
+        {t('settings.save')}
       </Button>
 
       {message && (
