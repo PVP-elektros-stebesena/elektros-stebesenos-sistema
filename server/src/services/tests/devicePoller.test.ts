@@ -245,6 +245,7 @@ describe('DevicePoller', () => {
     const poller = new DevicePoller({ syncIntervalMs: 3_600_000, fetchFn });
     await poller.start();
     await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(10_000);
 
     expect(mockPrisma.anomaly.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -265,15 +266,15 @@ describe('DevicePoller', () => {
 
     const fetchFn = makeFetchFn(
       makeP1Json(230, 230, 230, {
-        ActiveInstantaneousPowerDelivered: '23.000',
-        PowerDelivered_total: '23.000',
-        ApparentInstantaneousPower: '24.000',
-        ActiveInstantaneousPowerDeliveredL1: '7.666',
-        ActiveInstantaneousPowerDeliveredL2: '7.667',
-        ActiveInstantaneousPowerDeliveredL3: '7.667',
-        ApparentInstantaneousPowerL1: '8.000',
-        ApparentInstantaneousPowerL2: '8.000',
-        ApparentInstantaneousPowerL3: '8.000',
+        ActiveInstantaneousPowerDelivered: '33.000',
+        PowerDelivered_total: '33.000',
+        ApparentInstantaneousPower: '34.000',
+        ActiveInstantaneousPowerDeliveredL1: '11.000',
+        ActiveInstantaneousPowerDeliveredL2: '11.000',
+        ActiveInstantaneousPowerDeliveredL3: '11.000',
+        ApparentInstantaneousPowerL1: '11.333',
+        ApparentInstantaneousPowerL2: '11.333',
+        ApparentInstantaneousPowerL3: '11.334',
       }),
     );
 
@@ -293,6 +294,7 @@ describe('DevicePoller', () => {
     const poller = new DevicePoller({ syncIntervalMs: 3_600_000, fetchFn });
     await poller.start();
     await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(10_000);
 
     expect(mockPrisma.anomaly.create).toHaveBeenCalledWith(
       expect.objectContaining({
