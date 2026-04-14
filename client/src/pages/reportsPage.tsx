@@ -739,8 +739,8 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
                   </div>
 
                   <Group gap="xs" wrap="wrap">
-                    <Badge size="lg" variant="dot">{reportUseLabel(report.reportUse)}</Badge>
-                    <Badge size="lg" variant="dot">{periodLabel(report.periodType)}</Badge>
+                    <Badge size="lg" variant="dot">{reportUseLabel(report.reportUse, language)}</Badge>
+                    <Badge size="lg" variant="dot">{periodLabel(report.periodType, language)}</Badge>
                     <Badge size="lg" variant="dot">{report.totalAnomalies} anomalies</Badge>
                   </Group>
                 </Stack>
