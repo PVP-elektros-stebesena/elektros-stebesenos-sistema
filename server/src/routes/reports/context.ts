@@ -35,13 +35,6 @@ export function registerAnomalyContextRoute(fastify: FastifyInstance): void {
       return reply.code(404).send({ error: 'NOT_FOUND', message: 'Anomaly not found' });
     }
 
-    if (anomaly.metricDomain !== 'VOLTAGE') {
-      return reply.code(400).send({
-        error: 'UNSUPPORTED_ANOMALY_DOMAIN',
-        message: 'Only voltage anomalies support context slicing',
-      });
-    }
-
     const anomalyEndsAt = anomaly.endsAt ?? anomaly.startsAt;
     const contextStartsAt = new Date(anomaly.startsAt.getTime() - CONTEXT_PADDING_MS);
     const contextEndsAt = new Date(anomalyEndsAt.getTime() + CONTEXT_PADDING_MS);
@@ -89,6 +82,7 @@ export function registerAnomalyContextRoute(fastify: FastifyInstance): void {
       anomaly: {
         id: anomaly.id,
         deviceId: anomaly.deviceId,
+        metricDomain: anomaly.metricDomain as 'VOLTAGE' | 'POWER',
         phase: anomaly.phase,
         type: anomaly.type,
         startsAt: anomaly.startsAt.toISOString(),

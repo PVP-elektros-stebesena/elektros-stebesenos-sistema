@@ -119,6 +119,8 @@ export function registerReportGenerateRoute(fastify: FastifyInstance): void {
         startsAt: report.startsAt,
         endsAt: report.endsAt,
         healthScore: report.healthScore,
+        powerHealthScore: report.powerHealthScore,
+        combinedHealthScore: report.combinedHealthScore,
         compliancePctL1: report.compliance.compliancePctL1,
         compliancePctL2: report.compliance.compliancePctL2,
         compliancePctL3: report.compliance.compliancePctL3,

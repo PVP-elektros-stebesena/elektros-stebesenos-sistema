@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
+  computeCombinedHealthScore,
   computeHealthScore,
+  computePowerHealthScore,
   getWeekStart,
   getMonthStart,
   getMonthEnd,
@@ -65,7 +67,7 @@ describe('computeHealthScore', () => {
 
   it('returns YELLOW for CRITICAL anomalies without LONG_INTERRUPTION at good compliance', () => {
     // e.g. a SHORT_INTERRUPTION that is CRITICAL-ish - but per current logic,
-    // SHORT_INTERRUPTION is severity=WARNING. Teest with a hypothetical CRITICAL non-LONG
+    // SHORT_INTERRUPTION is severity=WARNING. Test with a hypothetical CRITICAL non-LONG
     const compliance = makeCompliance(98, 97, 96);
     const anomalies = [{ type: 'SHORT_INTERRUPTION', severity: 'CRITICAL' }];
     expect(computeHealthScore(compliance, anomalies)).toBe('YELLOW');
@@ -79,6 +81,36 @@ describe('computeHealthScore', () => {
   it('returns RED at exactly 89.99% on one phase', () => {
     const compliance = makeCompliance(89.99, 97, 96);
     expect(computeHealthScore(compliance, [])).toBe('RED');
+  });
+});
+
+describe('computePowerHealthScore', () => {
+  it('returns GREEN when there are no power anomalies', () => {
+    expect(computePowerHealthScore([])).toBe('GREEN');
+  });
+
+  it('returns YELLOW when a warning power anomaly is present', () => {
+    expect(computePowerHealthScore([{ type: 'LOW_POWER_FACTOR', severity: 'WARNING' }])).toBe('YELLOW');
+  });
+
+  it('returns RED when a critical power anomaly is present', () => {
+    expect(computePowerHealthScore([{ type: 'POWER_SPIKE', severity: 'CRITICAL' }])).toBe('RED');
+  });
+});
+
+describe('computeCombinedHealthScore', () => {
+  it('returns RED when either score is RED', () => {
+    expect(computeCombinedHealthScore('RED', 'GREEN')).toBe('RED');
+    expect(computeCombinedHealthScore('GREEN', 'RED')).toBe('RED');
+  });
+
+  it('returns YELLOW when one score is YELLOW and the other is GREEN', () => {
+    expect(computeCombinedHealthScore('YELLOW', 'GREEN')).toBe('YELLOW');
+    expect(computeCombinedHealthScore('GREEN', 'YELLOW')).toBe('YELLOW');
+  });
+
+  it('returns GREEN only when both scores are GREEN', () => {
+    expect(computeCombinedHealthScore('GREEN', 'GREEN')).toBe('GREEN');
   });
 });
 

@@ -4,7 +4,7 @@ import {
   Alert,
   Badge, Button, Card, Group, Progress,
   RingProgress, SimpleGrid, Stack, Table, Switch,
-  Text, Title, Select, Divider, Box, TextInput, Loader, Tabs,
+  Text, Title, Select, Box, TextInput, Loader, Tabs,
 } from '@mantine/core';
 import {
   Bar,
@@ -36,6 +36,8 @@ interface ReportListItem {
   startsAt: string;
   endsAt: string;
   healthScore: string;
+  powerHealthScore: string;
+  combinedHealthScore: string;
   totalWindows: number;
   compliancePctL1: number;
   compliancePctL2: number;
@@ -57,6 +59,8 @@ interface AnomalySummaryRow {
   startsAt: string;
   endsAt: string | null;
   severity: string;
+  metricDomain?: 'VOLTAGE' | 'POWER';
+  metricName?: string | null;
 }
 
 interface ReportDetail {
@@ -68,6 +72,8 @@ interface ReportDetail {
   startsAt: string;
   endsAt: string;
   healthScore: string;
+  powerHealthScore: string;
+  combinedHealthScore: string;
   compliance: {
     totalWindows: number;
     compliantWindowsL1: number;
@@ -149,6 +155,7 @@ interface AnomalyContextResponse {
   anomaly: {
     id: number;
     deviceId: number;
+    metricDomain: 'VOLTAGE' | 'POWER';
     phase: string;
     type: string;
     startsAt: string;
@@ -268,6 +275,10 @@ function severityColor(severity: string): string {
 function phaseName(phase: string): string {
   if (phase === 'L1' || phase === 'L2' || phase === 'L3') return phase;
   return 'ALL';
+}
+
+function anomalyDomainLabel(metricDomain: 'VOLTAGE' | 'POWER' | undefined): string {
+  return metricDomain === 'POWER' ? 'Power' : 'Voltage';
 }
 
 /* ── Print-friendly report view ─────────────────────────────────── */
@@ -407,14 +418,17 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
           Type: ${report.periodType}
         </p>
 
-        <span class="health-badge health-${report.healthScore}">Health: ${report.healthScore}</span>
+        <span class="health-badge health-${report.combinedHealthScore}">Overall Health: ${report.combinedHealthScore}</span>
+        <p style="margin-top: 8px; font-size: 13px; color: #666;">
+          Voltage: ${report.healthScore} &middot; Power: ${report.powerHealthScore}
+        </p>
 
         ${!isSolarReport ? `
           <h2>Compliance Summary</h2>
           <div class="stats-grid">
             <div class="stat-box">
               <div class="stat-value">${avgPct}%</div>
-              <div class="stat-label">Average Compliance</div>
+              <div class="stat-label">Average Voltage Compliance</div>
             </div>
             <div class="stat-box">
               <div class="stat-value">${report.compliance.totalWindows}</div>
@@ -456,7 +470,7 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
             <thead><tr><th>Metric</th><th>Value</th></tr></thead>
             <tbody>
               <tr><td>EN 50160 status</td><td>${quality.pass ? 'Compliant' : 'Non-compliant'}</td></tr>
-              <tr><td>Average compliance</td><td>${quality.averageCompliancePct.toFixed(2)}%</td></tr>
+              <tr><td>Average voltage compliance</td><td>${quality.averageCompliancePct.toFixed(2)}%</td></tr>
               <tr><td>Worst phase</td><td>${quality.worstPhase}</td></tr>
               <tr><td>Worst-phase compliance</td><td>${quality.worstPhaseCompliancePct.toFixed(2)}%</td></tr>
               <tr><td>Dominant anomaly type</td><td>${quality.dominantAnomalyType ?? 'None'}</td></tr>
@@ -563,40 +577,82 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
 
         return (
           <>
-            <Group justify="space-between" align="flex-start">
-              <div>
-                <Title order={3}>
-                  {reportUseLabel(report.reportUse)} Report ({periodLabel(report.periodType)})
-                </Title>
-                <Text c="dimmed" size="sm">
-                  {report.deviceName} &middot; {formatDate(report.startsAt)} – {formatDate(report.endsAt)}
-                </Text>
-              </div>
-              <Group gap="sm">
-                <Badge
-                  size="xl"
-                  color={healthColor(report.healthScore)}
-                  variant="light"
-                >
-                  {report.healthScore}
-                </Badge>
-                {isTechnicalReport && (
-                  <Switch
-                    label="Advanced details"
-                    checked={showAdvanced}
-                    onChange={(event) => setShowAdvanced(event.currentTarget.checked)}
-                  />
-                )}
-                <Button variant="light" onClick={handlePrint}>
-                  Print / PDF
-                </Button>
-              </Group>
-            </Group>
+            <Card p="lg" radius="md" withBorder>
+              <Group justify="space-between" align="flex-start" wrap="wrap" gap="lg">
+                <Stack gap={10} style={{ flex: '1 1 420px', minWidth: 280 }}>
+                  <div>
+                    <Title order={2}>
+                      {reportUseLabel(report.reportUse)} Report ({periodLabel(report.periodType)})
+                    </Title>
+                    <Text c="dimmed" size="sm" mt={4}>
+                      {report.deviceName} &middot; {formatDate(report.startsAt)} – {formatDate(report.endsAt)}
+                    </Text>
+                  </div>
 
-            <Divider />
+                  <Group gap="xs" wrap="wrap">
+                    <Badge size="lg" variant="dot">{reportUseLabel(report.reportUse)}</Badge>
+                    <Badge size="lg" variant="dot">{periodLabel(report.periodType)}</Badge>
+                    <Badge size="lg" variant="dot">{report.totalAnomalies} anomalies</Badge>
+                  </Group>
+                </Stack>
+
+                <Stack
+                  gap="sm"
+                  align="flex-end"
+                  style={{ flex: '0 1 420px', minWidth: 280, marginLeft: 'auto' }}
+                >
+                  <Group gap="xs" wrap="wrap" justify="flex-end">
+                    <Badge
+                      size="xl"
+                      color={healthColor(report.combinedHealthScore)}
+                      variant="light"
+                    >
+                      Overall {report.combinedHealthScore}
+                    </Badge>
+                    <Badge color={healthColor(report.healthScore)} variant="light" size="md">
+                      Voltage {report.healthScore}
+                    </Badge>
+                    <Badge color={healthColor(report.powerHealthScore)} variant="light" size="md">
+                      Power {report.powerHealthScore}
+                    </Badge>
+                  </Group>
+
+                  <Group gap="sm" wrap="wrap" justify="flex-end">
+                    {isTechnicalReport && (
+                      <Switch
+                        label="Advanced details"
+                        checked={showAdvanced}
+                        onChange={(event) => setShowAdvanced(event.currentTarget.checked)}
+                      />
+                    )}
+                    <Button variant="light" onClick={handlePrint}>
+                      Print / PDF
+                    </Button>
+                  </Group>
+                </Stack>
+              </Group>
+            </Card>
 
             {!isSolarReport && (
-              <SimpleGrid cols={{ base: 1, sm: 3 }}>
+              <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }}>
+                <Card p="md" radius="md" withBorder>
+                  <Stack justify="space-between" style={{ height: '100%' }}>
+                    <div>
+                      <Text size="xs" c="dimmed" tt="uppercase" fw={700}>Overall status</Text>
+                      <Text mt={8} fz={34} fw={800} c={healthColor(report.combinedHealthScore)}>
+                        {report.combinedHealthScore}
+                      </Text>
+                    </div>
+                    <Group gap={6} wrap="wrap">
+                      <Badge color={healthColor(report.healthScore)} variant="light" size="sm">
+                        Voltage {report.healthScore}
+                      </Badge>
+                      <Badge color={healthColor(report.powerHealthScore)} variant="light" size="sm">
+                        Power {report.powerHealthScore}
+                      </Badge>
+                    </Group>
+                  </Stack>
+                </Card>
                 <Card p="md" radius="md" withBorder>
                   <Stack align="center" gap="xs">
                     <RingProgress
@@ -611,7 +667,7 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
                         <Text ta="center" fw={700} fz="lg">{avgPct}%</Text>
                       }
                     />
-                    <Text size="xs" c="dimmed">Average Compliance</Text>
+                    <Text size="xs" c="dimmed">Average Voltage Compliance</Text>
                   </Stack>
                 </Card>
                 <Card p="md" radius="md" withBorder>
@@ -636,18 +692,22 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
 
             {!isSolarReport && (
               <Card p="md" radius="md" withBorder>
-                <Group justify="space-between" mb="xs">
-                  <Text fw={700}>Power Quality Snapshot</Text>
-                  <Badge color={quality.pass ? 'green' : 'red'} variant="light">
-                    {quality.pass ? 'COMPLIANT' : 'NON-COMPLIANT'}
-                  </Badge>
-                </Group>
-                <Text size="sm" mb={4}>{quality.assessmentText}</Text>
-                <Text size="sm" c="dimmed">
-                  {isTechnicalReport
-                    ? 'Detailed quality metrics, energy trends, and appendices are available in Advanced details.'
-                    : 'This summary highlights the overall supply quality during the report period.'}
-                </Text>
+                <Stack gap="sm">
+                  <Group justify="space-between" align="flex-start" wrap="wrap">
+                    <div>
+                      <Text fw={700}>Power Quality Snapshot</Text>
+                      <Text size="sm" c="dimmed" mt={4}>
+                        {isTechnicalReport
+                          ? 'Detailed quality metrics, energy trends, and appendices are available in Advanced details.'
+                          : 'This summary highlights the overall supply quality during the report period.'}
+                      </Text>
+                    </div>
+                    <Badge color={quality.pass ? 'green' : 'red'} variant="light">
+                      {quality.pass ? 'COMPLIANT' : 'NON-COMPLIANT'}
+                    </Badge>
+                  </Group>
+                  <Text size="sm">{quality.assessmentText}</Text>
+                </Stack>
               </Card>
             )}
 
@@ -717,9 +777,9 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
                     </Badge>
                   </Group>
 
-                  <SimpleGrid cols={{ base: 1, sm: 4 }} mb="md">
+                  <SimpleGrid cols={{ base: 1, sm: 2, lg: 5 }} mb="md">
                     <Card p="sm" withBorder>
-                      <Text size="xs" c="dimmed">Average compliance</Text>
+                      <Text size="xs" c="dimmed">Average voltage compliance</Text>
                       <Text fw={700} fz="lg">{quality.averageCompliancePct.toFixed(2)}%</Text>
                     </Card>
                     <Card p="sm" withBorder>
@@ -729,6 +789,12 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
                     <Card p="sm" withBorder>
                       <Text size="xs" c="dimmed">Worst-phase compliance</Text>
                       <Text fw={700} fz="lg">{quality.worstPhaseCompliancePct.toFixed(2)}%</Text>
+                    </Card>
+                    <Card p="sm" withBorder>
+                      <Text size="xs" c="dimmed">Overall health</Text>
+                      <Badge color={healthColor(report.combinedHealthScore)} variant="light" mt={6}>
+                        {report.combinedHealthScore}
+                      </Badge>
                     </Card>
                     <Card p="sm" withBorder>
                       <Text size="xs" c="dimmed">Dominant anomaly</Text>
@@ -743,37 +809,41 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
             )}
 
             <Card p="md" radius="md" withBorder>
-              <Text fw={700} mb="xs">
-                {isSolarReport ? 'Solar energy summary' : 'Report summary'}
-              </Text>
-              <Text size="sm" c="dimmed">{insights.narrative}</Text>
+              <Stack gap="sm">
+                <div>
+                  <Text fw={700}>
+                    {isSolarReport ? 'Solar energy summary' : 'Report summary'}
+                  </Text>
+                  <Text size="sm" c="dimmed" mt={4}>{insights.narrative}</Text>
+                </div>
 
-              <SimpleGrid cols={{ base: 1, sm: 4 }} mt="md">
-                <Card p="sm" withBorder>
-                  <Text size="xs" c="dimmed">{isSolarReport ? 'Total imported' : 'Total consumed'}</Text>
-                  <Text fw={700} fz="xl">{insights.totalEnergyConsumedKwh.toFixed(2)} kWh</Text>
-                </Card>
-                <Card p="sm" withBorder>
-                  <Text size="xs" c="dimmed">{isSolarReport ? 'Total exported' : 'Total returned'}</Text>
-                  <Text fw={700} fz="xl">{insights.totalEnergyReturnedKwh.toFixed(2)} kWh</Text>
-                </Card>
-                <Card p="sm" withBorder>
-                  <Text size="xs" c="dimmed">Avg efficiency</Text>
-                  <Text fw={700} fz="xl">
-                    {insights.averageEfficiencyPct != null
-                      ? `${insights.averageEfficiencyPct.toFixed(1)}%`
-                      : '—'}
-                  </Text>
-                </Card>
-                <Card p="sm" withBorder>
-                  <Text size="xs" c="dimmed">Avg hourly electricity</Text>
-                  <Text fw={700} fz="xl">
-                    {insights.averageHourlyElectricityKwh != null
-                      ? `${insights.averageHourlyElectricityKwh.toFixed(3)} kWh`
-                      : '—'}
-                  </Text>
-                </Card>
-              </SimpleGrid>
+                <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }}>
+                  <Card p="sm" withBorder>
+                    <Text size="xs" c="dimmed">{isSolarReport ? 'Total imported' : 'Total consumed'}</Text>
+                    <Text fw={700} fz="xl">{insights.totalEnergyConsumedKwh.toFixed(2)} kWh</Text>
+                  </Card>
+                  <Card p="sm" withBorder>
+                    <Text size="xs" c="dimmed">{isSolarReport ? 'Total exported' : 'Total returned'}</Text>
+                    <Text fw={700} fz="xl">{insights.totalEnergyReturnedKwh.toFixed(2)} kWh</Text>
+                  </Card>
+                  <Card p="sm" withBorder>
+                    <Text size="xs" c="dimmed">Avg efficiency</Text>
+                    <Text fw={700} fz="xl">
+                      {insights.averageEfficiencyPct != null
+                        ? `${insights.averageEfficiencyPct.toFixed(1)}%`
+                        : '—'}
+                    </Text>
+                  </Card>
+                  <Card p="sm" withBorder>
+                    <Text size="xs" c="dimmed">Avg hourly electricity</Text>
+                    <Text fw={700} fz="xl">
+                      {insights.averageHourlyElectricityKwh != null
+                        ? `${insights.averageHourlyElectricityKwh.toFixed(3)} kWh`
+                        : '—'}
+                    </Text>
+                  </Card>
+                </SimpleGrid>
+              </Stack>
             </Card>
 
             {shouldShowCharts && (
@@ -945,7 +1015,7 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
 
             {isTechnicalReport && showAdvanced && (
               <Card p="md" radius="md" withBorder>
-                <Text fw={700} mb="xs">Voltage anomaly analysis (60-minute context)</Text>
+                <Text fw={700} mb="xs">Anomaly analysis (60-minute context)</Text>
                 <Text size="sm" c="dimmed" mb="md">
                   Open an anomaly to view a 30-minute pre-event and 30-minute post-event context window.
                 </Text>
@@ -973,13 +1043,16 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
                               <Group gap="xs" wrap="wrap">
                                 <Badge color={severityColor(a.severity)} variant="light">{a.severity}</Badge>
                                 <Badge variant="light">{a.type}</Badge>
+                                <Badge variant="outline">{anomalyDomainLabel(a.metricDomain)}</Badge>
                                 <Badge variant="outline">{a.phase}</Badge>
                                 <Text size="sm" fw={600}>{formatDate(a.startsAt)}</Text>
                               </Group>
                               <Group gap="md" wrap="wrap">
                                 <Text size="xs" c="dimmed">Duration: {formatDuration(a.durationSeconds)}</Text>
                                 <Text size="xs" c="dimmed">
-                                  Min/Max: {a.minVoltage != null ? `${a.minVoltage.toFixed(1)} V` : '—'} / {a.maxVoltage != null ? `${a.maxVoltage.toFixed(1)} V` : '—'}
+                                  {a.metricDomain === 'POWER'
+                                    ? `Metric: ${a.metricName ?? a.type}`
+                                    : `Min/Max: ${a.minVoltage != null ? `${a.minVoltage.toFixed(1)} V` : '—'} / ${a.maxVoltage != null ? `${a.maxVoltage.toFixed(1)} V` : '—'}`}
                                 </Text>
                               </Group>
                             </Group>
@@ -995,8 +1068,8 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
                                 <Text fw={600}>{a.endsAt ? formatDate(a.endsAt) : '—'}</Text>
                               </Card>
                               <Card p="sm" withBorder>
-                                <Text size="xs" c="dimmed">Type / phase</Text>
-                                <Text fw={600}>{a.type} / {a.phase}</Text>
+                                <Text size="xs" c="dimmed">Type / domain</Text>
+                                <Text fw={600}>{a.type} / {anomalyDomainLabel(a.metricDomain)}</Text>
                               </Card>
                             </SimpleGrid>
 
@@ -1030,9 +1103,11 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
                                     {context.context.downsampled ? ' (downsampled)' : ''}
                                   </Text>
                                 </Group>
-                                <Text size="xs" c="dimmed" mb="xs">
-                                  Dashed gray lines are compliance limits: 220V and 240V.
-                                </Text>
+                                {context.anomaly.metricDomain === 'VOLTAGE' && (
+                                  <Text size="xs" c="dimmed" mb="xs">
+                                    Dashed gray lines are compliance limits: 220V and 240V.
+                                  </Text>
+                                )}
 
                                 <ResponsiveContainer width="100%" height={320}>
                                   <LineChart data={context.points}>
@@ -1042,10 +1117,16 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
                                       tickFormatter={toChartTimeOnlyLabel}
                                       minTickGap={28}
                                     />
-                                    <YAxis yAxisId="voltage" unit=" V" />
-                                    <YAxis yAxisId="power" orientation="right" unit=" kW" />
-                                    <ReferenceLine yAxisId="voltage" y={220} stroke="#868e96" strokeDasharray="4 4" />
-                                    <ReferenceLine yAxisId="voltage" y={240} stroke="#868e96" strokeDasharray="4 4" />
+                                    {context.anomaly.metricDomain === 'VOLTAGE' ? (
+                                      <>
+                                        <YAxis yAxisId="voltage" unit=" V" />
+                                        <YAxis yAxisId="power" orientation="right" unit=" kW" />
+                                        <ReferenceLine yAxisId="voltage" y={220} stroke="#868e96" strokeDasharray="4 4" />
+                                        <ReferenceLine yAxisId="voltage" y={240} stroke="#868e96" strokeDasharray="4 4" />
+                                      </>
+                                    ) : (
+                                      <YAxis yAxisId="power" unit=" kW" />
+                                    )}
                                     <Tooltip
                                       labelFormatter={(label) => formatDate(String(label))}
                                       formatter={(value, name) => {
@@ -1057,57 +1138,61 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
                                       }}
                                     />
                                     <Legend />
-                                    <Line
-                                      yAxisId="voltage"
-                                      type="monotone"
-                                      dataKey="voltage"
-                                      name={`${phaseName(a.phase)} voltage`}
-                                      stroke="#c92a2a"
-                                      strokeWidth={2}
-                                      dot={false}
-                                      connectNulls
-                                    />
-                                    {a.phase !== 'L1' && (
-                                      <Line
-                                        yAxisId="voltage"
-                                        type="monotone"
-                                        dataKey="voltageL1"
-                                        name="L1 voltage"
-                                        stroke="#495057"
-                                        strokeWidth={1}
-                                        dot={false}
-                                        connectNulls
-                                      />
-                                    )}
-                                    {a.phase !== 'L2' && (
-                                      <Line
-                                        yAxisId="voltage"
-                                        type="monotone"
-                                        dataKey="voltageL2"
-                                        name="L2 voltage"
-                                        stroke="#868e96"
-                                        strokeWidth={1}
-                                        dot={false}
-                                        connectNulls
-                                      />
-                                    )}
-                                    {a.phase !== 'L3' && (
-                                      <Line
-                                        yAxisId="voltage"
-                                        type="monotone"
-                                        dataKey="voltageL3"
-                                        name="L3 voltage"
-                                        stroke="#adb5bd"
-                                        strokeWidth={1}
-                                        dot={false}
-                                        connectNulls
-                                      />
+                                    {context.anomaly.metricDomain === 'VOLTAGE' && (
+                                      <>
+                                        <Line
+                                          yAxisId="voltage"
+                                          type="monotone"
+                                          dataKey="voltage"
+                                          name={`${phaseName(a.phase)} voltage`}
+                                          stroke="#c92a2a"
+                                          strokeWidth={2}
+                                          dot={false}
+                                          connectNulls
+                                        />
+                                        {a.phase !== 'L1' && (
+                                          <Line
+                                            yAxisId="voltage"
+                                            type="monotone"
+                                            dataKey="voltageL1"
+                                            name="L1 voltage"
+                                            stroke="#495057"
+                                            strokeWidth={1}
+                                            dot={false}
+                                            connectNulls
+                                          />
+                                        )}
+                                        {a.phase !== 'L2' && (
+                                          <Line
+                                            yAxisId="voltage"
+                                            type="monotone"
+                                            dataKey="voltageL2"
+                                            name="L2 voltage"
+                                            stroke="#868e96"
+                                            strokeWidth={1}
+                                            dot={false}
+                                            connectNulls
+                                          />
+                                        )}
+                                        {a.phase !== 'L3' && (
+                                          <Line
+                                            yAxisId="voltage"
+                                            type="monotone"
+                                            dataKey="voltageL3"
+                                            name="L3 voltage"
+                                            stroke="#adb5bd"
+                                            strokeWidth={1}
+                                            dot={false}
+                                            connectNulls
+                                          />
+                                        )}
+                                      </>
                                     )}
                                     <Line
                                       yAxisId="power"
                                       type="monotone"
                                       dataKey="powerKw"
-                                      name="Total Power Delivered"
+                                      name={context.anomaly.metricDomain === 'POWER' ? 'Power context' : 'Total Power Delivered'}
                                       stroke="#1c7ed6"
                                       strokeWidth={2}
                                       dot={false}
@@ -1467,9 +1552,19 @@ export function ReportsPage() {
                         {formatDate(r.startsAt)} – {formatDate(r.endsAt)}
                       </Table.Td>
                       <Table.Td>
-                        <Badge color={healthColor(r.healthScore)} variant="light">
-                          {r.healthScore}
-                        </Badge>
+                        <Stack gap={4}>
+                          <Badge color={healthColor(r.combinedHealthScore)} variant="light">
+                            Overall {r.combinedHealthScore}
+                          </Badge>
+                          <Group gap={4}>
+                            <Badge color={healthColor(r.healthScore)} variant="light" size="xs">
+                              V {r.healthScore}
+                            </Badge>
+                            <Badge color={healthColor(r.powerHealthScore)} variant="light" size="xs">
+                              P {r.powerHealthScore}
+                            </Badge>
+                          </Group>
+                        </Stack>
                       </Table.Td>
                       <Table.Td>
                         <Group gap="xs">

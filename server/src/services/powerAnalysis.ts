@@ -91,6 +91,8 @@ function round(value: number | null, decimals: number = 4): number | null {
   return Math.round(value * m) / m;
 }
 
+const MIN_PHASE_IMBALANCE_ACTIVE_POWER_KW = 1.0;
+
 function computePhaseImbalancePct(
   activePowerL1Kw: number | null,
   activePowerL2Kw: number | null,
@@ -105,8 +107,16 @@ function computePhaseImbalancePct(
   const avg = values.reduce((sum, value) => sum + value, 0) / values.length;
   if (avg <= EPS) return 0;
 
-  const maxDelta = Math.max(...values.map((value) => Math.abs(value - avg)));
-  return (maxDelta / avg) * 100;
+  if (avg < MIN_PHASE_IMBALANCE_ACTIVE_POWER_KW) {
+    return 0;
+  }
+
+  const totalDeviation = values
+    .map((value) => Math.abs(value - avg))
+    .reduce((sum, value) => sum + value, 0);
+
+  const imbalancePct = (totalDeviation / 2 / avg) * 100;
+  return imbalancePct;
 }
 
 export function analysePowerReading(reading: PowerReading): PowerMetrics {

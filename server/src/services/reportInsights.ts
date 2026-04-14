@@ -39,6 +39,8 @@ export interface ReportInsights {
   daily: DailyReportMetric[];
   hourly: HourlyReportMetric[];
   anomalyTypeDistribution: AnomalyTypeDistributionItem[];
+  totalPowerAnomalies: number;
+  powerAnomalyTypeDistribution: AnomalyTypeDistributionItem[];
   narrative: string;
   anomalyAppendix: AnomalyAppendixItem[];
 }
@@ -60,6 +62,16 @@ const ANOMALY_TYPE_EXPLANATIONS: Record<string, string> = {
     'Voltage dropped below permitted limits; this can result in unstable operation of connected electrical loads.',
   VOLTAGE_DEVIATION:
     'Voltage deviated from nominal operating range; trend monitoring is recommended to assess recurrence and duration.',
+  LOW_POWER_FACTOR:
+    'Power factor fell below the configured target, indicating inefficient use of apparent power and increased reactive demand.',
+  POWER_SPIKE:
+    'Active power rose above the configured limit, which may indicate unusually high load, startup surges, or misconfigured equipment.',
+  REACTIVE_POWER_SPIKE:
+    'Reactive power exceeded the configured threshold, suggesting elevated inductive or capacitive demand that should be reviewed.',
+  PHASE_IMBALANCE:
+    'Power loading across phases became uneven, which can reduce efficiency and place additional stress on a three-phase installation.',
+  POWER_RAMP_RATE:
+    'Power changed too quickly over a short interval, indicating rapid load swings or unstable operating behaviour.',
 };
 
 function toDayKey(date: Date): string {
@@ -76,11 +88,17 @@ function buildNarrative(
   totalEnergyConsumedKwh: number,
   averageEfficiencyPct: number | null,
   anomalyTypeDistribution: AnomalyTypeDistributionItem[],
+  totalPowerAnomalies: number,
+  powerAnomalyTypeDistribution: AnomalyTypeDistributionItem[],
   daily: DailyReportMetric[],
 ): string {
   const hasAnomalies = anomalyTypeDistribution.length > 0;
   const topAnomaly = hasAnomalies
     ? anomalyTypeDistribution.reduce((acc, cur) => (cur.count > acc.count ? cur : acc))
+    : null;
+
+  const topPowerAnomaly = powerAnomalyTypeDistribution.length > 0
+    ? powerAnomalyTypeDistribution.reduce((acc, cur) => (cur.count > acc.count ? cur : acc))
     : null;
 
   const maxConsumptionDay = daily.length > 0
@@ -105,6 +123,10 @@ function buildNarrative(
     parts.push(`The most frequently observed anomaly category was ${topAnomaly.type} (${topAnomaly.count} occurrences).`);
   } else {
     parts.push('No transmission anomalies were detected within the selected reporting interval.');
+  }
+
+  if (totalPowerAnomalies > 0 && topPowerAnomaly) {
+    parts.push(`Power-related observations included ${totalPowerAnomalies} anomalies, dominated by ${topPowerAnomaly.type}.`);
   }
 
   return parts.join(' ');
@@ -246,11 +268,30 @@ export async function buildReportInsights(
     distributionMap.set(anomaly.type, (distributionMap.get(anomaly.type) ?? 0) + 1);
   }
 
-  const anomalyTypeDistribution = [...distributionMap.entries()]
+  const allAnomalyTypeDistribution = [...distributionMap.entries()]
     .map(([type, count]) => ({ type, count }))
     .sort((a, b) => b.count - a.count);
 
-  const anomalyAppendix: AnomalyAppendixItem[] = anomalyTypeDistribution.map((item) => ({
+  const powerAnomalyTypes = new Set([
+    'POWER_SPIKE',
+    'REACTIVE_POWER_SPIKE',
+    'LOW_POWER_FACTOR',
+    'PHASE_IMBALANCE',
+    'POWER_RAMP_RATE',
+  ]);
+
+  const powerAnomalies = anomalies.filter((anomaly) =>
+    anomaly.metricDomain === 'POWER' || powerAnomalyTypes.has(anomaly.type),
+  );
+
+  const powerAnomalyDistribution = [...powerAnomalies.reduce((map, anomaly) => {
+    map.set(anomaly.type, (map.get(anomaly.type) ?? 0) + 1);
+    return map;
+  }, new Map<string, number>()).entries()]
+    .map(([type, count]) => ({ type, count }))
+    .sort((a, b) => b.count - a.count);
+
+  const anomalyAppendix: AnomalyAppendixItem[] = allAnomalyTypeDistribution.map((item) => ({
     type: item.type,
     description: ANOMALY_TYPE_EXPLANATIONS[item.type] ?? 'An anomaly type was detected, but a formal description is not available yet.',
   }));
@@ -258,7 +299,9 @@ export async function buildReportInsights(
   const narrative = buildNarrative(
     totalEnergyConsumedKwh,
     averageEfficiencyPct,
-    anomalyTypeDistribution,
+    allAnomalyTypeDistribution,
+    powerAnomalies.length,
+    powerAnomalyDistribution,
     daily,
   );
 
@@ -269,7 +312,9 @@ export async function buildReportInsights(
     averageHourlyElectricityKwh,
     daily,
     hourly,
-    anomalyTypeDistribution,
+    anomalyTypeDistribution: allAnomalyTypeDistribution,
+    totalPowerAnomalies: powerAnomalies.length,
+    powerAnomalyTypeDistribution: powerAnomalyDistribution,
     narrative,
     anomalyAppendix,
   };

@@ -269,8 +269,10 @@ model Report {
   compliancePctL3    Float @default(0)
   overallCompliant   Boolean @default(false)
 
-  healthScore String
-  anomalySummary String @default("[]")
+  healthScore         String
+  powerHealthScore    String?
+  combinedHealthScore String?
+  anomalySummary      String @default("[]")
 
   totalAnomalies  Int @default(0)
   criticalCount   Int @default(0)
