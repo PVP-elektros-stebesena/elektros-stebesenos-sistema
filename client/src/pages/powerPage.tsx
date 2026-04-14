@@ -314,35 +314,7 @@ export function PowerPage() {
     [anomalyDistribution, language],
   );
 
-  const localizedQualityAssessment = reportDetail
-    ? reportDetail.powerQuality.pass
-      ? tr(
-        language,
-        `Power quality is compliant with the EN 50160 target (>=95% in-range 10-minute windows). Worst observed phase was ${reportDetail.powerQuality.worstPhase} at ${reportDetail.powerQuality.worstPhaseCompliancePct.toFixed(2)}%.`,
-        `Galios kokybė atitinka EN 50160 tikslą (>=95% į ribas patenkančių 10 min. langų). Blogiausia stebėta fazė buvo ${reportDetail.powerQuality.worstPhase} su ${reportDetail.powerQuality.worstPhaseCompliancePct.toFixed(2)}%.`,
-      )
-      : tr(
-        language,
-        `Power quality does not comply with the EN 50160 target. Worst observed phase was ${reportDetail.powerQuality.worstPhase} at ${reportDetail.powerQuality.worstPhaseCompliancePct.toFixed(2)}%, below the 95% threshold.`,
-        `Galios kokybė neatitinka EN 50160 tikslo. Blogiausia stebėta fazė buvo ${reportDetail.powerQuality.worstPhase} su ${reportDetail.powerQuality.worstPhaseCompliancePct.toFixed(2)}% — žemiau 95% ribos.`,
-      )
-    : null;
-
-  const localizedQualityRecommendation = reportDetail
-    ? reportDetail.powerQuality.dominantAnomalyType
-      ? tr(
-        language,
-        `Primary anomaly driver in this interval: ${anomalyTypeLabel(reportDetail.powerQuality.dominantAnomalyType, language)}. Review phase-level events and recurrence timing.`,
-        `Pagrindinis anomalijų šaltinis šiame intervale: ${anomalyTypeLabel(reportDetail.powerQuality.dominantAnomalyType, language)}. Peržiūrėkite fazių lygio įvykius ir pasikartojimo laiką.`,
-      )
-      : tr(
-        language,
-        'No dominant anomaly type detected in this interval.',
-        'Šiame intervale dominuojančio anomalijos tipo nenustatyta.',
-      )
-    : null;
-
-  const localizedNarrative = reportDetail
+  const localizedNarrative = reportDetail?.insights
     ? (() => {
       const parts: string[] = [
         tr(
@@ -618,7 +590,7 @@ export function PowerPage() {
                         </Card>
                         <Card p="sm" withBorder>
                           <Text size="xs" c="dimmed">Power anomalies</Text>
-                          <Text fw={700}>{reportDetail.insights.totalPowerAnomalies}</Text>
+                          <Text fw={700}>{reportDetail.insights?.totalPowerAnomalies ?? 0}</Text>
                         </Card>
                         <Card p="sm" withBorder>
                           <Text size="xs" c="dimmed">Top power anomaly</Text>
@@ -634,7 +606,7 @@ export function PowerPage() {
 
                       <Text size="sm">
                         Latest technical report power score is {reportDetail.powerHealthScore} with{' '}
-                        {reportDetail.insights.totalPowerAnomalies} power-related anomalies in the selected report interval.
+                        {reportDetail.insights?.totalPowerAnomalies ?? 0} power-related anomalies in the selected report interval.
                       </Text>
                       <Text size="sm" c="dimmed">
                         This card is power-only. Voltage compliance remains available on the reports and voltage pages.
@@ -716,21 +688,21 @@ export function PowerPage() {
               {reportDetail && (
                 <Card p="md" radius="md">
                   <Text fw={700} mb="xs">{t('power.reportEnergySummary')}</Text>
-                  <Text size="sm" c="dimmed">{localizedNarrative ?? reportDetail.insights.narrative}</Text>
+                  <Text size="sm" c="dimmed">{localizedNarrative ?? reportDetail.insights?.narrative ?? '—'}</Text>
 
                   <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} mt="md">
                     <Card p="sm" withBorder>
                       <Text size="xs" c="dimmed">{t('power.totalConsumed')}</Text>
-                      <Text fw={700} fz="xl">{formatFixed(reportDetail.insights.totalEnergyConsumedKwh, 2)} kWh</Text>
+                      <Text fw={700} fz="xl">{formatFixed(reportDetail.insights?.totalEnergyConsumedKwh, 2)} kWh</Text>
                     </Card>
                     <Card p="sm" withBorder>
                       <Text size="xs" c="dimmed">{t('power.totalReturned')}</Text>
-                      <Text fw={700} fz="xl">{formatFixed(reportDetail.insights.totalEnergyReturnedKwh, 2)} kWh</Text>
+                      <Text fw={700} fz="xl">{formatFixed(reportDetail.insights?.totalEnergyReturnedKwh, 2)} kWh</Text>
                     </Card>
                     <Card p="sm" withBorder>
                       <Text size="xs" c="dimmed">{t('power.avgEfficiency')}</Text>
                       <Text fw={700} fz="xl">
-                        {reportDetail.insights.averageEfficiencyPct != null
+                        {reportDetail.insights?.averageEfficiencyPct != null
                           ? `${reportDetail.insights.averageEfficiencyPct.toFixed(1)}%`
                           : '—'}
                       </Text>
@@ -738,7 +710,7 @@ export function PowerPage() {
                     <Card p="sm" withBorder>
                       <Text size="xs" c="dimmed">{t('power.avgHourlyElectricity')}</Text>
                       <Text fw={700} fz="xl">
-                        {reportDetail.insights.averageHourlyElectricityKwh != null
+                        {reportDetail.insights?.averageHourlyElectricityKwh != null
                           ? `${formatFixed(reportDetail.insights.averageHourlyElectricityKwh, 3)} kWh`
                           : '—'}
                       </Text>
