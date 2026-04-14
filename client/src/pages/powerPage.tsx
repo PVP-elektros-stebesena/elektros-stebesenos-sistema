@@ -513,7 +513,7 @@ export function PowerPage() {
                         <Card p="sm" withBorder>
                           <Text size="xs" c="dimmed">Top power anomaly</Text>
                           <Text fw={700}>
-                            {reportDetail.insights.powerAnomalyTypeDistribution[0]?.type ?? 'None'}
+                            {reportDetail.insights.powerAnomalyTypeDistribution?.[0]?.type ?? 'None'}
                           </Text>
                         </Card>
                         <Card p="sm" withBorder>
