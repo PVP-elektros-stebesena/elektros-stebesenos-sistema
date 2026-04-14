@@ -177,7 +177,13 @@ function formatFixed(value: number | null | undefined, decimals: number): string
 function formatPfBand(latest: PowerLatest | undefined): string {
   if (!latest) return '—';
 
-  const { targetPowerFactor, minPowerFactor } = latest.policy;
+  const targetPowerFactor = latest.policy?.targetPowerFactor;
+  const minPowerFactor = latest.policy?.minPowerFactor;
+
+  if (targetPowerFactor == null || minPowerFactor == null) {
+    return '—';
+  }
+
   if (Math.abs(targetPowerFactor - minPowerFactor) < 0.0001) {
     return `>= ${targetPowerFactor.toFixed(2)}`;
   }
@@ -605,11 +611,11 @@ export function PowerPage() {
                   <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} mt="md">
                     <Card p="sm" withBorder>
                       <Text size="xs" c="dimmed">Total consumed</Text>
-                      <Text fw={700} fz="xl">{reportDetail.insights.totalEnergyConsumedKwh.toFixed(2)} kWh</Text>
+                      <Text fw={700} fz="xl">{formatFixed(reportDetail.insights.totalEnergyConsumedKwh, 2)} kWh</Text>
                     </Card>
                     <Card p="sm" withBorder>
                       <Text size="xs" c="dimmed">Total returned</Text>
-                      <Text fw={700} fz="xl">{reportDetail.insights.totalEnergyReturnedKwh.toFixed(2)} kWh</Text>
+                      <Text fw={700} fz="xl">{formatFixed(reportDetail.insights.totalEnergyReturnedKwh, 2)} kWh</Text>
                     </Card>
                     <Card p="sm" withBorder>
                       <Text size="xs" c="dimmed">Avg efficiency</Text>
@@ -623,7 +629,7 @@ export function PowerPage() {
                       <Text size="xs" c="dimmed">Avg hourly electricity</Text>
                       <Text fw={700} fz="xl">
                         {reportDetail.insights.averageHourlyElectricityKwh != null
-                          ? `${reportDetail.insights.averageHourlyElectricityKwh.toFixed(3)} kWh`
+                          ? `${formatFixed(reportDetail.insights.averageHourlyElectricityKwh, 3)} kWh`
                           : '—'}
                       </Text>
                     </Card>
