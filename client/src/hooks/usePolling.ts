@@ -51,17 +51,21 @@ export function usePolling<TData = unknown, TError = Error>(
     ...restOptions
   } = options ?? {};
 
-  const [isPolling, setIsPolling] = useState(enabled !== false);
+  const hasEndpoint = endpoint.trim().length > 0;
+  const isEnabled = enabled !== false && hasEndpoint;
 
-  const pausePolling = useCallback(() => setIsPolling(false), []);
-  const resumePolling = useCallback(() => setIsPolling(true), []);
+  const [isManuallyPaused, setIsManuallyPaused] = useState(false);
+  const isPolling = isEnabled && !isManuallyPaused;
+
+  const pausePolling = useCallback(() => setIsManuallyPaused(true), []);
+  const resumePolling = useCallback(() => setIsManuallyPaused(false), []);
 
   const query = useQuery<TData, TError>({
     queryKey,
     queryFn: () => apiFetch<TData>(endpoint),
     refetchInterval: isPolling ? intervalSeconds * 1000 : false,
     refetchIntervalInBackground: refetchInBackground,
-    enabled: enabled !== false,
+    enabled: isEnabled,
     ...restOptions,
   });
 

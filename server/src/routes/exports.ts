@@ -1,24 +1,17 @@
 import type { FastifyInstance } from 'fastify';
 import prisma from '../lib/prisma.js';
 import * as XLSX from 'xlsx';
+import {
+  parseOptionalDate,
+  parseRequiredDeviceId,
+  validateAscendingRange,
+} from './queryParsers.js';
 
 interface ExportQuery {
   deviceId?: string;
   from?: string;
   to?: string;
   format?: string;
-}
-
-function parseDate(val: string | undefined): Date | null {
-  if (!val) return null;
-  const d = new Date(val);
-  return Number.isNaN(d.getTime()) ? null : d;
-}
-
-function parseDeviceId(val: string | undefined): number | null {
-  if (!val) return null;
-  const n = Number.parseInt(val, 10);
-  return Number.isNaN(n) ? null : n;
 }
 
 function escapeCsv(value: unknown): string {
@@ -32,27 +25,35 @@ function escapeCsv(value: unknown): string {
 
 export async function exportRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get<{ Querystring: ExportQuery }>('/api/exports/readings', async (req, reply) => {
-    const deviceId = parseDeviceId(req.query.deviceId);
-    const from = parseDate(req.query.from);
-    const to = parseDate(req.query.to);
+    const parsedDeviceId = parseRequiredDeviceId(req.query.deviceId);
+    if (!parsedDeviceId.ok) {
+      return reply.code(parsedDeviceId.statusCode).send(parsedDeviceId.body);
+    }
+
+    const parsedFrom = parseOptionalDate(req.query.from, 'from');
+    if (!parsedFrom.ok || !parsedFrom.value) {
+      return reply.code(400).send({
+        error: 'INVALID_DATE',
+        message: 'from must be a valid ISO date string',
+      });
+    }
+
+    const parsedTo = parseOptionalDate(req.query.to, 'to');
+    if (!parsedTo.ok || !parsedTo.value) {
+      return reply.code(400).send({
+        error: 'INVALID_DATE',
+        message: 'to must be a valid ISO date string',
+      });
+    }
+
+    const deviceId = parsedDeviceId.value;
+    const from = parsedFrom.value;
+    const to = parsedTo.value;
     const format = req.query.format;
 
-    if (!deviceId) {
-      return reply.code(400).send({ error: 'VALIDATION', message: 'deviceId is required' });
-    }
-
-    if (!from || !to) {
-      return reply.code(400).send({
-        error: 'VALIDATION',
-        message: 'from and to are required and must be valid dates',
-      });
-    }
-
-    if (from >= to) {
-      return reply.code(400).send({
-        error: 'VALIDATION',
-        message: '"from" must be before "to"',
-      });
+    const validRange = validateAscendingRange(from, to);
+    if (!validRange.ok) {
+      return reply.code(validRange.statusCode).send(validRange.body);
     }
 
     if (format !== 'csv' && format !== 'xlsx') {

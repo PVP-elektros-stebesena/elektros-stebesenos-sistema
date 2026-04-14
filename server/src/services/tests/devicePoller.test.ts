@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { DevicePoller } from '../devicePoller.js';
+import { clearPowerPolicyCache } from '../powerPolicy.js';
 
 // ── Mock Prisma ─────────────────────────────────────────────────────
 
@@ -8,6 +9,7 @@ vi.mock('../../lib/prisma.js', () => {
     default: {
       device: {
         findMany: vi.fn(),
+        findUnique: vi.fn(),
       },
       powerPolicyOverride: {
         findFirst: vi.fn(),
@@ -29,7 +31,10 @@ vi.mock('../../lib/prisma.js', () => {
 import prisma from '../../lib/prisma.js';
 
 const mockPrisma = prisma as unknown as {
-  device: { findMany: ReturnType<typeof vi.fn> };
+  device: {
+    findMany: ReturnType<typeof vi.fn>;
+    findUnique: ReturnType<typeof vi.fn>;
+  };
   powerPolicyOverride: { findFirst: ReturnType<typeof vi.fn> };
   reading: { create: ReturnType<typeof vi.fn> };
   anomaly: { create: ReturnType<typeof vi.fn> };
@@ -131,6 +136,8 @@ describe('DevicePoller', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
+    clearPowerPolicyCache();
+    mockPrisma.device.findUnique.mockResolvedValue({ powerProfile: 'HOUSE_3P_11KW' });
     mockPrisma.powerPolicyOverride.findFirst.mockResolvedValue(null);
   });
 
@@ -238,6 +245,7 @@ describe('DevicePoller', () => {
     const poller = new DevicePoller({ syncIntervalMs: 3_600_000, fetchFn });
     await poller.start();
     await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(10_000);
 
     expect(mockPrisma.anomaly.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -245,7 +253,103 @@ describe('DevicePoller', () => {
           metricDomain: 'POWER',
           metricName: 'ACTIVE_POWER_TOTAL',
           type: 'POWER_SPIKE',
-          thresholdValue: 12,
+          thresholdValue: 11,
+        }),
+      }),
+    );
+
+    await poller.stop();
+  });
+
+  it('uses selected device power profile thresholds for anomaly evaluation', async () => {
+    vi.setSystemTime(new Date('2026-03-27T10:00:00Z'));
+
+    const fetchFn = makeFetchFn(
+      makeP1Json(230, 230, 230, {
+        ActiveInstantaneousPowerDelivered: '33.000',
+        PowerDelivered_total: '33.000',
+        ApparentInstantaneousPower: '34.000',
+        ActiveInstantaneousPowerDeliveredL1: '11.000',
+        ActiveInstantaneousPowerDeliveredL2: '11.000',
+        ActiveInstantaneousPowerDeliveredL3: '11.000',
+        ApparentInstantaneousPowerL1: '11.333',
+        ApparentInstantaneousPowerL2: '11.333',
+        ApparentInstantaneousPowerL3: '11.334',
+      }),
+    );
+
+    mockPrisma.device.findMany.mockResolvedValue([
+      {
+        id: 1,
+        name: 'Solar home',
+        deviceIp: 'http://192.168.1.100/smartmeter/api/read',
+        pollInterval: 10,
+        isActive: true,
+      },
+    ]);
+    mockPrisma.device.findUnique.mockResolvedValue({ powerProfile: 'SOLAR_PROSUMER_3P_22KW' });
+    mockPrisma.reading.create.mockResolvedValue({});
+    mockPrisma.anomaly.create.mockResolvedValue({});
+
+    const poller = new DevicePoller({ syncIntervalMs: 3_600_000, fetchFn });
+    await poller.start();
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(mockPrisma.anomaly.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          metricDomain: 'POWER',
+          metricName: 'ACTIVE_POWER_TOTAL',
+          type: 'POWER_SPIKE',
+          thresholdValue: 22,
+        }),
+      }),
+    );
+
+    await poller.stop();
+  });
+
+  it('does not create a power spike anomaly when usage is above 11kW but below the selected 22kW profile', async () => {
+    vi.setSystemTime(new Date('2026-03-27T10:00:00Z'));
+
+    const fetchFn = makeFetchFn(
+      makeP1Json(230, 230, 230, {
+        ActiveInstantaneousPowerDelivered: '15.000',
+        PowerDelivered_total: '15.000',
+        ApparentInstantaneousPower: '16.000',
+        ActiveInstantaneousPowerDeliveredL1: '5.000',
+        ActiveInstantaneousPowerDeliveredL2: '5.000',
+        ActiveInstantaneousPowerDeliveredL3: '5.000',
+        ApparentInstantaneousPowerL1: '5.333',
+        ApparentInstantaneousPowerL2: '5.333',
+        ApparentInstantaneousPowerL3: '5.334',
+      }),
+    );
+
+    mockPrisma.device.findMany.mockResolvedValue([
+      {
+        id: 1,
+        name: 'Solar home',
+        deviceIp: 'http://192.168.1.100/smartmeter/api/read',
+        pollInterval: 10,
+        isActive: true,
+      },
+    ]);
+    mockPrisma.device.findUnique.mockResolvedValue({ powerProfile: 'SOLAR_PROSUMER_3P_22KW' });
+    mockPrisma.reading.create.mockResolvedValue({});
+    mockPrisma.anomaly.create.mockResolvedValue({});
+
+    const poller = new DevicePoller({ syncIntervalMs: 3_600_000, fetchFn });
+    await poller.start();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(mockPrisma.anomaly.create).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          metricDomain: 'POWER',
+          metricName: 'ACTIVE_POWER_TOTAL',
+          type: 'POWER_SPIKE',
         }),
       }),
     );

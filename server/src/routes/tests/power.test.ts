@@ -241,6 +241,23 @@ describe('GET /api/power/anomalies', () => {
 });
 
 describe('GET /api/power/policy', () => {
+  it('returns the selected preset policy when no override exists', async () => {
+    await prisma.device.update({
+      where: { id: testDeviceId },
+      data: { powerProfile: 'SOLAR_PROSUMER_3P_22KW' },
+    });
+
+    const res = await injectGet(`/api/power/policy?deviceId=${testDeviceId}`);
+    const body = res.json();
+
+    expect(res.statusCode).toBe(200);
+    expect(body.policy.source).toBe('profile_preset');
+    expect(body.policy.profile).toBe('SOLAR_PROSUMER_3P_22KW');
+    expect(body.policy.maxActivePowerKw).toBe(22);
+    expect(body.policy.perPhaseCurrentLimitAmps).toBe(32);
+    expect(body.policy.targetPowerFactor).toBe(0.9);
+  });
+
   it('returns effective override policy when configured', async () => {
     await prisma.powerPolicyOverride.create({
       data: {
@@ -258,6 +275,7 @@ describe('GET /api/power/policy', () => {
 
     expect(res.statusCode).toBe(200);
     expect(body.policy.source).toBe('device_override');
+    expect(body.policy.profile).toBe('HOUSE_3P_11KW');
     expect(body.policy.maxActivePowerKw).toBe(9);
     expect(body.policy.minPowerFactor).toBe(0.92);
   });

@@ -1,4 +1,40 @@
-const BASE_URL = import.meta.env.VITE_API_URL as string;
+const ENV_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined)?.trim();
+const BASE_URL =
+  ENV_BASE_URL && ENV_BASE_URL !== 'undefined'
+    ? ENV_BASE_URL.replace(/\/$/, '')
+    : import.meta.env.DEV
+      ? 'http://localhost:3000'
+      : '';
+
+function buildUrl(endpoint: string): string {
+  return endpoint.startsWith('http') ? endpoint : `${BASE_URL}${endpoint}`;
+}
+
+async function parseJsonResponse<TData>(response: Response, url: string): Promise<TData> {
+  const raw = await response.text();
+
+  if (!response.ok) {
+    throw new ApiError(
+      response.status,
+      response.statusText,
+      `Request failed: ${response.status} ${response.statusText} — ${url}${raw ? ` — ${raw.slice(0, 200)}` : ''}`,
+    );
+  }
+
+  if (response.status === 204 || raw.length === 0) {
+    return undefined as TData;
+  }
+
+  try {
+    return JSON.parse(raw) as TData;
+  } catch {
+    throw new ApiError(
+      response.status,
+      response.statusText,
+      `Expected JSON response but received non-JSON payload — ${url}`,
+    );
+  }
+}
 
 export class ApiError extends Error {
   readonly status: number;
@@ -13,26 +49,18 @@ export class ApiError extends Error {
 }
 
 export async function apiFetch<TData>(endpoint: string): Promise<TData> {
-  const url = endpoint.startsWith('http') ? endpoint : `${BASE_URL}${endpoint}`;
+  const url = buildUrl(endpoint);
 
   const response = await fetch(url);
 
-  if (!response.ok) {
-    throw new ApiError(
-      response.status,
-      response.statusText,
-      `Request failed: ${response.status} ${response.statusText} — ${url}`,
-    );
-  }
-
-  return response.json() as Promise<TData>;
+  return parseJsonResponse<TData>(response, url);
 }
 
 export async function apiPost<TData, TBody = unknown>(
   endpoint: string,
   body: TBody,
 ): Promise<TData> {
-  const url = endpoint.startsWith('http') ? endpoint : `${BASE_URL}${endpoint}`;
+  const url = buildUrl(endpoint);
 
   const response = await fetch(url, {
     method: 'POST',
@@ -42,22 +70,14 @@ export async function apiPost<TData, TBody = unknown>(
     body: JSON.stringify(body),
   });
 
-  if (!response.ok) {
-    throw new ApiError(
-      response.status,
-      response.statusText,
-      `Request failed: ${response.status} ${response.statusText} — ${url}`,
-    );
-  }
-
-  return response.json() as Promise<TData>;
+  return parseJsonResponse<TData>(response, url);
 }
 
 export async function apiPatch<TData, TBody = unknown>(
   endpoint: string,
   body: TBody,
 ): Promise<TData> {
-  const url = endpoint.startsWith('http') ? endpoint : `${BASE_URL}${endpoint}`;
+  const url = buildUrl(endpoint);
 
   const response = await fetch(url, {
     method: 'PATCH',
@@ -67,15 +87,7 @@ export async function apiPatch<TData, TBody = unknown>(
     body: JSON.stringify(body),
   });
 
-  if (!response.ok) {
-    throw new ApiError(
-      response.status,
-      response.statusText,
-      `Request failed: ${response.status} ${response.statusText} — ${url}`,
-    );
-  }
-
-  return response.json() as Promise<TData>;
+  return parseJsonResponse<TData>(response, url);
 }
 
 export async function apiDelete(endpoint: string): Promise<void> {
@@ -95,7 +107,7 @@ export async function apiDelete(endpoint: string): Promise<void> {
 }
 
 export async function apiDownload(endpoint: string, filename?: string): Promise<void> {
-  const url = endpoint.startsWith('http') ? endpoint : `${BASE_URL}${endpoint}`;
+  const url = buildUrl(endpoint);
 
   const response = await fetch(url);
 

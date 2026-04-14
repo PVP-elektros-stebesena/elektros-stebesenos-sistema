@@ -7,13 +7,7 @@ import {
   listNotificationSettings,
   setNotificationSetting,
 } from '../services/notificationSettingsRepository.js';
-
-function parseDeviceId(raw: string | undefined): number | undefined {
-  if (!raw) return undefined;
-  const value = Number(raw);
-  if (!Number.isInteger(value) || value <= 0) return undefined;
-  return value;
-}
+import { parseOptionalDeviceId } from './queryParsers.js';
 
 function isNotificationEventType(value: string): value is NotificationEventType {
   return (NOTIFICATION_EVENT_TYPES as readonly string[]).includes(value);
@@ -21,13 +15,12 @@ function isNotificationEventType(value: string): value is NotificationEventType 
 
 export async function notificationRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get<{ Querystring: { deviceId?: string } }>('/api/notifications/events', async (req, reply) => {
-    const deviceId = parseDeviceId(req.query.deviceId);
-    if (req.query.deviceId && deviceId == null) {
-      return reply.code(400).send({
-        error: 'INVALID_DEVICE_ID',
-        message: 'deviceId must be a positive integer',
-      });
+    const parsedDeviceId = parseOptionalDeviceId(req.query.deviceId);
+    if (!parsedDeviceId.ok) {
+      return reply.code(parsedDeviceId.statusCode).send(parsedDeviceId.body);
     }
+
+    const deviceId = parsedDeviceId.value;
 
     const settings = await listNotificationSettings(deviceId);
     return {

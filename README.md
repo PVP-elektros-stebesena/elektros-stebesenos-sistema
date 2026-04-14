@@ -70,7 +70,7 @@ SQLite via Prisma. The schema lives in `server/prisma/schema.prisma`, generated 
 - **Reading** – raw P1 telegram readings (voltage, current, power, energy per phase)
 - **AggregatedData** – 10-min RMS voltage windows with compliance flags
 - **WeeklyReport** – ESO weekly 95% compliance summaries
-- **Anomaly** – voltage deviation events with phase, severity, duration
+- **Anomaly** – voltage and power anomaly events with severity, thresholds, and duration
 
 All child models cascade-delete when a device is removed.
 
@@ -197,6 +197,15 @@ fetch(deviceIp)
 ```
 
 Each device gets its own `AnomalyTracker` and `WindowManager` instance so their state is isolated.
+
+## Power anomaly behavior (breaker curve)
+
+Active power anomaly detection now uses a time-current style breaker curve instead of instant single-breach alerts.
+
+- Short spikes above contract power can pass without opening an anomaly.
+- Sustained overload opens `POWER_SPIKE` with `CRITICAL` severity once curve allowance is exceeded.
+- Ramp-rate (`POWER_RAMP_RATE`) behavior is unchanged.
+
 
 ### P1 gateway format
 

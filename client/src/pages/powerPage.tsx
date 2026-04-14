@@ -39,17 +39,25 @@ interface DeviceOption {
 interface PowerLatest {
   deviceId: number;
   timestamp: string;
-  activePowerTotalKw: number;
-  reactivePowerTotalKvar: number;
-  apparentPowerTotalKva: number;
-  powerFactor: number;
-  phaseImbalancePct: number;
-  activePowerL1Kw: number;
-  activePowerL2Kw: number;
-  activePowerL3Kw: number;
-  reactivePowerL1Kvar: number;
-  reactivePowerL2Kvar: number;
-  reactivePowerL3Kvar: number;
+  activePowerTotalKw: number | null;
+  reactivePowerTotalKvar: number | null;
+  apparentPowerTotalKva: number | null;
+  powerFactor: number | null;
+  phaseImbalancePct: number | null;
+  activePowerL1Kw: number | null;
+  activePowerL2Kw: number | null;
+  activePowerL3Kw: number | null;
+  reactivePowerL1Kvar: number | null;
+  reactivePowerL2Kvar: number | null;
+  reactivePowerL3Kvar: number | null;
+  policy: {
+    label: string;
+    profile: string;
+    source: 'profile_preset' | 'device_override';
+    targetPowerFactor: number;
+    minPowerFactor: number;
+    maxPhaseImbalancePct: number;
+  };
   breaches: { metric: string; message: string }[];
 }
 
@@ -67,10 +75,10 @@ interface PowerSummary {
 
 interface PowerHistoryPoint {
   timestamp: string;
-  activePowerTotalKw: number;
-  reactivePowerTotalKvar: number;
-  apparentPowerTotalKva: number;
-  powerFactor: number;
+  activePowerTotalKw: number | null;
+  reactivePowerTotalKvar: number | null;
+  apparentPowerTotalKva: number | null;
+  powerFactor: number | null;
 }
 
 interface PowerHistoryResponse {
@@ -107,31 +115,27 @@ interface ReportListResponse {
 
 interface ReportDetail {
   reportUse: 'home' | 'technical' | 'solar';
-  powerQuality: {
-    averageCompliancePct: number;
-    worstPhase: 'L1' | 'L2' | 'L3';
-    worstPhaseCompliancePct: number;
-    pass: boolean;
-    dominantAnomalyType: string | null;
-    assessmentText: string;
-    recommendationText: string;
-  };
+  healthScore: string;
+  powerHealthScore: string;
+  combinedHealthScore: string;
   insights: {
     totalEnergyConsumedKwh: number;
     totalEnergyReturnedKwh: number;
     averageEfficiencyPct: number | null;
     averageHourlyElectricityKwh: number | null;
     anomalyTypeDistribution: { type: string; count: number }[];
+    totalPowerAnomalies: number;
+    powerAnomalyTypeDistribution: { type: string; count: number }[];
     narrative: string;
   };
 }
 
 interface PowerTrendPoint {
   time: string;
-  active: number;
-  reactive: number;
-  apparent: number;
-  pf: number;
+  active: number | null;
+  reactive: number | null;
+  apparent: number | null;
+  pf: number | null;
 }
 
 function anomalyColor(index: number): string {
@@ -166,6 +170,13 @@ function reportUseLabel(reportUse: 'home' | 'technical' | 'solar', language: 'en
   return tr(language, 'Solar', 'Saulės');
 }
 
+function healthBadgeColor(score: string): string {
+  if (score === 'GREEN') return 'green';
+  if (score === 'YELLOW') return 'yellow';
+  if (score === 'RED') return 'red';
+  return 'gray';
+}
+
 function BigStat({ value, label }: { value: string; label: string }) {
   return (
     <Card p="lg" radius="md">
@@ -179,6 +190,27 @@ function BigStat({ value, label }: { value: string; label: string }) {
       </Group>
     </Card>
   );
+}
+
+function formatFixed(value: number | null | undefined, decimals: number): string {
+  return value == null ? '—' : value.toFixed(decimals);
+}
+
+function formatPfBand(latest: PowerLatest | undefined): string {
+  if (!latest) return '—';
+
+  const targetPowerFactor = latest.policy?.targetPowerFactor;
+  const minPowerFactor = latest.policy?.minPowerFactor;
+
+  if (targetPowerFactor == null || minPowerFactor == null) {
+    return '—';
+  }
+
+  if (Math.abs(targetPowerFactor - minPowerFactor) < 0.0001) {
+    return `>= ${targetPowerFactor.toFixed(2)}`;
+  }
+
+  return `Target ${targetPowerFactor.toFixed(2)} / Min ${minPowerFactor.toFixed(2)}`;
 }
 
 export function PowerPage() {
@@ -265,8 +297,8 @@ export function PowerPage() {
   }, [history]);
 
   const anomalyDistribution = useMemo(() => {
-    if (reportDetail?.insights.anomalyTypeDistribution?.length) {
-      return reportDetail.insights.anomalyTypeDistribution;
+    if (reportDetail?.insights.powerAnomalyTypeDistribution?.length) {
+      return reportDetail.insights.powerAnomalyTypeDistribution;
     }
 
     const byType = new Map<string, number>();
@@ -446,15 +478,15 @@ export function PowerPage() {
               <SimpleGrid cols={{ base: 1, lg: 3 }}>
                 <Card p="md" radius="md">
                   <Text size="sm" c="dimmed">{t('power.activePower')}</Text>
-                  <Text fw={700} fz={32}>{latest ? `${latest.activePowerTotalKw.toFixed(3)} kW` : '—'}</Text>
+                  <Text fw={700} fz={32}>{latest ? `${formatFixed(latest.activePowerTotalKw, 3)} kW` : '—'}</Text>
                 </Card>
                 <Card p="md" radius="md">
                   <Text size="sm" c="dimmed">{t('power.reactivePower')}</Text>
-                  <Text fw={700} fz={32}>{latest ? `${latest.reactivePowerTotalKvar.toFixed(3)} kvar` : '—'}</Text>
+                  <Text fw={700} fz={32}>{latest ? `${formatFixed(latest.reactivePowerTotalKvar, 3)} kvar` : '—'}</Text>
                 </Card>
                 <Card p="md" radius="md">
                   <Text size="sm" c="dimmed">{t('power.apparentPower')}</Text>
-                  <Text fw={700} fz={32}>{latest ? `${latest.apparentPowerTotalKva.toFixed(3)} kVA` : '—'}</Text>
+                  <Text fw={700} fz={32}>{latest ? `${formatFixed(latest.apparentPowerTotalKva, 3)} kVA` : '—'}</Text>
                 </Card>
               </SimpleGrid>
 
@@ -500,11 +532,24 @@ export function PowerPage() {
                         roundCaps
                         sections={[{
                           value: Math.max(0, Math.min(100, (latest?.powerFactor ?? 0) * 100)),
-                          color: (latest?.powerFactor ?? 0) >= 0.95 ? '#8ACDEA' : '#DB3C3C',
+                          color: (latest?.powerFactor ?? 0) >= (latest?.policy.minPowerFactor ?? 0.9)
+                            ? '#8ACDEA'
+                            : '#DB3C3C',
                         }]}
-                        label={<Text ta="center" fw={700}>{latest ? latest.powerFactor.toFixed(3) : '—'}</Text>}
+                        label={<Text ta="center" fw={700}>{latest ? formatFixed(latest.powerFactor, 3) : '—'}</Text>}
                       />
                       <Text size="xs" c="dimmed">{t('power.powerFactor')}</Text>
+                      <Text size="xs" c="dimmed">{formatPfBand(latest)}</Text>
+                      <Badge
+                        color={(latest?.powerFactor ?? 0) >= (latest?.policy.minPowerFactor ?? 0.9)
+                          ? 'secondary'
+                          : 'danger'}
+                        variant="light"
+                      >
+                        {(latest?.powerFactor ?? 0) >= (latest?.policy.minPowerFactor ?? 0.9)
+                          ? 'Within policy'
+                          : 'Below minimum'}
+                      </Badge>
                     </Stack>
 
                     <Stack justify="center" gap="md">
@@ -512,11 +557,11 @@ export function PowerPage() {
                         <Group justify="space-between" mb={4}>
                           <Text size="sm">{t('power.phaseImbalance')}</Text>
                           <Text size="sm" fw={600}>
-                            {latest ? `${latest.phaseImbalancePct.toFixed(1)}%` : '—'}
+                            {latest ? `${formatFixed(latest.phaseImbalancePct, 1)}%` : '—'}
                           </Text>
                         </Group>
                         <Progress
-                          value={latest ? Math.max(0, Math.min(100, latest.phaseImbalancePct)) : 0}
+                          value={Math.max(0, Math.min(100, latest?.phaseImbalancePct ?? 0))}
                           color={(latest?.phaseImbalancePct ?? 0) <= 20 ? '#8ACDEA' : '#DB3C3C'}
                           radius="xl"
                         />
@@ -543,7 +588,7 @@ export function PowerPage() {
 
               <SimpleGrid cols={{ base: 1, lg: 2 }}>
                 <Card p="md" radius="md">
-                  <Text fw={700} mb="md">{t('power.latestReportQuality')}</Text>
+                  <Text fw={700} mb="md">Latest report: power status</Text>
 
                   {reportsError || reportDetailError ? (
                     <Alert color="red" title={t('power.failedReportSectionsTitle')}>
@@ -556,33 +601,44 @@ export function PowerPage() {
                   ) : (
                     <Stack gap="md">
                       <Group justify="space-between">
-                        <Badge color={reportDetail.powerQuality.pass ? 'secondary' : 'danger'} variant="light" size="lg">
-                          {reportDetail.powerQuality.pass ? t('power.compliant') : t('power.nonCompliant')}
+                        <Badge
+                          color={healthBadgeColor(reportDetail.powerHealthScore)}
+                          variant="light"
+                          size="lg"
+                        >
+                          Power {reportDetail.powerHealthScore}
                         </Badge>
                         <Text size="sm" c="dimmed">{reportUseLabel(reportDetail.reportUse, language)} {t('power.report')}</Text>
                       </Group>
 
                       <SimpleGrid cols={{ base: 2, sm: 4 }}>
                         <Card p="sm" withBorder>
-                          <Text size="xs" c="dimmed">{t('power.avgCompliance')}</Text>
-                          <Text fw={700}>{reportDetail.powerQuality.averageCompliancePct.toFixed(1)}%</Text>
+                          <Text size="xs" c="dimmed">Power score</Text>
+                          <Text fw={700}>{reportDetail.powerHealthScore}</Text>
                         </Card>
                         <Card p="sm" withBorder>
-                          <Text size="xs" c="dimmed">{t('power.worstPhase')}</Text>
-                          <Text fw={700}>{reportDetail.powerQuality.worstPhase}</Text>
+                          <Text size="xs" c="dimmed">Power anomalies</Text>
+                          <Text fw={700}>{reportDetail.insights.totalPowerAnomalies}</Text>
                         </Card>
                         <Card p="sm" withBorder>
-                          <Text size="xs" c="dimmed">{t('power.worstPhaseCompliance')}</Text>
-                          <Text fw={700}>{reportDetail.powerQuality.worstPhaseCompliancePct.toFixed(1)}%</Text>
+                          <Text size="xs" c="dimmed">Top power anomaly</Text>
+                          <Text fw={700}>
+                            {reportDetail.insights.powerAnomalyTypeDistribution[0]?.type ?? 'None'}
+                          </Text>
                         </Card>
                         <Card p="sm" withBorder>
-                          <Text size="xs" c="dimmed">{t('power.dominantAnomaly')}</Text>
-                          <Text fw={700}>{reportDetail.powerQuality.dominantAnomalyType ? anomalyTypeLabel(reportDetail.powerQuality.dominantAnomalyType, language) : t('power.none')}</Text>
+                          <Text size="xs" c="dimmed">Report period</Text>
+                          <Text fw={700}>{reportDetail.reportUse.toUpperCase()}</Text>
                         </Card>
                       </SimpleGrid>
 
-                      <Text size="sm">{localizedQualityAssessment ?? reportDetail.powerQuality.assessmentText}</Text>
-                      <Text size="sm" c="dimmed">{localizedQualityRecommendation ?? reportDetail.powerQuality.recommendationText}</Text>
+                      <Text size="sm">
+                        Latest technical report power score is {reportDetail.powerHealthScore} with{' '}
+                        {reportDetail.insights.totalPowerAnomalies} power-related anomalies in the selected report interval.
+                      </Text>
+                      <Text size="sm" c="dimmed">
+                        This card is power-only. Voltage compliance remains available on the reports and voltage pages.
+                      </Text>
                     </Stack>
                   )}
                 </Card>
@@ -665,11 +721,11 @@ export function PowerPage() {
                   <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} mt="md">
                     <Card p="sm" withBorder>
                       <Text size="xs" c="dimmed">{t('power.totalConsumed')}</Text>
-                      <Text fw={700} fz="xl">{reportDetail.insights.totalEnergyConsumedKwh.toFixed(2)} kWh</Text>
+                      <Text fw={700} fz="xl">{formatFixed(reportDetail.insights.totalEnergyConsumedKwh, 2)} kWh</Text>
                     </Card>
                     <Card p="sm" withBorder>
                       <Text size="xs" c="dimmed">{t('power.totalReturned')}</Text>
-                      <Text fw={700} fz="xl">{reportDetail.insights.totalEnergyReturnedKwh.toFixed(2)} kWh</Text>
+                      <Text fw={700} fz="xl">{formatFixed(reportDetail.insights.totalEnergyReturnedKwh, 2)} kWh</Text>
                     </Card>
                     <Card p="sm" withBorder>
                       <Text size="xs" c="dimmed">{t('power.avgEfficiency')}</Text>
@@ -683,7 +739,7 @@ export function PowerPage() {
                       <Text size="xs" c="dimmed">{t('power.avgHourlyElectricity')}</Text>
                       <Text fw={700} fz="xl">
                         {reportDetail.insights.averageHourlyElectricityKwh != null
-                          ? `${reportDetail.insights.averageHourlyElectricityKwh.toFixed(3)} kWh`
+                          ? `${formatFixed(reportDetail.insights.averageHourlyElectricityKwh, 3)} kWh`
                           : '—'}
                       </Text>
                     </Card>

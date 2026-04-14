@@ -3,6 +3,7 @@ import {
   analysePowerReading,
   evaluatePowerPolicyBreaches,
   type PowerMetricName,
+  type PowerPolicyBreach,
   type PowerReading,
   type PowerMetrics,
 } from './powerAnalysis.js';
@@ -23,6 +24,8 @@ interface OngoingState {
   observedMax: number;
   observedSum: number;
   sampleCount: number;
+  overloadDamage: number;
+  lastOverloadRatio: number | null;
 }
 
 export interface DetectedPowerAnomaly {
@@ -66,6 +69,13 @@ const CONTINUOUS_METRICS: Record<
   },
 };
 
+// Breaker curve calibrated to match:
+// - 110% load -> 30s allowable
+// - 150% load -> 2s allowable
+const BREAKER_CURVE_K = 0.6256889158;
+const BREAKER_CURVE_N = 1.6826061945;
+const BREAKER_CURVE_MIN_DENOMINATOR = 1e-6;
+
 function metricValue(metrics: PowerMetrics, metricName: ContinuousMetricName): number | null {
   if (metricName === 'ACTIVE_POWER_TOTAL') return metrics.activePowerTotalKw;
   if (metricName === 'REACTIVE_POWER_TOTAL') {
@@ -81,44 +91,35 @@ function round(value: number | null, decimals: number = 4): number | null {
   return Math.round(value * m) / m;
 }
 
+function createInitialState(): OngoingState {
+  return {
+    ongoing: false,
+    startedAt: null,
+    thresholdValue: null,
+    observedMin: Infinity,
+    observedMax: -Infinity,
+    observedSum: 0,
+    sampleCount: 0,
+    overloadDamage: 0,
+    lastOverloadRatio: null,
+  };
+}
+
+function allowedOverloadDurationSeconds(overloadRatio: number): number {
+  if (!Number.isFinite(overloadRatio) || overloadRatio <= 1) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  const denominator = Math.max(overloadRatio - 1, BREAKER_CURVE_MIN_DENOMINATOR);
+  return BREAKER_CURVE_K / (denominator ** BREAKER_CURVE_N);
+}
+
 export class PowerTracker {
   private states: Record<ContinuousMetricName, OngoingState> = {
-    ACTIVE_POWER_TOTAL: {
-      ongoing: false,
-      startedAt: null,
-      thresholdValue: null,
-      observedMin: Infinity,
-      observedMax: -Infinity,
-      observedSum: 0,
-      sampleCount: 0,
-    },
-    REACTIVE_POWER_TOTAL: {
-      ongoing: false,
-      startedAt: null,
-      thresholdValue: null,
-      observedMin: Infinity,
-      observedMax: -Infinity,
-      observedSum: 0,
-      sampleCount: 0,
-    },
-    POWER_FACTOR: {
-      ongoing: false,
-      startedAt: null,
-      thresholdValue: null,
-      observedMin: Infinity,
-      observedMax: -Infinity,
-      observedSum: 0,
-      sampleCount: 0,
-    },
-    PHASE_IMBALANCE: {
-      ongoing: false,
-      startedAt: null,
-      thresholdValue: null,
-      observedMin: Infinity,
-      observedMax: -Infinity,
-      observedSum: 0,
-      sampleCount: 0,
-    },
+    ACTIVE_POWER_TOTAL: createInitialState(),
+    REACTIVE_POWER_TOTAL: createInitialState(),
+    POWER_FACTOR: createInitialState(),
+    PHASE_IMBALANCE: createInitialState(),
   };
 
   private previous: { timestamp: Date; activePowerTotalKw: number | null } | null = null;
@@ -139,6 +140,18 @@ export class PowerTracker {
       const state = this.states[metricName];
       const currentValue = metricValue(metrics, metricName);
       const breach = breachByMetric.get(metricName);
+
+      if (metricName === 'ACTIVE_POWER_TOTAL') {
+        anomalies.push(...this.processActivePowerMetric({
+          reading,
+          policy,
+          currentValue,
+          breach,
+          state,
+          cfg,
+        }));
+        continue;
+      }
 
       if (breach && currentValue != null) {
         if (!state.ongoing) {
@@ -193,15 +206,7 @@ export class PowerTracker {
         });
       }
 
-      this.states[metricName] = {
-        ongoing: false,
-        startedAt: null,
-        thresholdValue: null,
-        observedMin: Infinity,
-        observedMax: -Infinity,
-        observedSum: 0,
-        sampleCount: 0,
-      };
+      this.states[metricName] = createInitialState();
     }
 
     const rampBreach = breachByMetric.get('ACTIVE_POWER_RAMP');
@@ -232,16 +237,127 @@ export class PowerTracker {
 
   reset(): void {
     for (const metricName of Object.keys(this.states) as ContinuousMetricName[]) {
-      this.states[metricName] = {
-        ongoing: false,
-        startedAt: null,
-        thresholdValue: null,
-        observedMin: Infinity,
-        observedMax: -Infinity,
-        observedSum: 0,
-        sampleCount: 0,
-      };
+      this.states[metricName] = createInitialState();
     }
     this.previous = null;
+  }
+
+  private processActivePowerMetric(input: {
+    reading: PowerReading;
+    policy: EffectivePowerPolicy;
+    currentValue: number | null;
+    breach: PowerPolicyBreach | undefined;
+    state: OngoingState;
+    cfg: { type: string; severity: AnomalySeverity; unit: string };
+  }): DetectedPowerAnomaly[] {
+    const {
+      reading,
+      policy,
+      currentValue,
+      breach,
+      state,
+      cfg,
+    } = input;
+
+    const anomalies: DetectedPowerAnomaly[] = [];
+    const elapsedSeconds = this.previous
+      ? Math.max(0, (reading.timestamp.getTime() - this.previous.timestamp.getTime()) / 1000)
+      : 0;
+
+    if (state.lastOverloadRatio != null && elapsedSeconds > 0) {
+      const allowedSeconds = allowedOverloadDurationSeconds(state.lastOverloadRatio);
+      if (Number.isFinite(allowedSeconds) && allowedSeconds > 0) {
+        state.overloadDamage += elapsedSeconds / allowedSeconds;
+      }
+    }
+
+    this.maybeStartActivePowerCritical(state, cfg, anomalies);
+
+    if (breach && currentValue != null) {
+      if (!state.startedAt) {
+        state.startedAt = reading.timestamp;
+        state.thresholdValue = breach.thresholdValue;
+        state.observedMin = currentValue;
+        state.observedMax = currentValue;
+        state.observedSum = currentValue;
+        state.sampleCount = 1;
+        state.overloadDamage = 0;
+      } else {
+        state.observedMin = Math.min(state.observedMin, currentValue);
+        state.observedMax = Math.max(state.observedMax, currentValue);
+        state.observedSum += currentValue;
+        state.sampleCount += 1;
+      }
+
+      const overloadRatio = currentValue / Math.max(policy.maxActivePowerKw, BREAKER_CURVE_MIN_DENOMINATOR);
+      state.lastOverloadRatio = overloadRatio > 1 ? overloadRatio : null;
+
+      this.maybeStartActivePowerCritical(state, cfg, anomalies);
+
+      return anomalies;
+    }
+
+    state.lastOverloadRatio = null;
+
+    if (state.ongoing && state.startedAt) {
+      anomalies.push(
+        this.createActivePowerAnomaly(
+          state.startedAt,
+          state,
+          cfg,
+          reading.timestamp,
+          'POWER_SPIKE resolved',
+        ),
+      );
+    }
+
+    this.states.ACTIVE_POWER_TOTAL = createInitialState();
+    return anomalies;
+  }
+
+  private maybeStartActivePowerCritical(
+    state: OngoingState,
+    cfg: { type: string; severity: AnomalySeverity; unit: string },
+    anomalies: DetectedPowerAnomaly[],
+  ): void {
+    if (state.ongoing || !state.startedAt || state.overloadDamage < 1) {
+      return;
+    }
+
+    anomalies.push(
+      this.createActivePowerAnomaly(
+        state.startedAt,
+        state,
+        cfg,
+        null,
+        'POWER_SPIKE started (breaker curve exceeded)',
+      ),
+    );
+    state.ongoing = true;
+  }
+
+  private createActivePowerAnomaly(
+    startedAt: Date,
+    state: OngoingState,
+    cfg: { type: string; severity: AnomalySeverity; unit: string },
+    endedAt: Date | null,
+    description: string,
+  ): DetectedPowerAnomaly {
+    const observedAvg = state.sampleCount > 0 ? state.observedSum / state.sampleCount : null;
+
+    return {
+      startedAt,
+      endedAt,
+      phase: 'ALL',
+      type: cfg.type,
+      severity: cfg.severity,
+      metricName: 'ACTIVE_POWER_TOTAL',
+      thresholdValue: state.thresholdValue,
+      observedMin: round(state.observedMin),
+      observedMax: round(state.observedMax),
+      observedAvg: round(observedAvg),
+      unit: cfg.unit,
+      description,
+    };
   }
 }

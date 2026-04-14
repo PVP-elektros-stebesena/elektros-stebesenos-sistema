@@ -48,6 +48,19 @@ describe('analysePowerReading', () => {
     expect(metrics.powerFactor).toBeCloseTo(0.8571, 4);
     expect(metrics.phaseImbalancePct).toBeCloseTo(33.3333, 4);
   });
+
+  it('returns zero imbalance for low-load phase values', () => {
+    const metrics = analysePowerReading(makeReading({
+      activePowerL1Kw: 0.2,
+      activePowerL2Kw: 0.3,
+      activePowerL3Kw: 0.25,
+      apparentPowerL1Kva: 0.3,
+      apparentPowerL2Kva: 0.4,
+      apparentPowerL3Kva: 0.35,
+    }));
+
+    expect(metrics.phaseImbalancePct).toBe(0);
+  });
 });
 
 describe('evaluatePowerPolicyBreaches', () => {
