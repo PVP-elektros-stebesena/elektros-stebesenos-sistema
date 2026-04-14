@@ -10,6 +10,8 @@ export type RawAnomalySummaryRow = {
   startsAt: string;
   endsAt: string | null;
   severity: string;
+  metricDomain?: 'VOLTAGE' | 'POWER';
+  metricName?: string | null;
 };
 
 export type ContextChartPoint = {
@@ -120,21 +122,34 @@ export function downsampleContextPoints(
   let maxVoltageIndex: number | null = null;
   let minVoltage = Infinity;
   let maxVoltage = -Infinity;
+  let minPowerIndex: number | null = null;
+  let maxPowerIndex: number | null = null;
+  let minPower = Infinity;
+  let maxPower = -Infinity;
 
   points.forEach((point, index) => {
-    if (point.voltage == null) return;
-    if (point.voltage < minVoltage) {
+    if (point.voltage != null && point.voltage < minVoltage) {
       minVoltage = point.voltage;
       minVoltageIndex = index;
     }
-    if (point.voltage > maxVoltage) {
+    if (point.voltage != null && point.voltage > maxVoltage) {
       maxVoltage = point.voltage;
       maxVoltageIndex = index;
+    }
+    if (point.powerKw != null && point.powerKw < minPower) {
+      minPower = point.powerKw;
+      minPowerIndex = index;
+    }
+    if (point.powerKw != null && point.powerKw > maxPower) {
+      maxPower = point.powerKw;
+      maxPowerIndex = index;
     }
   });
 
   if (minVoltageIndex != null) keepIndexes.add(minVoltageIndex);
   if (maxVoltageIndex != null) keepIndexes.add(maxVoltageIndex);
+  if (minPowerIndex != null) keepIndexes.add(minPowerIndex);
+  if (maxPowerIndex != null) keepIndexes.add(maxPowerIndex);
 
   return [...keepIndexes].sort((a, b) => a - b).map((index) => points[index]);
 }

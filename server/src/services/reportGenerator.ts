@@ -30,6 +30,8 @@ export interface AnomalySummaryRow {
   startsAt: string;
   endsAt: string | null;
   severity: string;
+  metricDomain?: 'VOLTAGE' | 'POWER';
+  metricName?: string | null;
 }
 
 export interface GeneratedReport {
@@ -40,10 +42,42 @@ export interface GeneratedReport {
   endsAt: Date;
   compliance: WeeklyComplianceResult;
   healthScore: HealthScore;
+  powerHealthScore: HealthScore;
+  combinedHealthScore: HealthScore;
   anomalies: AnomalySummaryRow[];
   totalAnomalies: number;
   criticalCount: number;
   warningCount: number;
+}
+
+const POWER_ANOMALY_TYPES = new Set([
+  'POWER_SPIKE',
+  'REACTIVE_POWER_SPIKE',
+  'LOW_POWER_FACTOR',
+  'PHASE_IMBALANCE',
+  'POWER_RAMP_RATE',
+]);
+
+function isPowerAnomalyType(type: string): boolean {
+  return POWER_ANOMALY_TYPES.has(type);
+}
+
+export function computePowerHealthScore(
+  anomalies: { type: string; severity: string }[],
+): HealthScore {
+  const powerAnomalies = anomalies.filter((anomaly) => isPowerAnomalyType(anomaly.type));
+  if (powerAnomalies.some((anomaly) => anomaly.severity === 'CRITICAL')) return 'RED';
+  if (powerAnomalies.some((anomaly) => anomaly.severity === 'WARNING')) return 'YELLOW';
+  return 'GREEN';
+}
+
+export function computeCombinedHealthScore(
+  voltageHealthScore: HealthScore,
+  powerHealthScore: HealthScore,
+): HealthScore {
+  if (voltageHealthScore === 'RED' || powerHealthScore === 'RED') return 'RED';
+  if (voltageHealthScore === 'YELLOW' || powerHealthScore === 'YELLOW') return 'YELLOW';
+  return 'GREEN';
 }
 
 // ── Helpers ────────────────────────────────────────────────────
@@ -199,7 +233,7 @@ export async function generateReport(
   const anomalyRows = await prisma.anomaly.findMany({
     where: {
       deviceId,
-      metricDomain: 'VOLTAGE',
+      metricDomain: { in: ['VOLTAGE', 'POWER'] },
       startsAt: { gte: startsAt, lt: endsAt },
     },
     orderBy: { startsAt: 'asc' },
@@ -215,11 +249,18 @@ export async function generateReport(
     startsAt: a.startsAt.toISOString(),
     endsAt: a.endsAt?.toISOString() ?? null,
     severity: SEVERITY_LABEL[a.severity] ?? 'WARNING',
+    metricDomain: a.metricDomain as 'VOLTAGE' | 'POWER',
+    metricName: a.metricName,
   }));
 
   const criticalCount = anomalies.filter((a) => a.severity === 'CRITICAL').length;
   const warningCount = anomalies.filter((a) => a.severity === 'WARNING').length;
-  const healthScore = computeHealthScore(compliance, anomalies);
+  const healthScore = computeHealthScore(
+    compliance,
+    anomalies.filter((a) => a.metricDomain === 'VOLTAGE' || a.metricDomain == null),
+  );
+  const powerHealthScore = computePowerHealthScore(anomalies);
+  const combinedHealthScore = computeCombinedHealthScore(healthScore, powerHealthScore);
 
   return {
     deviceId,
@@ -229,6 +270,8 @@ export async function generateReport(
     endsAt,
     compliance,
     healthScore,
+    powerHealthScore,
+    combinedHealthScore,
     anomalies,
     totalAnomalies: anomalies.length,
     criticalCount,
@@ -258,6 +301,8 @@ export async function saveReport(report: GeneratedReport) {
       compliancePctL3: report.compliance.compliancePctL3,
       overallCompliant: report.compliance.overallCompliant,
       healthScore: report.healthScore,
+      powerHealthScore: report.powerHealthScore,
+      combinedHealthScore: report.combinedHealthScore,
       anomalySummary: JSON.stringify(report.anomalies),
       totalAnomalies: report.totalAnomalies,
       criticalCount: report.criticalCount,
@@ -279,6 +324,8 @@ export async function saveReport(report: GeneratedReport) {
       compliancePctL3: report.compliance.compliancePctL3,
       overallCompliant: report.compliance.overallCompliant,
       healthScore: report.healthScore,
+      powerHealthScore: report.powerHealthScore,
+      combinedHealthScore: report.combinedHealthScore,
       anomalySummary: JSON.stringify(report.anomalies),
       totalAnomalies: report.totalAnomalies,
       criticalCount: report.criticalCount,

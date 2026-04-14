@@ -2,7 +2,11 @@ import type { FastifyInstance } from 'fastify';
 import prisma from '../../lib/prisma.js';
 import { buildReportInsights } from '../../services/reportInsights.js';
 import { buildPowerQualityAssessment } from '../../services/reportQuality.js';
-import type { PeriodType, ReportUse } from '../../services/reportGenerator.js';
+import {
+  computeCombinedHealthScore,
+  computePowerHealthScore,
+} from '../../services/reportGenerator.js';
+import type { HealthScore, PeriodType, ReportUse } from '../../services/reportGenerator.js';
 import { parseOptionalDeviceId } from '../queryParsers.js';
 import { toSeverityLabel, type RawAnomalySummaryRow } from './shared.js';
 
@@ -34,6 +38,23 @@ export function registerReportCrudRoutes(fastify: FastifyInstance): void {
     return {
       count: reports.length,
       data: reports.map((r) => ({
+        ...(() => {
+          let anomalySummary: RawAnomalySummaryRow[] = [];
+          try {
+            const parsed = JSON.parse(r.anomalySummary) as RawAnomalySummaryRow[];
+            anomalySummary = Array.isArray(parsed) ? parsed : [];
+          } catch {}
+
+          const powerHealthScore = (r.powerHealthScore as HealthScore | null)
+            ?? computePowerHealthScore(anomalySummary);
+          const combinedHealthScore = r.combinedHealthScore
+            ?? computeCombinedHealthScore(r.healthScore as HealthScore, powerHealthScore);
+
+          return {
+            powerHealthScore,
+            combinedHealthScore,
+          };
+        })(),
         id: r.id,
         deviceId: r.deviceId,
         deviceName: r.device.name,
@@ -141,6 +162,9 @@ export function registerReportCrudRoutes(fastify: FastifyInstance): void {
       enrichedAnomalySummary,
     );
 
+    const powerHealthScore = computePowerHealthScore(enrichedAnomalySummary);
+    const combinedHealthScore = computeCombinedHealthScore(report.healthScore as HealthScore, powerHealthScore);
+
     return {
       id: report.id,
       deviceId: report.deviceId,
@@ -150,6 +174,8 @@ export function registerReportCrudRoutes(fastify: FastifyInstance): void {
       startsAt: report.startsAt,
       endsAt: report.endsAt,
       healthScore: report.healthScore,
+      powerHealthScore,
+      combinedHealthScore,
       compliance: {
         totalWindows: report.totalWindows,
         compliantWindowsL1: report.compliantWindowsL1,
