@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Alert, Button, Card, Group, Loader, Select, Stack, Table, Text, TextInput } from '@mantine/core'
 import type { LiveData } from '../types/energy'
 import { apiDownload, apiFetch } from '../services/apiClient'
+import { useI18n } from '../i18n/i18n'
 
 interface Device {
   id: number
@@ -32,6 +33,7 @@ function KeyValueTable<T extends object>({ data }: { data: T }) {
 }
 
 export function CurrentDataPage() {
+  const { t } = useI18n()
   const [data, setData] = useState<LiveData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -58,7 +60,7 @@ export function CurrentDataPage() {
         }
       } catch (err) {
         if (active) {
-          setError(err instanceof Error ? err.message : 'Unknown error')
+          setError(err instanceof Error ? err.message : t('common.unknownError'))
         }
       } finally {
         if (active) {
@@ -92,7 +94,7 @@ export function CurrentDataPage() {
         }
       } catch (err) {
         if (active) {
-          setExportError(err instanceof Error ? err.message : 'Failed to load devices.')
+          setExportError(err instanceof Error ? err.message : t('current.errorLoadDevices'))
         }
       } finally {
         if (active) {
@@ -124,12 +126,12 @@ export function CurrentDataPage() {
     setExportError(null)
 
     if (!exportDeviceId) {
-      setExportError('Please select a device.')
+      setExportError(t('current.errorSelectDevice'))
       return
     }
 
     if (!exportFromDate || !exportToDate) {
-      setExportError('Please select both start and end dates.')
+      setExportError(t('current.errorSelectDates'))
       return
     }
 
@@ -137,12 +139,12 @@ export function CurrentDataPage() {
     const end = new Date(`${exportToDate}T00:00:00`)
 
     if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
-      setExportError('Please select valid start and end dates.')
+      setExportError(t('current.errorValidDates'))
       return
     }
 
     if (end < start) {
-      setExportError('End date must be the same as or later than start date.')
+      setExportError(t('current.errorEndBeforeStart'))
       return
     }
 
@@ -173,7 +175,7 @@ export function CurrentDataPage() {
       )
     } catch (err) {
       console.error('Export failed:', err)
-      setExportError(`Failed to export ${format.toUpperCase()} file.`)
+      setExportError(t('current.errorExportFile', { format: format.toUpperCase() }))
     } finally {
       setExporting(null)
     }
@@ -182,12 +184,12 @@ export function CurrentDataPage() {
   return (
     <Stack p="lg" gap="md">
       <Card p="md">
-        <Text fw={700} mb="sm">Export readings</Text>
+        <Text fw={700} mb="sm">{t('current.exportReadings')}</Text>
 
         <Group gap="sm" align="flex-end" wrap="wrap">
           <Select
-            label="Device"
-            placeholder={devicesLoading ? 'Loading devices...' : 'Select device'}
+            label={t('current.device')}
+            placeholder={devicesLoading ? t('current.loadingDevices') : t('current.selectDevice')}
             data={devices.map((device) => ({
               value: String(device.id),
               label: device.name,
@@ -199,14 +201,14 @@ export function CurrentDataPage() {
           />
 
           <TextInput
-            label="From"
+            label={t('current.from')}
             type="date"
             value={exportFromDate}
             onChange={(e) => setExportFromDate(e.currentTarget.value)}
           />
 
           <TextInput
-            label="To"
+            label={t('current.to')}
             type="date"
             value={exportToDate}
             onChange={(e) => setExportToDate(e.currentTarget.value)}
@@ -218,7 +220,7 @@ export function CurrentDataPage() {
             loading={exporting === 'csv'}
             disabled={!exportDeviceId || devicesLoading}
           >
-            Export CSV
+            {t('current.exportCsv')}
           </Button>
 
           <Button
@@ -227,22 +229,22 @@ export function CurrentDataPage() {
             loading={exporting === 'xlsx'}
             disabled={!exportDeviceId || devicesLoading}
           >
-            Export Excel
+            {t('current.exportExcel')}
           </Button>
         </Group>
 
         {exportError && (
-          <Alert color="red" title="Export failed" mt="md">
+          <Alert color="red" title={t('current.exportFailed')} mt="md">
             {exportError}
           </Alert>
         )}
       </Card>
 
       <Card p="md">
-        <Text fw={700} mb="sm">Raw fields</Text>
+        <Text fw={700} mb="sm">{t('current.rawFields')}</Text>
 
         {loading && <Loader size="sm" />}
-        {error && <Alert color="red" title="Failed to load data">{error}</Alert>}
+        {error && <Alert color="red" title={t('current.failedLoadData')}>{error}</Alert>}
         {data && <KeyValueTable data={data} />}
       </Card>
     </Stack>

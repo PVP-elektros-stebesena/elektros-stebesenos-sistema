@@ -26,6 +26,7 @@ import {
 } from 'recharts';
 import { usePolling } from '../hooks/usePolling';
 import { apiFetch } from '../services/apiClient';
+import { useI18n } from '../i18n/i18n';
 
 const MAX_POINTS = 60;
 
@@ -160,13 +161,27 @@ const BigStat = memo(function BigStat({
 
 /* ── Phase voltage card ─────────────────────────────────────────── */
 
-const PhaseCard = memo(function PhaseCard({ p }: { p: PhaseResult }) {
+const PhaseCard = memo(function PhaseCard({
+  p,
+  noSupplyLabel,
+  inBoundsLabel,
+  outOfBoundsLabel,
+  deviationLabel,
+  boundsLabel,
+}: {
+  p: PhaseResult;
+  noSupplyLabel: string;
+  inBoundsLabel: string;
+  outOfBoundsLabel: string;
+  deviationLabel: string;
+  boundsLabel: string;
+}) {
   const color = p.isZero ? 'danger' : p.inBounds ? 'secondary' : 'primary';
   const statusLabel = p.isZero
-    ? 'NO SUPPLY'
+    ? noSupplyLabel
     : p.inBounds
-      ? 'In bounds'
-      : 'Out of bounds';
+      ? inBoundsLabel
+      : outOfBoundsLabel;
 
   return (
     <Card p="md" radius="md">
@@ -188,7 +203,7 @@ const PhaseCard = memo(function PhaseCard({ p }: { p: PhaseResult }) {
 
       <Group justify="space-between">
         <Text size="xs" c="dimmed">
-          Deviation
+          {deviationLabel}
         </Text>
         <Text size="sm" fw={600} c={p.inBounds ? undefined : 'primary'}>
           {p.deviation >= 0 ? '+' : ''}
@@ -198,7 +213,7 @@ const PhaseCard = memo(function PhaseCard({ p }: { p: PhaseResult }) {
 
       <Group justify="space-between">
         <Text size="xs" c="dimmed">
-          Bounds
+          {boundsLabel}
         </Text>
         <Text size="sm">
           {p.min}–{p.max} V
@@ -211,6 +226,7 @@ const PhaseCard = memo(function PhaseCard({ p }: { p: PhaseResult }) {
 /* ── Main page ──────────────────────────────────────────────────── */
 
 export function VoltagePage() {
+  const { t } = useI18n();
   const [devices, setDevices] = useState<DeviceOption[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
   const [devicesError, setDevicesError] = useState<string | null>(null);
@@ -234,7 +250,7 @@ export function VoltagePage() {
       .catch((err) => {
         console.error('Failed to load devices:', err);
         if (active) {
-          setDevicesError('Failed to load devices.');
+          setDevicesError(t('voltage.failedLoadDevices'));
         }
       });
 
@@ -362,21 +378,21 @@ export function VoltagePage() {
 
   return (
     <Stack p="lg" gap="md" style={{ width: '100%' }}>
-      <Title order={2}>Voltage analytics</Title>
+      <Title order={2}>{t('voltage.title')}</Title>
 
       <Card p="md" radius="md">
         <Stack gap="sm">
           <div>
             <Text fw={700} mb={4}>
-              Device selection
+              {t('voltage.deviceSelection')}
             </Text>
             <Text size="sm" c="dimmed">
-              Choose which device to display on the voltage page.
+              {t('voltage.chooseDeviceDescription')}
             </Text>
           </div>
 
           <Select
-            placeholder="Select device"
+            placeholder={t('voltage.selectDevice')}
             data={devices.map((d) => ({
               value: String(d.id),
               label: d.name,
@@ -389,14 +405,14 @@ export function VoltagePage() {
         </Stack>
 
         {devicesError && (
-          <Alert mt="md" color="red" title="Failed to load devices">
+          <Alert mt="md" color="red" title={t('voltage.failedLoadDevicesTitle')}>
             {devicesError}
           </Alert>
         )}
 
         {!devicesError && devices.length === 0 && (
-          <Alert mt="md" color="yellow" title="No devices available">
-            Add at least one device in Settings to view voltage analytics.
+          <Alert mt="md" color="yellow" title={t('voltage.noDevicesTitle')}>
+            {t('voltage.noDevicesDescription')}
           </Alert>
         )}
       </Card>
@@ -405,22 +421,22 @@ export function VoltagePage() {
         <>
           <SimpleGrid cols={{ base: 2, sm: 4 }}>
             <BigStat
-              label="Total readings"
+              label={t('voltage.totalReadings')}
               value={summary ? summary.stats.totalReadings.toLocaleString() : '—'}
               unit=""
             />
             <BigStat
-              label="Active anomalies"
+              label={t('voltage.activeAnomalies')}
               value={activeAnomalies ? String(activeAnomalies.count) : '—'}
               unit=""
             />
             <BigStat
-              label="Weekly compliance"
+              label={t('voltage.weeklyCompliance')}
               value={compliance ? `${avgCompliance}` : '—'}
               unit="%"
             />
             <BigStat
-              label="Total anomalies"
+              label={t('voltage.totalAnomalies')}
               value={summary ? String(summary.stats.totalAnomalies) : '—'}
               unit=""
             />
@@ -429,14 +445,22 @@ export function VoltagePage() {
           {latest && (
             <SimpleGrid cols={{ base: 1, sm: 3 }}>
               {latest.phases.map((p) => (
-                <PhaseCard key={p.phase} p={p} />
+                <PhaseCard
+                  key={p.phase}
+                  p={p}
+                  noSupplyLabel={t('voltage.phaseNoSupply')}
+                  inBoundsLabel={t('voltage.phaseInBounds')}
+                  outOfBoundsLabel={t('voltage.phaseOutOfBounds')}
+                  deviationLabel={t('voltage.deviation')}
+                  boundsLabel={t('voltage.bounds')}
+                />
               ))}
             </SimpleGrid>
           )}
 
           <Card p="md" radius="md">
             <Group justify="space-between" mb="sm">
-              <Text fw={700}>Live voltage</Text>
+              <Text fw={700}>{t('voltage.liveVoltage')}</Text>
               {latest && (
                 <Text size="sm" c="dimmed">
                   {new Date(latest.timestamp).toLocaleTimeString()}
@@ -515,14 +539,14 @@ export function VoltagePage() {
           <SimpleGrid cols={{ base: 1, sm: 2 }}>
             <Card p="md" radius="md">
               <Group justify="space-between" mb="md">
-                <Text fw={700}>ESO weekly compliance</Text>
+                <Text fw={700}>{t('voltage.complianceTitle')}</Text>
                 {compliance && (
                   <Badge
                     color={compliance.overallCompliant ? 'secondary' : 'danger'}
                     variant="light"
                     size="lg"
                   >
-                    {compliance.overallCompliant ? 'PASS' : 'FAIL'}
+                    {compliance.overallCompliant ? t('voltage.pass') : t('voltage.fail')}
                   </Badge>
                 )}
               </Group>
@@ -577,20 +601,22 @@ export function VoltagePage() {
                   </Stack>
 
                   <Text size="xs" c="dimmed" ta="center">
-                    Threshold: {compliance.eso_threshold_pct}% of{' '}
-                    {compliance.window_duration_minutes}-min windows
+                    {t('voltage.threshold', {
+                      threshold: compliance.eso_threshold_pct,
+                      minutes: compliance.window_duration_minutes,
+                    })}
                   </Text>
                 </Stack>
               ) : (
                 <Text c="dimmed" ta="center">
-                  Loading…
+                  {t('voltage.loading')}
                 </Text>
               )}
             </Card>
 
             <Card p="md" radius="md">
               <Group justify="space-between" mb="md">
-                <Text fw={700}>Active anomalies</Text>
+                <Text fw={700}>{t('voltage.activeAnomalies')}</Text>
                 <Badge
                   color={activeAnomalies && activeAnomalies.count > 0 ? 'danger' : 'secondary'}
                   variant="light"
@@ -605,10 +631,10 @@ export function VoltagePage() {
                   <Table striped highlightOnHover>
                     <Table.Thead>
                       <Table.Tr>
-                        <Table.Th>Phase</Table.Th>
-                        <Table.Th>Type</Table.Th>
-                        <Table.Th>Voltage</Table.Th>
-                        <Table.Th>Started</Table.Th>
+                        <Table.Th>{t('voltage.phase')}</Table.Th>
+                        <Table.Th>{t('voltage.type')}</Table.Th>
+                        <Table.Th>{t('voltage.voltage')}</Table.Th>
+                        <Table.Th>{t('voltage.started')}</Table.Th>
                       </Table.Tr>
                     </Table.Thead>
                     <Table.Tbody>
@@ -632,10 +658,10 @@ export function VoltagePage() {
               ) : (
                 <Stack align="center" justify="center" style={{ flex: 1, minHeight: 120 }}>
                   <Text c="dimmed" fz="lg">
-                    No active anomalies
+                    {t('voltage.noActiveAnomalies')}
                   </Text>
                   <Text c="dimmed" size="xs">
-                    All phases within ESO bounds
+                    {t('voltage.allPhasesWithinBounds')}
                   </Text>
                 </Stack>
               )}
@@ -644,7 +670,7 @@ export function VoltagePage() {
 
           <Card p="md" radius="md">
             <Text fw={700} mb="md">
-              Recent anomaly history
+              {t('voltage.recentHistory')}
             </Text>
 
             {recentAnomalies && recentAnomalies.count > 0 ? (
@@ -652,13 +678,13 @@ export function VoltagePage() {
                 <Table striped highlightOnHover>
                   <Table.Thead>
                     <Table.Tr>
-                      <Table.Th>Phase</Table.Th>
-                      <Table.Th>Type</Table.Th>
-                      <Table.Th>Min V</Table.Th>
-                      <Table.Th>Max V</Table.Th>
-                      <Table.Th>Started</Table.Th>
-                      <Table.Th>Duration</Table.Th>
-                      <Table.Th>Status</Table.Th>
+                      <Table.Th>{t('voltage.phase')}</Table.Th>
+                      <Table.Th>{t('voltage.type')}</Table.Th>
+                      <Table.Th>{t('voltage.minV')}</Table.Th>
+                      <Table.Th>{t('voltage.maxV')}</Table.Th>
+                      <Table.Th>{t('voltage.started')}</Table.Th>
+                      <Table.Th>{t('voltage.duration')}</Table.Th>
+                      <Table.Th>{t('voltage.status')}</Table.Th>
                     </Table.Tr>
                   </Table.Thead>
                   <Table.Tbody>
@@ -673,14 +699,14 @@ export function VoltagePage() {
                           {a.maxVoltage != null ? `${a.maxVoltage.toFixed(1)} V` : '—'}
                         </Table.Td>
                         <Table.Td>{new Date(a.startsAt).toLocaleString()}</Table.Td>
-                        <Table.Td>{a.duration != null ? `${a.duration}s` : 'ongoing'}</Table.Td>
+                        <Table.Td>{a.duration != null ? `${a.duration}s` : t('voltage.ongoing')}</Table.Td>
                         <Table.Td>
                           <Badge
                             color={a.endsAt ? 'secondary' : 'danger'}
                             variant="light"
                             size="sm"
                           >
-                            {a.endsAt ? 'Resolved' : 'Active'}
+                            {a.endsAt ? t('voltage.resolved') : t('voltage.active')}
                           </Badge>
                         </Table.Td>
                       </Table.Tr>
@@ -690,7 +716,7 @@ export function VoltagePage() {
               </Table.ScrollContainer>
             ) : (
               <Text c="dimmed" ta="center">
-                No anomalies recorded yet
+                {t('voltage.noAnomaliesYet')}
               </Text>
             )}
           </Card>
