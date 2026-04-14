@@ -1,5 +1,6 @@
 import { Group, UnstyledButton, Text, Flex, Box } from "@mantine/core"
 import type { Page } from '../types/energy';
+import { useI18n } from '../i18n/i18n';
 import { WeatherTemperature } from './weather-temperature';
 
 
@@ -13,14 +14,6 @@ function IconBolt({ size = 20, color = "currentColor" }: { size?: number; color?
 
 
 
-const navItems: { label: string; page: Page }[] = [
-  { label: "Voltage", page: "voltage" },
-  { label: "Power", page: "power" },
-  { label: "Reports", page: "reports" },
-  { label: "Current data", page: "currentData" },
-  { label: "Settings", page: "settings" },
-]
-
 interface NavbarProps {
   page: Page;
   onNavigate: (page: Page) => void;
@@ -28,6 +21,16 @@ interface NavbarProps {
 }
 
 export function Navbar({ page, onNavigate }: NavbarProps) {
+  const { t } = useI18n()
+
+  const navItems: { label: string; page: Page }[] = [
+    { label: t('nav.voltage'), page: 'voltage' },
+    { label: t('nav.power'), page: 'power' },
+    { label: t('nav.reports'), page: 'reports' },
+    { label: t('nav.currentData'), page: 'currentData' },
+    { label: t('nav.settings'), page: 'settings' },
+  ]
+
   const logo = (
     <Group gap="sm">
       <Box
@@ -48,6 +51,7 @@ export function Navbar({ page, onNavigate }: NavbarProps) {
       </Text>
     </Group>
   );
+
 
 
 

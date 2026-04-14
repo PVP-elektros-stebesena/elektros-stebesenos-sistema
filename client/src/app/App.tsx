@@ -9,23 +9,26 @@ import { PowerPage } from '../pages/powerPage';
 import { SettingsPage } from '../pages/settingsPage';
 import { ReportsPage } from '../pages/reportsPage';
 import type { Page } from '../types/energy';
+import { I18nProvider } from '../i18n/i18n';
 
 export default function App() {
   const [page, setPage] = useState<Page>('voltage');
 
   return (
-    <MantineProvider theme={theme} defaultColorScheme="dark">
-      <Box mih="100vh">
-        <Navbar page={page} onNavigate={setPage} connected />
+    <I18nProvider>
+      <MantineProvider theme={theme} defaultColorScheme="dark">
+        <Box mih="100vh">
+          <Navbar page={page} onNavigate={setPage} connected />
 
-        <Box component="main" p="md">
-          <Box display={page === 'currentData' ? undefined : 'none'}><CurrentDataPage /></Box>
-          <Box display={page === 'voltage' ? undefined : 'none'}><VoltagePage /></Box>
-          <Box display={page === 'power' ? undefined : 'none'}><PowerPage /></Box>
-          <Box display={page === 'reports' ? undefined : 'none'}><ReportsPage /></Box>
-          <Box display={page === 'settings' ? undefined : 'none'}><SettingsPage /></Box>
+          <Box component="main" p="md">
+            <Box display={page === 'currentData' ? undefined : 'none'}><CurrentDataPage /></Box>
+            <Box display={page === 'voltage' ? undefined : 'none'}><VoltagePage /></Box>
+            <Box display={page === 'power' ? undefined : 'none'}><PowerPage /></Box>
+            <Box display={page === 'reports' ? undefined : 'none'}><ReportsPage /></Box>
+            <Box display={page === 'settings' ? undefined : 'none'}><SettingsPage /></Box>
+          </Box>
         </Box>
-      </Box>
-    </MantineProvider>
+      </MantineProvider>
+    </I18nProvider>
   );
 }
