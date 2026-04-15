@@ -68,6 +68,42 @@ describe('GET /api/power/latest', () => {
     expect(Array.isArray(body.breaches)).toBe(true);
   });
 
+  it('derives power factor and imbalance when the meter reports zero apparent power', async () => {
+    await prisma.reading.create({
+      data: {
+        deviceId: testDeviceId,
+        timestamp: new Date('2026-04-15T12:17:58Z'),
+        activeInstantaneousPowerDelivered: 2.559,
+        activeInstantaneousPowerDeliveredL1: 0,
+        activeInstantaneousPowerDeliveredL2: 0,
+        activeInstantaneousPowerDeliveredL3: 0,
+        activeInstantaneousPowerReturnedL1: 0.799,
+        activeInstantaneousPowerReturnedL2: 0.915,
+        activeInstantaneousPowerReturnedL3: 0.845,
+        reactiveInstantaneousPowerDeliveredL1: 0,
+        reactiveInstantaneousPowerDeliveredL2: 0,
+        reactiveInstantaneousPowerDeliveredL3: 0,
+        reactiveInstantaneousPowerReturnedL1: 0.085,
+        reactiveInstantaneousPowerReturnedL2: 0.03,
+        reactiveInstantaneousPowerReturnedL3: 0.015,
+        apparentInstantaneousPower: 0,
+        apparentInstantaneousPowerL1: 0,
+        apparentInstantaneousPowerL2: 0,
+        apparentInstantaneousPowerL3: 0,
+        powerDeliveredTotal: 0,
+        powerReturnedTotal: 2.559,
+      },
+    });
+
+    const res = await injectGet(`/api/power/latest?deviceId=${testDeviceId}`);
+    const body = res.json();
+
+    expect(res.statusCode).toBe(200);
+    expect(body.apparentPowerTotalKva).toBeCloseTo(2.5623, 4);
+    expect(body.powerFactor).toBeCloseTo(0.9987, 4);
+    expect(body.phaseImbalancePct).toBeCloseTo(7.2685, 4);
+  });
+
   it('includes ramp-rate breaches when a previous reading exists', async () => {
     await prisma.reading.createMany({
       data: [
