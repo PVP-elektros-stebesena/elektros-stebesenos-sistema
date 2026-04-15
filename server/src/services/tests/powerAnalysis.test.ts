@@ -61,6 +61,26 @@ describe('analysePowerReading', () => {
 
     expect(metrics.phaseImbalancePct).toBe(0);
   });
+
+  it('derives apparent power and power factor from active and reactive totals when apparent power is zero', () => {
+    const metrics = analysePowerReading(makeReading({
+      activePowerTotalKw: -2.559,
+      activePowerL1Kw: -0.799,
+      activePowerL2Kw: -0.915,
+      activePowerL3Kw: -0.845,
+      reactivePowerL1Kvar: -0.085,
+      reactivePowerL2Kvar: -0.03,
+      reactivePowerL3Kvar: -0.015,
+      apparentPowerTotalKva: 0,
+      apparentPowerL1Kva: 0,
+      apparentPowerL2Kva: 0,
+      apparentPowerL3Kva: 0,
+    }));
+
+    expect(metrics.apparentPowerTotalKva).toBeCloseTo(2.5623, 4);
+    expect(metrics.powerFactor).toBeCloseTo(0.9987, 4);
+    expect(metrics.phaseImbalancePct).toBeCloseTo(7.2685, 4);
+  });
 });
 
 describe('evaluatePowerPolicyBreaches', () => {
