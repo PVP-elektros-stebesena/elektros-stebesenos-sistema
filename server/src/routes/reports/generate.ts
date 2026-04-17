@@ -3,6 +3,7 @@ import prisma from '../../lib/prisma.js';
 import { notificationService } from '../../services/notificationService.js';
 import { buildReportInsights } from '../../services/reportInsights.js';
 import { buildPowerQualityAssessment } from '../../services/reportQuality.js';
+import { costCalculatorService } from '../../services/costCalculator.js';
 import {
   generateReport,
   resolvePresetPeriodRange,
@@ -109,6 +110,7 @@ export function registerReportGenerateRoute(fastify: FastifyInstance): void {
       },
       report.anomalies,
     );
+    const estimatedCost = await costCalculatorService.calculateEstimatedCost(deviceId, startsAt, endsAt);
 
     return {
       message: `${reportUse} ${periodType} report generated successfully`,
@@ -130,6 +132,7 @@ export function registerReportGenerateRoute(fastify: FastifyInstance): void {
         warningCount: report.warningCount,
         insights,
         powerQuality,
+        estimatedCost,
       },
     };
   });
