@@ -31,7 +31,12 @@ jobs:
             cd $REPO_DIR/client
             npm ci
             npm run build
-            sudo systemctl reload nginx
+            if sudo systemctl is-active --quiet nginx; then
+              sudo systemctl reload nginx
+            else
+              echo "nginx is not active, attempting to start nginx"
+              sudo systemctl start nginx || echo "warning: failed to start nginx, continuing deployment"
+            fi
 
             # --- Backend: install, migrate, build, restart pm2 ---
             cd $REPO_DIR/server
