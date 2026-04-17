@@ -58,7 +58,14 @@ interface PowerLatest {
     minPowerFactor: number;
     maxPhaseImbalancePct: number;
   };
-  breaches: { metric: string; message: string }[];
+  breaches: {
+    metricName?: string;
+    metric?: string;
+    message?: string;
+    thresholdValue?: number;
+    observedValue?: number;
+    unit?: string;
+  }[];
 }
 
 interface PowerSummary {
@@ -170,6 +177,18 @@ function reportUseLabel(reportUse: 'home' | 'technical' | 'solar', language: 'en
   return tr(language, 'Solar', 'Saulės');
 }
 
+function powerPolicyMetricLabel(metric: string, language: 'en' | 'lt'): string {
+  const labels: Record<string, string> = {
+    ACTIVE_POWER_TOTAL: tr(language, 'Active power total', 'Bendra aktyvioji galia'),
+    REACTIVE_POWER_TOTAL: tr(language, 'Reactive power total', 'Bendra reaktyvioji galia'),
+    POWER_FACTOR: tr(language, 'Power factor', 'Galios koeficientas'),
+    PHASE_IMBALANCE: tr(language, 'Phase imbalance', 'Fazių disbalansas'),
+    ACTIVE_POWER_RAMP: tr(language, 'Active power ramp', 'Aktyviosios galios šuolis'),
+  };
+
+  return labels[metric] ?? metric;
+}
+
 function healthBadgeColor(score: string): string {
   if (score === 'GREEN') return 'green';
   if (score === 'YELLOW') return 'yellow';
@@ -241,7 +260,7 @@ export function PowerPage() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [t]);
 
   const deviceQuery = useMemo(
     () => (selectedDeviceId ? `?deviceId=${selectedDeviceId}` : ''),
@@ -543,11 +562,14 @@ export function PowerPage() {
                         <Text size="xs" c="dimmed" mb={2}>{t('power.policyBreaches')}</Text>
                         {latest?.breaches?.length ? (
                           <Stack gap={4}>
-                            {latest.breaches.slice(0, 2).map((breach) => (
-                              <Badge key={`${breach.metric}-${breach.message}`} color="danger" variant="light">
-                                {breach.metric}
-                              </Badge>
-                            ))}
+                            {latest.breaches.slice(0, 2).map((breach, index) => {
+                              const metric = breach.metricName ?? breach.metric ?? 'UNKNOWN_BREACH';
+                              return (
+                                <Badge key={`${metric}-${breach.thresholdValue ?? 'na'}-${index}`} color="danger" variant="light">
+                                  {powerPolicyMetricLabel(metric, language)}
+                                </Badge>
+                              );
+                            })}
                           </Stack>
                         ) : (
                           <Text size="sm" c="dimmed">{t('power.noActiveBreaches')}</Text>
