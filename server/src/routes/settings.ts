@@ -18,6 +18,20 @@ import {
   clearPowerPolicyCache,
   syncPowerProfileOverride,
 } from '../services/powerPolicy.js';
+import {
+  getActiveBillingPlan,
+  getActiveBillingPlansByDeviceIds,
+  listBillingPlans,
+  saveBillingPlan,
+  type BillingPlanPayload,
+  type PricingMode,
+  type SpotProvider,
+  type SpotZone,
+} from '../services/billingPlanService.js';
+import {
+  SPOT_PRICE_PROVIDER_NAMES,
+  SPOT_PRICE_ZONES,
+} from '../services/spotPriceProvider.js';
 // JSON Schemas
 
 const idParamSchema = {
@@ -81,9 +95,49 @@ const notificationPatchBodySchema = {
   },
 } as const;
 
+const billingPlanBodySchema = {
+  type: 'object',
+  required: ['pricingMode', 'effectiveFrom', 'monthlyFixedFeeEur'],
+  additionalProperties: false,
+  properties: {
+    pricingMode: { type: 'string', enum: ['FIXED', 'DYNAMIC'] },
+    effectiveFrom: { type: 'string', minLength: 1 },
+    fixedRates: {
+      type: ['object', 'null'],
+      additionalProperties: false,
+      properties: {
+        t1: { type: ['number', 'null'], minimum: 0 },
+        t2: { type: ['number', 'null'], minimum: 0 },
+        t3: { type: ['number', 'null'], minimum: 0 },
+        t4: { type: ['number', 'null'], minimum: 0 },
+      },
+    },
+    dynamic: {
+      type: ['object', 'null'],
+      additionalProperties: false,
+      required: ['provider', 'zone', 'spotAdderEurPerKwh'],
+      properties: {
+        provider: { type: 'string', enum: [...SPOT_PRICE_PROVIDER_NAMES] },
+        zone: { type: 'string', enum: [...SPOT_PRICE_ZONES] },
+        spotAdderEurPerKwh: { type: 'number', minimum: 0 },
+      },
+    },
+    monthlyFixedFeeEur: { type: ['number', 'null'], minimum: 0 },
+  },
+} as const;
+
 interface NotificationPatchBody {
   notificationsEnabled: boolean;
   selectedEvents: NotificationEventType[];
+}
+
+interface BillingPlanBody extends BillingPlanPayload {
+  pricingMode: PricingMode;
+  dynamic?: {
+    provider: SpotProvider;
+    zone: SpotZone;
+    spotAdderEurPerKwh: number;
+  };
 }
 
 // Typescript interfaces
@@ -129,7 +183,11 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
     const devices = await prisma.device.findMany({
       orderBy: { createdAt: 'desc' },
     });
-    return reply.send(devices);
+    const billingPlans = await getActiveBillingPlansByDeviceIds(devices.map((device) => device.id));
+    return reply.send(devices.map((device) => ({
+      ...device,
+      billingPlan: billingPlans.get(device.id) ?? null,
+    })));
   });
 
   fastify.get<{ Params: IdParam }>('/api/settings/:id', {
@@ -141,7 +199,11 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
       return reply.code(404).send({ error: 'NOT_FOUND', message: `Device ${req.params.id} not found` });
     }
 
-    return reply.send(device);
+    const billingPlan = await getActiveBillingPlan(device.id);
+    return reply.send({
+      ...device,
+      billingPlan,
+    });
   });
 
   fastify.post<{ Body: DeviceBody }>('/api/settings', {
@@ -337,4 +399,71 @@ fastify.patch<{ Params: IdParam; Body: NotificationPatchBody }>(
     });
   },
 );
+
+  fastify.get<{ Params: IdParam }>('/api/settings/:id/billing-plan', {
+    schema: { params: idParamSchema },
+  }, async (req, reply) => {
+    const { id } = req.params;
+    const existing = await prisma.device.findUnique({ where: { id } });
+    if (!existing) {
+      return reply.code(404).send({
+        error: 'NOT_FOUND',
+        message: `Device ${id} not found`,
+      });
+    }
+
+    const [activePlan, history] = await Promise.all([
+      getActiveBillingPlan(id),
+      listBillingPlans(id),
+    ]);
+
+    return reply.send({
+      activePlan,
+      history,
+    });
+  });
+
+  fastify.put<{ Params: IdParam; Body: BillingPlanBody }>('/api/settings/:id/billing-plan', {
+    schema: {
+      params: idParamSchema,
+      body: billingPlanBodySchema,
+    },
+  }, async (req, reply) => {
+    const { id } = req.params;
+    const existing = await prisma.device.findUnique({ where: { id } });
+    if (!existing) {
+      return reply.code(404).send({
+        error: 'NOT_FOUND',
+        message: `Device ${id} not found`,
+      });
+    }
+
+    const effectiveFrom = new Date(req.body.effectiveFrom);
+    if (Number.isNaN(effectiveFrom.getTime())) {
+      return reply.code(400).send({
+        error: 'INVALID_EFFECTIVE_FROM',
+        message: 'effectiveFrom must be a valid ISO datetime',
+      });
+    }
+
+    if (req.body.pricingMode === 'FIXED' && !req.body.fixedRates) {
+      return reply.code(400).send({
+        error: 'INVALID_BILLING_PLAN',
+        message: 'fixedRates are required for FIXED pricing mode',
+      });
+    }
+
+    if (req.body.pricingMode === 'DYNAMIC' && !req.body.dynamic) {
+      return reply.code(400).send({
+        error: 'INVALID_BILLING_PLAN',
+        message: 'dynamic pricing settings are required for DYNAMIC pricing mode',
+      });
+    }
+
+    const saved = await saveBillingPlan(id, req.body);
+    return reply.send({
+      billingPlan: saved,
+      activePlan: await getActiveBillingPlan(id),
+    });
+  });
 }
