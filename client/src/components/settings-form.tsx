@@ -1,7 +1,7 @@
-import { Button, Card, Stack, TextInput, NumberInput, Switch, Text, Select, MultiSelect, Group } from '@mantine/core'
+import { Button, Card, Stack, TextInput, NumberInput, Switch, Text, Select, MultiSelect, Group, SimpleGrid, Badge } from '@mantine/core'
 import { useState, useEffect } from 'react'
-import type { AppSettings, PowerProfilePreset } from '../types/energy'
-import { apiDelete, apiFetch, apiPost, apiPatch } from '../services/apiClient'
+import type { AppSettings, BillingPlan, PowerProfilePreset, PricingMode } from '../types/energy'
+import { apiDelete, apiFetch, apiPost, apiPatch, apiPut } from '../services/apiClient'
 import { useI18n } from '../i18n/i18n'
 
 interface Device {
@@ -16,6 +16,7 @@ interface Device {
   isActive: boolean
   notificationChannel: 'email' | 'sms' | 'push' | 'none' | null
   notificationTarget: string | null
+  billingPlan?: BillingPlan | null
 }
 
 type NotificationChannel = 'email' | 'sms' | 'push' | 'none'
@@ -32,6 +33,16 @@ interface NotificationSettingsResponse {
   availableEvents?: NotificationEventType[]
 }
 
+interface BillingPlanResponse {
+  activePlan: BillingPlan | null
+  history: BillingPlan[]
+}
+
+interface SaveBillingPlanResponse {
+  billingPlan: BillingPlan
+  activePlan: BillingPlan | null
+}
+
 const DEFAULT: AppSettings = {
   device_ip: '192.168.1.142',
   mqtt_broker: '192.168.1.10',
@@ -45,6 +56,13 @@ const DEFAULT: AppSettings = {
   notifications_enabled: true,
   notification_channel: 'email',
   notification_target: '',
+  pricing_mode: 'FIXED',
+  rate_t1: null,
+  rate_t2: null,
+  rate_t3: null,
+  rate_t4: null,
+  monthly_fixed_fee_eur: null,
+  spot_adder_eur_per_kwh: 0,
   high_usage_threshold: 3.5,
   retain_days: 90,
 }
@@ -92,6 +110,102 @@ const EMPTY_DEVICE_SETTINGS: AppSettings = {
   notifications_enabled: true,
   notification_channel: 'email',
   notification_target: '',
+  pricing_mode: 'FIXED',
+  rate_t1: null,
+  rate_t2: null,
+  rate_t3: null,
+  rate_t4: null,
+  monthly_fixed_fee_eur: null,
+  spot_adder_eur_per_kwh: 0,
+}
+
+function toNullableNumber(value: string | number | null | undefined): number | null {
+  if (value === '' || value == null) {
+    return null
+  }
+
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null
+  }
+
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function billingPlanToSettings(plan: BillingPlan | null): Pick<
+AppSettings,
+'pricing_mode' | 'rate_t1' | 'rate_t2' | 'rate_t3' | 'rate_t4' | 'monthly_fixed_fee_eur' | 'spot_adder_eur_per_kwh'
+> {
+  if (!plan) {
+    return {
+      pricing_mode: 'FIXED',
+      rate_t1: null,
+      rate_t2: null,
+      rate_t3: null,
+      rate_t4: null,
+      monthly_fixed_fee_eur: null,
+      spot_adder_eur_per_kwh: 0,
+    }
+  }
+
+  return {
+    pricing_mode: plan.pricingMode,
+    rate_t1: plan.fixedRates?.t1 ?? null,
+    rate_t2: plan.fixedRates?.t2 ?? null,
+    rate_t3: plan.fixedRates?.t3 ?? null,
+    rate_t4: plan.fixedRates?.t4 ?? null,
+    monthly_fixed_fee_eur: plan.monthlyFixedFeeEur,
+    spot_adder_eur_per_kwh: plan.dynamic?.spotAdderEurPerKwh ?? 0,
+  }
+}
+
+function billingPlanSignatureFromSettings(settings: AppSettings): string {
+  return JSON.stringify({
+    pricingMode: settings.pricing_mode,
+    fixedRates: settings.pricing_mode === 'FIXED'
+      ? {
+          t1: settings.rate_t1,
+          t2: settings.rate_t2,
+          t3: settings.rate_t3,
+          t4: settings.rate_t4,
+        }
+      : null,
+    dynamic: settings.pricing_mode === 'DYNAMIC'
+      ? {
+          provider: 'ELERING',
+          zone: 'LT',
+          spotAdderEurPerKwh: settings.spot_adder_eur_per_kwh ?? 0,
+        }
+      : null,
+    monthlyFixedFeeEur: settings.monthly_fixed_fee_eur,
+  })
+}
+
+function billingPlanSignature(plan: BillingPlan | null): string | null {
+  if (!plan) {
+    return null
+  }
+
+  return JSON.stringify({
+    pricingMode: plan.pricingMode,
+    fixedRates: plan.fixedRates,
+    dynamic: plan.dynamic,
+    monthlyFixedFeeEur: plan.monthlyFixedFeeEur,
+  })
+}
+
+function hasBillingPlanInput(settings: AppSettings): boolean {
+  if (settings.pricing_mode === 'FIXED') {
+    return [
+      settings.rate_t1,
+      settings.rate_t2,
+      settings.rate_t3,
+      settings.rate_t4,
+      settings.monthly_fixed_fee_eur,
+    ].some((value) => value != null)
+  }
+
+  return true
 }
 
 export function SettingsForm() {
@@ -104,8 +218,17 @@ export function SettingsForm() {
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [selectedEvents, setSelectedEvents] = useState<NotificationEventType[]>(DEFAULT_SELECTED_EVENTS)
+  const [activeBillingPlan, setActiveBillingPlan] = useState<BillingPlan | null>(null)
 
   const selectedDevice = deviceId ? devices.find((device) => device.id === deviceId) ?? null : null
+
+  const applyBillingPlanToForm = (plan: BillingPlan | null) => {
+    setActiveBillingPlan(plan)
+    setS((prev) => ({
+      ...prev,
+      ...billingPlanToSettings(plan),
+    }))
+  }
 
   const applyDeviceToForm = (device: Device) => {
     setDeviceId(device.id)
@@ -120,7 +243,9 @@ export function SettingsForm() {
       poll_interval: device.pollInterval,
       notification_channel: device.notificationChannel || 'email',
       notification_target: device.notificationTarget || '',
+      ...billingPlanToSettings(device.billingPlan ?? null),
     }))
+    setActiveBillingPlan(device.billingPlan ?? null)
   }
 
   const resetFormForNewDevice = () => {
@@ -128,6 +253,7 @@ export function SettingsForm() {
     setDeviceName(defaultDeviceName)
     setS(EMPTY_DEVICE_SETTINGS)
     setSelectedEvents(DEFAULT_SELECTED_EVENTS)
+    setActiveBillingPlan(null)
   }
 
   const loadNotificationSettings = async (id: number) => {
@@ -151,6 +277,18 @@ export function SettingsForm() {
     }
   }
 
+  const loadBillingPlan = async (id: number) => {
+    try {
+      const billingPlanResponse = await apiFetch<BillingPlanResponse>(
+        `/api/settings/${id}/billing-plan`,
+      )
+      applyBillingPlanToForm(billingPlanResponse.activePlan)
+    } catch (billingPlanErr) {
+      console.error('Failed to load billing plan:', billingPlanErr)
+      applyBillingPlanToForm(null)
+    }
+  }
+
   useEffect(() => {
     const loadSettings = async () => {
       try {
@@ -164,7 +302,10 @@ export function SettingsForm() {
 
         const device = loadedDevices[0]
         applyDeviceToForm(device)
-        await loadNotificationSettings(device.id)
+        await Promise.all([
+          loadNotificationSettings(device.id),
+          loadBillingPlan(device.id),
+        ])
       } catch (err) {
         console.error('Failed to load settings:', err)
       }
@@ -187,7 +328,10 @@ export function SettingsForm() {
 
     setMessage(null)
     applyDeviceToForm(nextDevice)
-    await loadNotificationSettings(nextDevice.id)
+    await Promise.all([
+      loadNotificationSettings(nextDevice.id),
+      loadBillingPlan(nextDevice.id),
+    ])
   }
 
   const handleCreateNewDevice = () => {
@@ -251,7 +395,10 @@ export function SettingsForm() {
       if (remainingDevices.length > 0) {
         const nextDevice = remainingDevices[0]
         applyDeviceToForm(nextDevice)
-        await loadNotificationSettings(nextDevice.id)
+        await Promise.all([
+          loadNotificationSettings(nextDevice.id),
+          loadBillingPlan(nextDevice.id),
+        ])
       } else {
         resetFormForNewDevice()
       }
@@ -356,17 +503,20 @@ export function SettingsForm() {
       }
 
       let savedDeviceId = deviceId
+      let savedDevice: Device | null = selectedDevice
 
       if (deviceId) {
         const updatedDevice = await apiPatch<Device, Partial<typeof deviceData>>(
           `/api/settings/${deviceId}`,
           deviceData,
         )
+        savedDevice = updatedDevice
         setDevices((prev) =>
           prev.map((device) => (device.id === updatedDevice.id ? updatedDevice : device)),
         )
       } else {
         const newDevice = await apiPost<Device, typeof deviceData>('/api/settings', deviceData)
+        savedDevice = newDevice
         setDevices((prev) => [newDevice, ...prev])
         setDeviceId(newDevice.id)
         savedDeviceId = newDevice.id
@@ -383,6 +533,55 @@ export function SettingsForm() {
         notificationsEnabled: s.notifications_enabled,
         selectedEvents,
       })
+
+      const shouldSaveBillingPlan = hasBillingPlanInput(s)
+        ? billingPlanSignatureFromSettings(s) !== billingPlanSignature(activeBillingPlan)
+        : activeBillingPlan != null
+
+      if (shouldSaveBillingPlan) {
+        const savedPlan = await apiPut<SaveBillingPlanResponse, {
+          pricingMode: PricingMode
+          effectiveFrom: string
+          fixedRates?: { t1: number | null; t2: number | null; t3: number | null; t4: number | null }
+          dynamic?: { provider: 'ELERING'; zone: 'LT'; spotAdderEurPerKwh: number }
+          monthlyFixedFeeEur: number | null
+        }>(`/api/settings/${savedDeviceId}/billing-plan`, {
+          pricingMode: s.pricing_mode,
+          effectiveFrom: activeBillingPlan ? new Date().toISOString() : new Date().toISOString(),
+          ...(s.pricing_mode === 'FIXED'
+            ? {
+                fixedRates: {
+                  t1: s.rate_t1,
+                  t2: s.rate_t2,
+                  t3: s.rate_t3,
+                  t4: s.rate_t4,
+                },
+              }
+            : {
+                dynamic: {
+                  provider: 'ELERING',
+                  zone: 'LT',
+                  spotAdderEurPerKwh: s.spot_adder_eur_per_kwh ?? 0,
+                },
+              }),
+          monthlyFixedFeeEur: s.monthly_fixed_fee_eur,
+        })
+
+        savedDevice = savedDevice
+          ? { ...savedDevice, billingPlan: savedPlan.activePlan }
+          : savedDevice
+
+        applyBillingPlanToForm(savedPlan.activePlan)
+      }
+
+      if (savedDevice) {
+        setDevices((prev) => {
+          const exists = prev.some((device) => device.id === savedDevice!.id)
+          return exists
+            ? prev.map((device) => (device.id === savedDevice!.id ? savedDevice! : device))
+            : [savedDevice!, ...prev]
+        })
+      }
 
       setMessage({
         type: 'success',
@@ -403,8 +602,142 @@ export function SettingsForm() {
     { value: 'REPORT_GENERATED', label: t('settings.eventReportGenerated') },
   ]
 
+  const pricingModeOptions: { value: PricingMode; label: string }[] = [
+    {
+      value: 'FIXED',
+      label: language === 'lt' ? 'Fiksuotas planas' : 'Fixed plan',
+    },
+    {
+      value: 'DYNAMIC',
+      label: language === 'lt' ? 'Dinaminis planas' : 'Dynamic plan',
+    },
+  ]
+
   return (
     <Stack p="lg" gap="md" style={{ width: '100%', maxWidth: 600 }}>
+      <Card
+        p="md"
+        radius="lg"
+        style={{
+          backgroundColor: '#353535',
+          border: '1px solid #4A4A4A',
+        }}
+      >
+        <Stack gap="sm">
+          <Group justify="space-between" align="flex-start" wrap="wrap">
+            <div>
+              <Text fw={400} mb={4} c="#EBEBEB">
+                {language === 'lt' ? 'Elektros planas' : 'Electricity Plan'}
+              </Text>
+              <Text size="sm" c="#999999">
+                {language === 'lt'
+                  ? 'Naudojame šiuos tarifus sąnaudų įvertinimui ataskaitose.'
+                  : 'These tariffs are used to estimate costs in reports.'}
+              </Text>
+            </div>
+            {activeBillingPlan && (
+              <Badge variant="light" color={s.pricing_mode === 'DYNAMIC' ? 'blue' : 'yellow'}>
+                {language === 'lt'
+                  ? `Aktyvuota nuo ${new Date(activeBillingPlan.effectiveFrom).toLocaleDateString('lt-LT')}`
+                  : `Active since ${new Date(activeBillingPlan.effectiveFrom).toLocaleDateString('en-GB')}`}
+              </Badge>
+            )}
+          </Group>
+
+          <Select
+            label={language === 'lt' ? 'Kainodaros tipas' : 'Pricing mode'}
+            value={s.pricing_mode}
+            onChange={(value) =>
+              setS((prev) => ({
+                ...prev,
+                pricing_mode: (value as PricingMode) ?? 'FIXED',
+              }))
+            }
+            data={pricingModeOptions}
+            styles={inputStyles}
+          />
+
+          {s.pricing_mode === 'FIXED' ? (
+            <>
+              <Text size="sm" c="#999999">
+                {language === 'lt'
+                  ? 'Įveskite tiekėjo taikomus T1-T4 tarifus EUR/kWh. Galite užpildyti tik naudojamus tarifus.'
+                  : 'Enter your supplier T1-T4 energy rates in EUR/kWh. You can fill only the tariffs you actually use.'}
+              </Text>
+
+              <SimpleGrid cols={{ base: 1, sm: 2 }}>
+                <NumberInput
+                  label="T1 (EUR/kWh)"
+                  value={s.rate_t1 ?? undefined}
+                  onChange={(value) => setS((prev) => ({ ...prev, rate_t1: toNullableNumber(value) }))}
+                  decimalScale={4}
+                  min={0}
+                  styles={inputStyles}
+                />
+                <NumberInput
+                  label="T2 (EUR/kWh)"
+                  value={s.rate_t2 ?? undefined}
+                  onChange={(value) => setS((prev) => ({ ...prev, rate_t2: toNullableNumber(value) }))}
+                  decimalScale={4}
+                  min={0}
+                  styles={inputStyles}
+                />
+                <NumberInput
+                  label="T3 (EUR/kWh)"
+                  value={s.rate_t3 ?? undefined}
+                  onChange={(value) => setS((prev) => ({ ...prev, rate_t3: toNullableNumber(value) }))}
+                  decimalScale={4}
+                  min={0}
+                  styles={inputStyles}
+                />
+                <NumberInput
+                  label="T4 (EUR/kWh)"
+                  value={s.rate_t4 ?? undefined}
+                  onChange={(value) => setS((prev) => ({ ...prev, rate_t4: toNullableNumber(value) }))}
+                  decimalScale={4}
+                  min={0}
+                  styles={inputStyles}
+                />
+              </SimpleGrid>
+            </>
+          ) : (
+            <>
+              <Text size="sm" c="#999999">
+                {language === 'lt'
+                  ? 'Dinaminis planas remiasi Elering LT Nord Pool kainomis. Čia galite pridėti tiekėjo antkainį.'
+                  : 'Dynamic pricing uses Elering LT Nord Pool spot prices. Add your supplier markup here.'}
+              </Text>
+
+              <SimpleGrid cols={{ base: 1, sm: 2 }}>
+                <TextInput
+                  label={language === 'lt' ? 'Duomenų šaltinis' : 'Price source'}
+                  value="Elering / LT"
+                  readOnly
+                  styles={inputStyles}
+                />
+                <NumberInput
+                  label={language === 'lt' ? 'Tiekėjo antkainis (EUR/kWh)' : 'Supplier markup (EUR/kWh)'}
+                  value={s.spot_adder_eur_per_kwh ?? undefined}
+                  onChange={(value) => setS((prev) => ({ ...prev, spot_adder_eur_per_kwh: toNullableNumber(value) ?? 0 }))}
+                  decimalScale={4}
+                  min={0}
+                  styles={inputStyles}
+                />
+              </SimpleGrid>
+            </>
+          )}
+
+          <NumberInput
+            label={language === 'lt' ? 'Mėnesinis pastovus mokestis (EUR)' : 'Monthly fixed fee (EUR)'}
+            value={s.monthly_fixed_fee_eur ?? undefined}
+            onChange={(value) => setS((prev) => ({ ...prev, monthly_fixed_fee_eur: toNullableNumber(value) }))}
+            decimalScale={2}
+            min={0}
+            styles={inputStyles}
+          />
+        </Stack>
+      </Card>
+
       <Card
         p="md"
         radius="lg"

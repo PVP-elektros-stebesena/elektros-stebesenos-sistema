@@ -3,6 +3,8 @@ import prisma from '../../lib/prisma.js';
 import { notificationService } from '../../services/notificationService.js';
 import { buildReportInsights } from '../../services/reportInsights.js';
 import { buildPowerQualityAssessment } from '../../services/reportQuality.js';
+import { costCalculatorService } from '../../services/costCalculator.js';
+import type { EstimatedCostResult } from '../../services/costCalculator.js';
 import {
   generateReport,
   resolvePresetPeriodRange,
@@ -11,7 +13,7 @@ import {
   type ReportUse,
 } from '../../services/reportGenerator.js';
 import { parseDateOrDefault } from '../queryParsers.js';
-import { parseCustomRange } from './shared.js';
+import { parseCustomRange, unavailableEstimatedCost } from './shared.js';
 
 export function registerReportGenerateRoute(fastify: FastifyInstance): void {
   fastify.post<{
@@ -109,6 +111,16 @@ export function registerReportGenerateRoute(fastify: FastifyInstance): void {
       },
       report.anomalies,
     );
+    let estimatedCost: EstimatedCostResult;
+    try {
+      estimatedCost = await costCalculatorService.calculateEstimatedCost(deviceId, startsAt, endsAt);
+    } catch (error) {
+      req.log.error(
+        { err: error, deviceId, startsAt: startsAt.toISOString(), endsAt: endsAt.toISOString() },
+        'Failed to calculate estimated report cost',
+      );
+      estimatedCost = unavailableEstimatedCost(startsAt, endsAt, 'Estimated cost calculation failed.');
+    }
 
     return {
       message: `${reportUse} ${periodType} report generated successfully`,
@@ -130,6 +142,7 @@ export function registerReportGenerateRoute(fastify: FastifyInstance): void {
         warningCount: report.warningCount,
         insights,
         powerQuality,
+        estimatedCost,
       },
     };
   });

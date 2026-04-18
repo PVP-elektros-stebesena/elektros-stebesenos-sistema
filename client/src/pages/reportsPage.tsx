@@ -25,6 +25,7 @@ import {
 import { usePolling } from '../hooks/usePolling';
 import { apiFetch, apiPost } from '../services/apiClient';
 import { useI18n, type Language } from '../i18n/i18n';
+import type { EstimatedCost } from '../types/energy';
 
 /* ── API response types ─────────────────────────────────────────── */
 
@@ -48,6 +49,7 @@ interface ReportListItem {
   criticalCount: number;
   warningCount: number;
   createdAt: string;
+  estimatedCost: EstimatedCost;
 }
 
 interface AnomalySummaryRow {
@@ -126,6 +128,7 @@ interface ReportDetail {
   criticalCount: number;
   warningCount: number;
   createdAt: string;
+  estimatedCost: EstimatedCost;
 }
 
 interface DeviceOption {
@@ -336,6 +339,47 @@ function anomalyTypeLabel(type: string, language: Language): string {
 
 function anomalyDomainLabel(metricDomain: 'VOLTAGE' | 'POWER' | undefined): string {
   return metricDomain === 'POWER' ? 'Power' : 'Voltage';
+}
+
+function formatCurrency(value: number, language: Language): string {
+  return new Intl.NumberFormat(localeForLanguage(language), {
+    style: 'currency',
+    currency: 'EUR',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+function estimatedCostStatusLabel(
+  status: EstimatedCost['status'],
+  language: Language,
+): string {
+  if (status === 'complete') {
+    return tr(language, 'Complete estimate', 'Pilnas įvertis');
+  }
+  if (status === 'partial') {
+    return tr(language, 'Partial estimate', 'Dalinis įvertis');
+  }
+  return tr(language, 'Estimate unavailable', 'Įvertis nepasiekiamas');
+}
+
+function estimatedCostStatusColor(status: EstimatedCost['status']): string {
+  if (status === 'complete') return 'green';
+  if (status === 'partial') return 'yellow';
+  return 'gray';
+}
+
+function pricingModeLabel(
+  pricingMode: EstimatedCost['breakdown'][number]['pricingMode'],
+  language: Language,
+): string {
+  if (pricingMode === 'FIXED') {
+    return tr(language, 'Fixed', 'Fiksuotas');
+  }
+  if (pricingMode === 'DYNAMIC') {
+    return tr(language, 'Dynamic', 'Dinaminis');
+  }
+  return tr(language, 'Unconfigured', 'Nesukonfigūruota');
 }
 
 /* ── Print-friendly report view ─────────────────────────────────── */
@@ -968,7 +1012,7 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
                   <Text size="sm" c="dimmed" mt={4}>{insights.narrative}</Text>
                 </div>
 
-                <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }}>
+                <SimpleGrid cols={{ base: 1, sm: 2, lg: 5 }}>
                   <Card p="sm" withBorder>
                     <Text size="xs" c="dimmed">{isSolarReport ? tr(language, 'Total imported', 'Iš viso importuota') : tr(language, 'Total consumed', 'Iš viso suvartota')}</Text>
                     <Text fw={700} fz="xl">{insights.totalEnergyConsumedKwh.toFixed(2)} kWh</Text>
@@ -993,8 +1037,81 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
                         : '—'}
                     </Text>
                   </Card>
+                  <Card p="sm" withBorder>
+                    <Text size="xs" c="dimmed">{tr(language, 'Estimated electricity cost', 'Numatoma elektros kaina')}</Text>
+                    <Text fw={700} fz="xl">{formatCurrency(report.estimatedCost.totalEur, language)}</Text>
+                    <Badge
+                      color={estimatedCostStatusColor(report.estimatedCost.status)}
+                      variant="light"
+                      mt={8}
+                    >
+                      {estimatedCostStatusLabel(report.estimatedCost.status, language)}
+                    </Badge>
+                  </Card>
                 </SimpleGrid>
               </Stack>
+            </Card>
+
+            <Card p="md" radius="md" withBorder>
+              <Group justify="space-between" align="flex-start" wrap="wrap" mb="md">
+                <div>
+                  <Text fw={700}>{tr(language, 'Billing estimate', 'Mokėjimo įvertis')}</Text>
+                  <Text size="sm" c="dimmed" mt={4}>
+                    {tr(language, 'Calculated from billing plans, tariff counters, and stored spot prices.', 'Apskaičiuota pagal mokėjimo planus, tarifų skaitiklius ir išsaugotas biržos kainas.')}
+                  </Text>
+                </div>
+                <Badge color={estimatedCostStatusColor(report.estimatedCost.status)} variant="light">
+                  {estimatedCostStatusLabel(report.estimatedCost.status, language)}
+                </Badge>
+              </Group>
+
+              <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} mb="md">
+                <Card p="sm" withBorder>
+                  <Text size="xs" c="dimmed">{tr(language, 'Estimated total', 'Numatoma suma')}</Text>
+                  <Text fw={700} fz="xl">{formatCurrency(report.estimatedCost.totalEur, language)}</Text>
+                </Card>
+                <Card p="sm" withBorder>
+                  <Text size="xs" c="dimmed">{tr(language, 'Energy charges', 'Energijos mokestis')}</Text>
+                  <Text fw={700} fz="xl">{formatCurrency(report.estimatedCost.energyChargeEur, language)}</Text>
+                </Card>
+                <Card p="sm" withBorder>
+                  <Text size="xs" c="dimmed">{tr(language, 'Fixed fees', 'Pastovūs mokesčiai')}</Text>
+                  <Text fw={700} fz="xl">{formatCurrency(report.estimatedCost.fixedFeesEur, language)}</Text>
+                </Card>
+                <Card p="sm" withBorder>
+                  <Text size="xs" c="dimmed">{tr(language, 'Missing coverage', 'Trūkstama aprėptis')}</Text>
+                  <Text fw={700} fz="xl">{report.estimatedCost.missingCoveragePct.toFixed(1)}%</Text>
+                </Card>
+              </SimpleGrid>
+
+              {report.estimatedCost.breakdown.length > 0 && (
+                <Table.ScrollContainer minWidth={720}>
+                  <Table>
+                    <Table.Thead>
+                      <Table.Tr>
+                        <Table.Th>{tr(language, 'Interval', 'Intervalas')}</Table.Th>
+                        <Table.Th>{tr(language, 'Mode', 'Režimas')}</Table.Th>
+                        <Table.Th>{tr(language, 'Energy charge', 'Energijos kaina')}</Table.Th>
+                        <Table.Th>{tr(language, 'Fixed fees', 'Pastovūs mokesčiai')}</Table.Th>
+                        <Table.Th>{tr(language, 'Total', 'Iš viso')}</Table.Th>
+                      </Table.Tr>
+                    </Table.Thead>
+                    <Table.Tbody>
+                      {report.estimatedCost.breakdown.map((item) => (
+                        <Table.Tr key={`${item.startsAt}-${item.endsAt}-${item.pricingMode}`}>
+                          <Table.Td>{formatDate(item.startsAt, language)} - {formatDate(item.endsAt, language)}</Table.Td>
+                          <Table.Td>
+                            <Badge variant="light">{pricingModeLabel(item.pricingMode, language)}</Badge>
+                          </Table.Td>
+                          <Table.Td>{formatCurrency(item.energyChargeEur, language)}</Table.Td>
+                          <Table.Td>{formatCurrency(item.fixedFeesEur, language)}</Table.Td>
+                          <Table.Td>{formatCurrency(item.totalEur, language)}</Table.Td>
+                        </Table.Tr>
+                      ))}
+                    </Table.Tbody>
+                  </Table>
+                </Table.ScrollContainer>
+              )}
             </Card>
 
             {shouldShowCharts && (
@@ -1689,6 +1806,7 @@ export function ReportsPage() {
                   <Table.Th>{tr(language, 'Period', 'Laikotarpis')}</Table.Th>
                   <Table.Th>{tr(language, 'Date Range', 'Datų intervalas')}</Table.Th>
                   <Table.Th>{tr(language, 'Health', 'Būklė')}</Table.Th>
+                  <Table.Th>{tr(language, 'Estimated cost', 'Numatoma kaina')}</Table.Th>
                   <Table.Th>{tr(language, 'Compliance', 'Atitikimas')}</Table.Th>
                   <Table.Th>{tr(language, 'Anomalies', 'Anomalijos')}</Table.Th>
                   <Table.Th>{tr(language, 'Actions', 'Veiksmai')}</Table.Th>
@@ -1729,6 +1847,18 @@ export function ReportsPage() {
                               P {r.powerHealthScore}
                             </Badge>
                           </Group>
+                        </Stack>
+                      </Table.Td>
+                      <Table.Td>
+                        <Stack gap={4}>
+                          <Text size="sm" fw={600}>{formatCurrency(r.estimatedCost.totalEur, language)}</Text>
+                          <Badge
+                            color={estimatedCostStatusColor(r.estimatedCost.status)}
+                            variant="light"
+                            size="xs"
+                          >
+                            {estimatedCostStatusLabel(r.estimatedCost.status, language)}
+                          </Badge>
                         </Stack>
                       </Table.Td>
                       <Table.Td>

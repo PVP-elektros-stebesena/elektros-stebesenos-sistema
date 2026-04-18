@@ -99,6 +99,47 @@ export type PowerProfilePreset =
   | 'HOUSE_3P_18KW'
   | 'SOLAR_PROSUMER_3P_22KW';
 
+export type PricingMode = 'FIXED' | 'DYNAMIC';
+
+export interface BillingPlan {
+  id?: number;
+  pricingMode: PricingMode;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  fixedRates: {
+    t1: number | null;
+    t2: number | null;
+    t3: number | null;
+    t4: number | null;
+  } | null;
+  dynamic: {
+    provider: 'ELERING';
+    zone: 'LT';
+    spotAdderEurPerKwh: number;
+  } | null;
+  monthlyFixedFeeEur: number | null;
+}
+
+export interface EstimatedCostBreakdownItem {
+  startsAt: string;
+  endsAt: string;
+  pricingMode: PricingMode | 'UNCONFIGURED';
+  energyChargeEur: number;
+  fixedFeesEur: number;
+  totalEur: number;
+  details: Record<string, unknown>;
+}
+
+export interface EstimatedCost {
+  status: 'complete' | 'partial' | 'unavailable';
+  currency: 'EUR';
+  totalEur: number;
+  energyChargeEur: number;
+  fixedFeesEur: number;
+  breakdown: EstimatedCostBreakdownItem[];
+  missingCoveragePct: number;
+}
+
 export interface AppSettings {
   device_ip: string;
   mqtt_broker: string;
@@ -112,6 +153,13 @@ export interface AppSettings {
   notifications_enabled: boolean;
   notification_channel: 'email' | 'sms' | 'push' | 'none'
   notification_target: string
+  pricing_mode: PricingMode;
+  rate_t1: number | null;
+  rate_t2: number | null;
+  rate_t3: number | null;
+  rate_t4: number | null;
+  monthly_fixed_fee_eur: number | null;
+  spot_adder_eur_per_kwh: number | null;
   high_usage_threshold: number;
   retain_days: number;
 }

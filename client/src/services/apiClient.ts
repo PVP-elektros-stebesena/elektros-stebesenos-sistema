@@ -90,6 +90,23 @@ export async function apiPatch<TData, TBody = unknown>(
   return parseJsonResponse<TData>(response, url);
 }
 
+export async function apiPut<TData, TBody = unknown>(
+  endpoint: string,
+  body: TBody,
+): Promise<TData> {
+  const url = buildUrl(endpoint);
+
+  const response = await fetch(url, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+
+  return parseJsonResponse<TData>(response, url);
+}
+
 export async function apiDelete(endpoint: string): Promise<void> {
   const url = endpoint.startsWith('http') ? endpoint : `${BASE_URL}${endpoint}`;
 

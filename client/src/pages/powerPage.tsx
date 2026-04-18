@@ -30,6 +30,7 @@ import {
 import { usePolling } from '../hooks/usePolling';
 import { apiFetch } from '../services/apiClient';
 import { useI18n } from '../i18n/i18n';
+import type { EstimatedCost } from '../types/energy';
 
 interface DeviceOption {
   id: number;
@@ -135,6 +136,7 @@ interface ReportDetail {
     powerAnomalyTypeDistribution: { type: string; count: number }[];
     narrative: string;
   };
+  estimatedCost: EstimatedCost;
 }
 
 interface PowerTrendPoint {
@@ -213,6 +215,27 @@ function BigStat({ value, label }: { value: string; label: string }) {
 
 function formatFixed(value: number | null | undefined, decimals: number): string {
   return value == null ? '—' : value.toFixed(decimals);
+}
+
+function formatCurrency(value: number, language: 'en' | 'lt'): string {
+  return new Intl.NumberFormat(language === 'lt' ? 'lt-LT' : 'en-GB', {
+    style: 'currency',
+    currency: 'EUR',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+function estimatedCostStatusLabel(status: EstimatedCost['status'], language: 'en' | 'lt'): string {
+  if (status === 'complete') return tr(language, 'Complete estimate', 'Pilnas įvertis');
+  if (status === 'partial') return tr(language, 'Partial estimate', 'Dalinis įvertis');
+  return tr(language, 'Estimate unavailable', 'Įvertis nepasiekiamas');
+}
+
+function estimatedCostStatusColor(status: EstimatedCost['status']): string {
+  if (status === 'complete') return 'green';
+  if (status === 'partial') return 'yellow';
+  return 'gray';
 }
 
 function formatPfBand(latest: PowerLatest | undefined): string {
@@ -626,6 +649,20 @@ export function PowerPage() {
                         </Card>
                       </SimpleGrid>
 
+                      <Group justify="space-between" align="flex-start" wrap="wrap">
+                        <div>
+                          <Text size="sm" fw={600}>
+                            {tr(language, 'Estimated electricity cost', 'Numatoma elektros kaina')}: {formatCurrency(reportDetail.estimatedCost.totalEur, language)}
+                          </Text>
+                          <Text size="xs" c="dimmed">
+                            {tr(language, 'Coverage gap', 'Trūkstama aprėptis')}: {reportDetail.estimatedCost.missingCoveragePct.toFixed(1)}%
+                          </Text>
+                        </div>
+                        <Badge color={estimatedCostStatusColor(reportDetail.estimatedCost.status)} variant="light">
+                          {estimatedCostStatusLabel(reportDetail.estimatedCost.status, language)}
+                        </Badge>
+                      </Group>
+
                       <Text size="sm">
                         Latest technical report power score is {reportDetail.powerHealthScore} with{' '}
                         {reportDetail.insights?.totalPowerAnomalies ?? 0} power-related anomalies in the selected report interval.
@@ -712,7 +749,7 @@ export function PowerPage() {
                   <Text fw={700} mb="xs">{t('power.reportEnergySummary')}</Text>
                   <Text size="sm" c="dimmed">{localizedNarrative ?? reportDetail.insights?.narrative ?? '—'}</Text>
 
-                  <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} mt="md">
+                  <SimpleGrid cols={{ base: 1, sm: 2, lg: 5 }} mt="md">
                     <Card p="sm" withBorder>
                       <Text size="xs" c="dimmed">{t('power.totalConsumed')}</Text>
                       <Text fw={700} fz="xl">{formatFixed(reportDetail.insights?.totalEnergyConsumedKwh, 2)} kWh</Text>
@@ -736,6 +773,13 @@ export function PowerPage() {
                           ? `${formatFixed(reportDetail.insights.averageHourlyElectricityKwh, 3)} kWh`
                           : '—'}
                       </Text>
+                    </Card>
+                    <Card p="sm" withBorder>
+                      <Text size="xs" c="dimmed">{tr(language, 'Estimated cost', 'Numatoma kaina')}</Text>
+                      <Text fw={700} fz="xl">{formatCurrency(reportDetail.estimatedCost.totalEur, language)}</Text>
+                      <Badge color={estimatedCostStatusColor(reportDetail.estimatedCost.status)} variant="light" mt={8}>
+                        {estimatedCostStatusLabel(reportDetail.estimatedCost.status, language)}
+                      </Badge>
                     </Card>
                   </SimpleGrid>
                 </Card>

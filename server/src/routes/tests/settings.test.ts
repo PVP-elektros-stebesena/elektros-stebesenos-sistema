@@ -12,6 +12,8 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await prisma.billingPlan.deleteMany();
+  await prisma.spotPrice.deleteMany();
   await prisma.device.deleteMany();
   await prisma.$disconnect();
   await app.close();
@@ -22,6 +24,8 @@ beforeEach(async () => {
   await prisma.aggregatedData.deleteMany();
   await prisma.reading.deleteMany();
   await prisma.powerPolicyOverride.deleteMany();
+  await prisma.billingPlan.deleteMany();
+  await prisma.spotPrice.deleteMany();
   await prisma.device.deleteMany();
 });
 
@@ -295,5 +299,110 @@ describe('DELETE /api/settings/:id', () => {
   it('returns 400 for non-numeric id', async () => {
     const res = await inject('DELETE', '/api/settings/abc');
     expect(res.statusCode).toBe(400);
+  });
+});
+
+describe('billing plan routes', () => {
+  it('saves a fixed billing plan and returns it in settings responses', async () => {
+    const device = await seedDevice({ name: 'Billing device' });
+
+    const saveRes = await app.inject({
+      method: 'PUT',
+      url: `/api/settings/${device.id}/billing-plan`,
+      payload: {
+        pricingMode: 'FIXED',
+        effectiveFrom: '2026-04-01T00:00:00.000Z',
+        fixedRates: {
+          t1: 0.23,
+          t2: 0.11,
+          t3: null,
+          t4: null,
+        },
+        monthlyFixedFeeEur: 12.5,
+      },
+    });
+
+    expect(saveRes.statusCode).toBe(200);
+    expect(saveRes.json().activePlan.pricingMode).toBe('FIXED');
+    expect(saveRes.json().activePlan.fixedRates.t1).toBe(0.23);
+
+    const listRes = await inject('GET', '/api/settings');
+    expect(listRes.statusCode).toBe(200);
+    expect(listRes.json()[0].billingPlan.pricingMode).toBe('FIXED');
+
+    const detailRes = await inject('GET', `/api/settings/${device.id}/billing-plan`);
+    expect(detailRes.statusCode).toBe(200);
+    expect(detailRes.json().activePlan.monthlyFixedFeeEur).toBe(12.5);
+    expect(detailRes.json().history).toHaveLength(1);
+  });
+
+  it('closes the previous billing plan version when a newer plan is saved', async () => {
+    const device = await seedDevice({ name: 'Versioned billing device' });
+
+    await app.inject({
+      method: 'PUT',
+      url: `/api/settings/${device.id}/billing-plan`,
+      payload: {
+        pricingMode: 'FIXED',
+        effectiveFrom: '2026-04-01T00:00:00.000Z',
+        fixedRates: {
+          t1: 0.2,
+          t2: null,
+          t3: null,
+          t4: null,
+        },
+        monthlyFixedFeeEur: null,
+      },
+    });
+
+    const secondSave = await app.inject({
+      method: 'PUT',
+      url: `/api/settings/${device.id}/billing-plan`,
+      payload: {
+        pricingMode: 'DYNAMIC',
+        effectiveFrom: '2026-04-15T00:00:00.000Z',
+        dynamic: {
+          provider: 'ELERING',
+          zone: 'LT',
+          spotAdderEurPerKwh: 0.04,
+        },
+        monthlyFixedFeeEur: 8,
+      },
+    });
+
+    expect(secondSave.statusCode).toBe(200);
+    expect(secondSave.json().billingPlan.pricingMode).toBe('DYNAMIC');
+
+    const historyRes = await inject('GET', `/api/settings/${device.id}/billing-plan`);
+    const historyJson = historyRes.json();
+
+    expect(historyRes.statusCode).toBe(200);
+    expect(historyJson.history).toHaveLength(2);
+    expect(historyJson.history[0].pricingMode).toBe('DYNAMIC');
+    expect(historyJson.history[1].pricingMode).toBe('FIXED');
+    expect(historyJson.history[1].effectiveTo).toBe('2026-04-15T00:00:00.000Z');
+  });
+
+  it('rejects negative billing plan values', async () => {
+    const device = await seedDevice({ name: 'Billing validation device' });
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/api/settings/${device.id}/billing-plan`,
+      payload: {
+        pricingMode: 'FIXED',
+        effectiveFrom: '2026-04-01T00:00:00.000Z',
+        fixedRates: {
+          t1: -0.1,
+          t2: null,
+          t3: null,
+          t4: null,
+        },
+        monthlyFixedFeeEur: -5,
+      },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe('VALIDATION');
   });
 });

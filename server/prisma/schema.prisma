@@ -32,8 +32,49 @@ model Device {
   reports     Report[]
   notificationToggles NotificationEventToggle[]
   powerPolicyOverrides PowerPolicyOverride[]
+  billingPlans BillingPlan[]
 
   @@map("devices")
+}
+
+model SpotPrice {
+  id                Int      @id @default(autoincrement())
+  provider          String
+  zone              String
+  startsAt          DateTime
+  endsAt            DateTime
+  resolutionMinutes Int
+  priceEurPerMwh    Float
+  fetchedAt         DateTime @default(now())
+
+  @@unique([provider, zone, startsAt])
+  @@index([zone, startsAt])
+  @@map("spot_prices")
+}
+
+model BillingPlan {
+  id                  Int      @id @default(autoincrement())
+  deviceId            Int
+  pricingMode         String
+  effectiveFrom       DateTime @default(now())
+  effectiveTo         DateTime?
+  rateT1              Float?
+  rateT2              Float?
+  rateT3              Float?
+  rateT4              Float?
+  monthlyFixedFeeEur  Float?
+  spotProvider        String?
+  spotZone            String?
+  spotAdderEurPerKwh  Float?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId, effectiveFrom])
+  @@index([deviceId, effectiveTo])
+  @@unique([deviceId, effectiveFrom])
+  @@map("billing_plans")
 }
 
 model Reading {
