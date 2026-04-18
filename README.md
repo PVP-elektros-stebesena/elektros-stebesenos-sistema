@@ -67,6 +67,8 @@ SQLite via Prisma. The schema lives in `server/prisma/schema.prisma`, generated 
 ### Models
 
 - **Device** – meter/gateway settings (IP, MQTT config, poll interval)
+- **BillingPlan** – fixed or dynamic electricity pricing configuration over time (effectiveFrom/effectiveTo)
+- **SpotPrice** – stored day-ahead market prices by provider, zone, and interval
 - **Reading** – raw P1 telegram readings (voltage, current, power, energy per phase)
 - **AggregatedData** – 10-min RMS voltage windows with compliance flags
 - **WeeklyReport** – ESO weekly 95% compliance summaries
@@ -133,6 +135,30 @@ CRUD for device/meter configuration. All routes are validated with Fastify JSON 
 PATCH requires at least one field. Unknown fields are rejected.
 
 When a device is created, updated, or deleted the poller automatically re-syncs so changes take effect immediately.
+
+## API – Billing plans and spot pricing
+
+Billing plans are stored per device and versioned by `effectiveFrom` date. Reports use the active plan(s) for each interval when estimating cost.
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/settings/:id/billing-plan` | Returns `activePlan` and plan history for a device |
+| `PUT` | `/api/settings/:id/billing-plan` | Saves a new billing plan version for a device |
+
+Billing plan modes:
+
+- `FIXED` – uses `fixedRates.t1..t4` (EUR/kWh) and optional `monthlyFixedFeeEur`
+- `DYNAMIC` – uses stored spot prices (`ELERING`, zone `LT`) + optional `spotAdderEurPerKwh`
+
+Spot prices are fetched on schedule and stored in `spot_prices`. If price synchronization is incomplete, report estimation can be `partial`.
+
+Estimated cost statuses exposed in report responses:
+
+- `complete` – full coverage with configured pricing
+- `partial` – some time/energy coverage missing
+- `unavailable` – configuration/data/error prevents a reliable estimate
+
+If estimated-cost calculation fails at runtime, report endpoints still return successfully with `estimatedCost.status = unavailable` instead of failing the full response.
 
 ## API – Voltage & Grid Quality
 
