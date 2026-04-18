@@ -74,11 +74,11 @@ const DEFAULT_SELECTED_EVENTS: NotificationEventType[] = [
 ]
 
 const POWER_PROFILE_OPTIONS: { value: PowerProfilePreset; label: string }[] = [
-  { value: 'APARTMENT_1P_5KW', label: '1-Phase Apartment (5 kW / 25 A)' },
-  { value: 'APARTMENT_1P_7KW', label: '1-Phase Apartment Plus (7 kW / 32 A)' },
+  { value: 'APARTMENT_1P_5KW', label: '5 kW 1-Phase Apartment (25 A)' },
+  { value: 'APARTMENT_1P_7KW', label: '7 kW 1-Phase Apartment Plus (32 A)' },
   { value: 'HOUSE_3P_11KW', label: '11 kW 3-Phase House (16 A)' },
   { value: 'HOUSE_3P_18KW', label: '18 kW 3-Phase House (25 A)' },
-  { value: 'SOLAR_PROSUMER_3P_22KW', label: 'Solar Prosumer (22 kW / 32 A)' },
+  { value: 'SOLAR_PROSUMER_3P_22KW', label: '22 kW Solar Prosumer (32 A)' },
 ]
 
 const EMPTY_DEVICE_SETTINGS: AppSettings = {
