@@ -1,4 +1,5 @@
 import { parseOptionalDate, validateAscendingRange } from '../queryParsers.js';
+import type { EstimatedCostResult } from '../../services/costCalculator.js';
 
 export type RawAnomalySummaryRow = {
   id?: number;
@@ -152,6 +153,34 @@ export function downsampleContextPoints(
   if (maxPowerIndex != null) keepIndexes.add(maxPowerIndex);
 
   return [...keepIndexes].sort((a, b) => a - b).map((index) => points[index]);
+}
+
+export function unavailableEstimatedCost(
+  startsAt: Date,
+  endsAt: Date,
+  message = 'Estimated cost is unavailable.',
+): EstimatedCostResult {
+  return {
+    status: 'unavailable',
+    currency: 'EUR',
+    totalEur: 0,
+    energyChargeEur: 0,
+    fixedFeesEur: 0,
+    breakdown: [
+      {
+        startsAt: startsAt.toISOString(),
+        endsAt: endsAt.toISOString(),
+        pricingMode: 'UNCONFIGURED',
+        energyChargeEur: 0,
+        fixedFeesEur: 0,
+        totalEur: 0,
+        details: {
+          message,
+        },
+      },
+    ],
+    missingCoveragePct: 100,
+  };
 }
 
 export function parseCustomRange(startDate?: string, endDate?: string):

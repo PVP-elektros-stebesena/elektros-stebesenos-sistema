@@ -1,7 +1,8 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
 import prisma from '../../lib/prisma.js';
 import { reportRoutes } from '../reports.js';
+import { costCalculatorService } from '../../services/costCalculator.js';
 
 let app: FastifyInstance;
 
@@ -31,6 +32,10 @@ afterAll(async () => {
   await prisma.device.deleteMany();
   await prisma.$disconnect();
   await app.close();
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe('report routes estimatedCost', () => {
@@ -109,5 +114,60 @@ describe('report routes estimatedCost', () => {
     expect(detailRes.statusCode).toBe(200);
     expect(detailRes.json().estimatedCost.totalEur).toBeCloseTo(0.3, 6);
     expect(detailRes.json().estimatedCost.breakdown[0].pricingMode).toBe('FIXED');
+  });
+
+  it('returns unavailable estimatedCost in list and detail when calculation fails', async () => {
+    const device = await prisma.device.create({
+      data: { name: 'Report estimation fallback device', pollInterval: 10, isActive: true },
+    });
+
+    const report = await prisma.report.create({
+      data: {
+        deviceId: device.id,
+        reportUse: 'home',
+        periodType: 'daily',
+        startsAt: new Date('2026-04-01T00:00:00.000Z'),
+        endsAt: new Date('2026-04-02T00:00:00.000Z'),
+        totalWindows: 144,
+        compliantWindowsL1: 144,
+        compliantWindowsL2: 144,
+        compliantWindowsL3: 144,
+        compliancePctL1: 100,
+        compliancePctL2: 100,
+        compliancePctL3: 100,
+        overallCompliant: true,
+        healthScore: 'GREEN',
+        powerHealthScore: 'GREEN',
+        combinedHealthScore: 'GREEN',
+        anomalySummary: '[]',
+        totalAnomalies: 0,
+        criticalCount: 0,
+        warningCount: 0,
+      },
+    });
+
+    vi.spyOn(costCalculatorService, 'calculateEstimatedCost')
+      .mockRejectedValueOnce(new Error('simulated list estimation failure'))
+      .mockRejectedValueOnce(new Error('simulated detail estimation failure'));
+
+    const listRes = await app.inject({
+      method: 'GET',
+      url: `/api/reports?deviceId=${device.id}&limit=5`,
+    });
+
+    expect(listRes.statusCode).toBe(200);
+    expect(listRes.json().data[0].estimatedCost.status).toBe('unavailable');
+    expect(listRes.json().data[0].estimatedCost.totalEur).toBe(0);
+    expect(listRes.json().data[0].estimatedCost.missingCoveragePct).toBe(100);
+
+    const detailRes = await app.inject({
+      method: 'GET',
+      url: `/api/reports/${report.id}`,
+    });
+
+    expect(detailRes.statusCode).toBe(200);
+    expect(detailRes.json().estimatedCost.status).toBe('unavailable');
+    expect(detailRes.json().estimatedCost.totalEur).toBe(0);
+    expect(detailRes.json().estimatedCost.missingCoveragePct).toBe(100);
   });
 });

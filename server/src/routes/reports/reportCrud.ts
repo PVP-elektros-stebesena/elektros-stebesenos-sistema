@@ -7,9 +7,14 @@ import {
   computePowerHealthScore,
 } from '../../services/reportGenerator.js';
 import { costCalculatorService } from '../../services/costCalculator.js';
+import type { EstimatedCostResult } from '../../services/costCalculator.js';
 import type { HealthScore, PeriodType, ReportUse } from '../../services/reportGenerator.js';
 import { parseOptionalDeviceId } from '../queryParsers.js';
-import { toSeverityLabel, type RawAnomalySummaryRow } from './shared.js';
+import {
+  toSeverityLabel,
+  unavailableEstimatedCost,
+  type RawAnomalySummaryRow,
+} from './shared.js';
 
 export function registerReportCrudRoutes(fastify: FastifyInstance): void {
   fastify.get<{
@@ -37,9 +42,32 @@ export function registerReportCrudRoutes(fastify: FastifyInstance): void {
     });
 
     const estimatedCosts = await Promise.all(
-      reports.map((report) => (
-        costCalculatorService.calculateEstimatedCost(report.deviceId, report.startsAt, report.endsAt)
-      )),
+      reports.map(async (report) => {
+        try {
+          return await costCalculatorService.calculateEstimatedCost(
+            report.deviceId,
+            report.startsAt,
+            report.endsAt,
+          );
+        } catch (error) {
+          req.log.error(
+            {
+              err: error,
+              reportId: report.id,
+              deviceId: report.deviceId,
+              startsAt: report.startsAt.toISOString(),
+              endsAt: report.endsAt.toISOString(),
+            },
+            'Failed to calculate estimated report cost for list item',
+          );
+
+          return unavailableEstimatedCost(
+            report.startsAt,
+            report.endsAt,
+            'Estimated cost calculation failed.',
+          );
+        }
+      }),
     );
 
     return {
@@ -172,11 +200,30 @@ export function registerReportCrudRoutes(fastify: FastifyInstance): void {
 
     const powerHealthScore = computePowerHealthScore(enrichedAnomalySummary);
     const combinedHealthScore = computeCombinedHealthScore(report.healthScore as HealthScore, powerHealthScore);
-    const estimatedCost = await costCalculatorService.calculateEstimatedCost(
-      report.deviceId,
-      report.startsAt,
-      report.endsAt,
-    );
+    let estimatedCost: EstimatedCostResult;
+    try {
+      estimatedCost = await costCalculatorService.calculateEstimatedCost(
+        report.deviceId,
+        report.startsAt,
+        report.endsAt,
+      );
+    } catch (error) {
+      req.log.error(
+        {
+          err: error,
+          reportId: report.id,
+          deviceId: report.deviceId,
+          startsAt: report.startsAt.toISOString(),
+          endsAt: report.endsAt.toISOString(),
+        },
+        'Failed to calculate estimated report cost for detail view',
+      );
+      estimatedCost = unavailableEstimatedCost(
+        report.startsAt,
+        report.endsAt,
+        'Estimated cost calculation failed.',
+      );
+    }
 
     return {
       id: report.id,
