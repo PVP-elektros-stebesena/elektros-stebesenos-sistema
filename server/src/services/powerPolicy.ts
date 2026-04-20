@@ -23,6 +23,10 @@ function buildProfileSyncPolicyVersion(profile: PowerProfilePreset): string {
   return `${PROFILE_SYNC_POLICY_VERSION_PREFIX}${profile.toLowerCase()}-v1`;
 }
 
+function roundToSingleDecimal(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
 export async function syncPowerProfileOverride(
   deviceId: number,
   profile: PowerProfilePreset,
@@ -62,7 +66,7 @@ export async function syncPowerProfileOverride(
       await tx.powerPolicyOverride.update({
         where: { id: existing.id },
         data: {
-          maxActivePowerKw: preset.maxActivePowerKw,
+          maxActivePowerKw: preset.criticalThreshold,
           maxReactivePowerKvar: preset.maxReactivePowerKvar,
           minPowerFactor: preset.minPowerFactor,
           maxPhaseImbalancePct: preset.maxPhaseImbalancePct,
@@ -77,7 +81,7 @@ export async function syncPowerProfileOverride(
     await tx.powerPolicyOverride.create({
       data: {
         deviceId,
-        maxActivePowerKw: preset.maxActivePowerKw,
+        maxActivePowerKw: preset.criticalThreshold,
         maxReactivePowerKvar: preset.maxReactivePowerKvar,
         minPowerFactor: preset.minPowerFactor,
         maxPhaseImbalancePct: preset.maxPhaseImbalancePct,
@@ -125,11 +129,18 @@ export async function resolveEffectivePowerPolicy(
   ]);
 
   const presetPolicy = buildPresetPowerPolicy(device?.powerProfile);
+  const overrideCriticalThreshold = override?.maxActivePowerKw;
+  const resolvedCriticalThreshold =
+    overrideCriticalThreshold ?? presetPolicy.criticalThreshold;
+  const resolvedWarningThreshold = overrideCriticalThreshold != null
+    ? roundToSingleDecimal(resolvedCriticalThreshold * 0.9)
+    : presetPolicy.warningThreshold;
 
   const policy: EffectivePowerPolicy = override
     ? {
         ...presetPolicy,
-        maxActivePowerKw: override.maxActivePowerKw ?? presetPolicy.maxActivePowerKw,
+        warningThreshold: resolvedWarningThreshold,
+        criticalThreshold: resolvedCriticalThreshold,
         maxReactivePowerKvar:
           override.maxReactivePowerKvar ?? presetPolicy.maxReactivePowerKvar,
         minPowerFactor: override.minPowerFactor ?? presetPolicy.minPowerFactor,

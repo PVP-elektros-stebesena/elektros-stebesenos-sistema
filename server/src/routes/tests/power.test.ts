@@ -289,7 +289,8 @@ describe('GET /api/power/policy', () => {
     expect(res.statusCode).toBe(200);
     expect(body.policy.source).toBe('profile_preset');
     expect(body.policy.profile).toBe('SOLAR_PROSUMER_3P_22KW');
-    expect(body.policy.maxActivePowerKw).toBe(22);
+    expect(body.policy.warningThreshold).toBe(19.8);
+    expect(body.policy.criticalThreshold).toBe(22);
     expect(body.policy.perPhaseCurrentLimitAmps).toBe(32);
     expect(body.policy.targetPowerFactor).toBe(0.9);
   });
@@ -312,7 +313,8 @@ describe('GET /api/power/policy', () => {
     expect(res.statusCode).toBe(200);
     expect(body.policy.source).toBe('device_override');
     expect(body.policy.profile).toBe('HOUSE_3P_11KW');
-    expect(body.policy.maxActivePowerKw).toBe(9);
+    expect(body.policy.warningThreshold).toBe(8.1);
+    expect(body.policy.criticalThreshold).toBe(9);
     expect(body.policy.minPowerFactor).toBe(0.92);
   });
 });
