@@ -12,6 +12,7 @@ datasource db {
 
 model Device {
   id          Int      @id @default(autoincrement())
+  userId      Int?
   name        String
   deviceIp    String?
   mqttBroker  String?
@@ -25,6 +26,7 @@ model Device {
   notificationChannel String?  @default("email")
   notificationTarget  String?
 
+  user        User? @relation(fields: [userId], references: [id], onDelete: SetNull)
   readings    Reading[]
   aggregated  AggregatedData[]
   weeklyReports WeeklyReport[]
@@ -34,7 +36,39 @@ model Device {
   powerPolicyOverrides PowerPolicyOverride[]
   billingPlans BillingPlan[]
 
+  @@index([userId])
   @@map("devices")
+}
+
+model User {
+  id           Int       @id @default(autoincrement())
+  email        String    @unique
+  username     String?   @unique
+  displayName  String?
+  passwordHash String
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  lastLoginAt  DateTime?
+
+  sessions AuthSession[]
+  devices  Device[]
+
+  @@map("users")
+}
+
+model AuthSession {
+  id        Int       @id @default(autoincrement())
+  userId    Int
+  tokenHash String    @unique
+  userAgent String?
+  createdAt DateTime  @default(now())
+  expiresAt DateTime
+  revokedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@map("auth_sessions")
 }
 
 model SpotPrice {

@@ -10,6 +10,7 @@ import { SettingsPage } from '../pages/settingsPage';
 import { ReportsPage } from '../pages/reportsPage';
 import type { Page } from '../types/energy';
 import { I18nProvider } from '../i18n/i18n';
+import { AuthGate } from '../pages/AuthGate';
 
 export default function App() {
   const [page, setPage] = useState<Page>('voltage');
@@ -17,17 +18,27 @@ export default function App() {
   return (
     <I18nProvider>
       <MantineProvider theme={theme} defaultColorScheme="dark">
-        <Box mih="100vh">
-          <Navbar page={page} onNavigate={setPage} connected />
+        <AuthGate>
+          {({ user, onLogout }) => (
+            <Box mih="100vh">
+              <Navbar
+                page={page}
+                onNavigate={setPage}
+                connected
+                userEmail={user.email}
+                onLogout={onLogout}
+              />
 
-          <Box component="main" p="md">
-            <Box display={page === 'currentData' ? undefined : 'none'}><CurrentDataPage /></Box>
-            <Box display={page === 'voltage' ? undefined : 'none'}><VoltagePage /></Box>
-            <Box display={page === 'power' ? undefined : 'none'}><PowerPage /></Box>
-            <Box display={page === 'reports' ? undefined : 'none'}><ReportsPage /></Box>
-            <Box display={page === 'settings' ? undefined : 'none'}><SettingsPage /></Box>
-          </Box>
-        </Box>
+              <Box component="main" p="md">
+                <Box display={page === 'currentData' ? undefined : 'none'}><CurrentDataPage /></Box>
+                <Box display={page === 'voltage' ? undefined : 'none'}><VoltagePage /></Box>
+                <Box display={page === 'power' ? undefined : 'none'}><PowerPage /></Box>
+                <Box display={page === 'reports' ? undefined : 'none'}><ReportsPage /></Box>
+                <Box display={page === 'settings' ? undefined : 'none'}><SettingsPage /></Box>
+              </Box>
+            </Box>
+          )}
+        </AuthGate>
       </MantineProvider>
     </I18nProvider>
   );
