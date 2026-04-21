@@ -165,6 +165,19 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
     clearPowerPolicyCache(deviceId);
   }
 
+  function deviceOwnerFilter(req: { authUser?: { id: number } }): { userId?: number } {
+    return req.authUser ? { userId: req.authUser.id } : {};
+  }
+
+  async function findAccessibleDevice(id: number, req: { authUser?: { id: number } }) {
+    return prisma.device.findFirst({
+      where: {
+        id,
+        ...deviceOwnerFilter(req),
+      },
+    });
+  }
+
   // Custom error format so validation errors use our { error, message } shape
   fastify.setErrorHandler((error: FastifyError, _req, reply) => {
     if (error.validation) {
@@ -179,8 +192,9 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
     });
   });
 
-  fastify.get('/api/settings', async (_req, reply) => {
+  fastify.get('/api/settings', async (req, reply) => {
     const devices = await prisma.device.findMany({
+      where: deviceOwnerFilter(req),
       orderBy: { createdAt: 'desc' },
     });
     const billingPlans = await getActiveBillingPlansByDeviceIds(devices.map((device) => device.id));
@@ -193,7 +207,7 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get<{ Params: IdParam }>('/api/settings/:id', {
     schema: { params: idParamSchema },
   }, async (req, reply) => {
-    const device = await prisma.device.findUnique({ where: { id: req.params.id } });
+    const device = await findAccessibleDevice(req.params.id, req);
 
     if (!device) {
       return reply.code(404).send({ error: 'NOT_FOUND', message: `Device ${req.params.id} not found` });
@@ -224,6 +238,7 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
 
     const device = await prisma.device.create({
       data: {
+        userId: req.authUser?.id ?? null,
         name: name.trim(),
         deviceIp: deviceIp ?? null,
         mqttBroker: mqttBroker ?? null,
@@ -234,7 +249,7 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
         isActive: isActive ?? true,
         notificationChannel: notificationChannel ?? 'email',
         notificationTarget: notificationTarget ?? null,
-},
+      },
     });
 
     await syncSelectedPowerProfile(device.id, powerProfile ?? DEFAULT_POWER_PROFILE);
@@ -252,7 +267,7 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
   }, async (req, reply) => {
     const { id } = req.params;
 
-    const existing = await prisma.device.findUnique({ where: { id } });
+    const existing = await findAccessibleDevice(id, req);
     if (!existing) {
       return reply.code(404).send({ error: 'NOT_FOUND', message: `Device ${id} not found` });
     }
@@ -301,7 +316,7 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
   }, async (req, reply) => {
     const { id } = req.params;
 
-    const existing = await prisma.device.findUnique({ where: { id } });
+    const existing = await findAccessibleDevice(id, req);
     if (!existing) {
       return reply.code(404).send({ error: 'NOT_FOUND', message: `Device ${id} not found` });
     }
@@ -321,7 +336,7 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
 }, async (req, reply) => {
   const { id } = req.params;
 
-  const existing = await prisma.device.findUnique({ where: { id } });
+  const existing = await findAccessibleDevice(id, req);
   if (!existing) {
     return reply.code(404).send({
       error: 'NOT_FOUND',
@@ -370,7 +385,7 @@ fastify.patch<{ Params: IdParam; Body: NotificationPatchBody }>(
     const { id } = req.params;
     const { notificationsEnabled, selectedEvents } = req.body;
 
-    const existing = await prisma.device.findUnique({ where: { id } });
+    const existing = await findAccessibleDevice(id, req);
     if (!existing) {
       return reply.code(404).send({
         error: 'NOT_FOUND',
@@ -404,7 +419,7 @@ fastify.patch<{ Params: IdParam; Body: NotificationPatchBody }>(
     schema: { params: idParamSchema },
   }, async (req, reply) => {
     const { id } = req.params;
-    const existing = await prisma.device.findUnique({ where: { id } });
+    const existing = await findAccessibleDevice(id, req);
     if (!existing) {
       return reply.code(404).send({
         error: 'NOT_FOUND',
@@ -430,7 +445,7 @@ fastify.patch<{ Params: IdParam; Body: NotificationPatchBody }>(
     },
   }, async (req, reply) => {
     const { id } = req.params;
-    const existing = await prisma.device.findUnique({ where: { id } });
+    const existing = await findAccessibleDevice(id, req);
     if (!existing) {
       return reply.code(404).send({
         error: 'NOT_FOUND',

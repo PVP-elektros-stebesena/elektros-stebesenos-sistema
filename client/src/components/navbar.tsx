@@ -1,4 +1,4 @@
-import { Group, UnstyledButton, Text, Flex, Box } from "@mantine/core"
+import { ActionIcon, Group, Tooltip, UnstyledButton, Text, Flex, Box } from "@mantine/core"
 import type { Page } from '../types/energy';
 import { useI18n } from '../i18n/i18n';
 import { WeatherTemperature } from './weather-temperature';
@@ -12,15 +12,27 @@ function IconBolt({ size = 20, color = "currentColor" }: { size?: number; color?
   );
 }
 
+function IconLogout({ size = 20, color = "currentColor" }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M10 5H6.5A1.5 1.5 0 0 0 5 6.5v11A1.5 1.5 0 0 0 6.5 19H10" stroke={color} strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M14 8l4 4-4 4" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M18 12H9" stroke={color} strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 
 
 interface NavbarProps {
   page: Page;
   onNavigate: (page: Page) => void;
   connected?: boolean;
+  userEmail?: string;
+  onLogout?: () => void | Promise<void>;
 }
 
-export function Navbar({ page, onNavigate }: NavbarProps) {
+export function Navbar({ page, onNavigate, userEmail, onLogout }: NavbarProps) {
   const { t } = useI18n()
 
   const navItems: { label: string; page: Page }[] = [
@@ -69,7 +81,21 @@ export function Navbar({ page, onNavigate }: NavbarProps) {
         mb="md"
       >
         {logo}
-        <WeatherTemperature />
+        <Group gap="xs">
+          <WeatherTemperature />
+          {onLogout && (
+            <Tooltip label={`Log out${userEmail ? ` ${userEmail}` : ''}`}>
+              <ActionIcon
+                aria-label="Log out"
+                variant="subtle"
+                color="gray"
+                onClick={onLogout}
+              >
+                <IconLogout size={19} />
+              </ActionIcon>
+            </Tooltip>
+          )}
+        </Group>
       </Flex>
 
       <Flex
@@ -116,7 +142,26 @@ export function Navbar({ page, onNavigate }: NavbarProps) {
         </Group>
 
         <Box display={{ base: 'none', md: 'block' }}>
-          <WeatherTemperature />
+          <Group gap="xs" justify="flex-end">
+            <WeatherTemperature />
+            {userEmail && (
+              <Text c="dimmed" size="sm" maw={180} truncate>
+                {userEmail}
+              </Text>
+            )}
+            {onLogout && (
+              <Tooltip label="Log out">
+                <ActionIcon
+                  aria-label="Log out"
+                  variant="subtle"
+                  color="gray"
+                  onClick={onLogout}
+                >
+                  <IconLogout size={19} />
+                </ActionIcon>
+              </Tooltip>
+            )}
+          </Group>
         </Box>
       </Flex>
     </Box>

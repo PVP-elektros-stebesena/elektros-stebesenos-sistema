@@ -7,6 +7,7 @@ import { settingsRoutes } from './routes/settings.js';
 import { reportRoutes } from './routes/reports.js';
 import { notificationRoutes } from './routes/notifications.js';
 import { exportRoutes } from './routes/exports.js';
+import { authRoutes, requireAuthentication } from './routes/auth.js';
 import { devicePoller } from './services/devicePoller.js';
 import { startReportScheduler, stopReportScheduler } from './services/reportScheduler.js';
 import { ConsoleNotificationSender, notificationService } from './services/notificationService.js';
@@ -18,6 +19,7 @@ const fastify = Fastify({ logger: true });
 fastify.register(cors, {
     origin: "http://localhost:5173",
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
 });
 
 fastify.get('/hello', async() => {
@@ -25,6 +27,8 @@ fastify.get('/hello', async() => {
 });
 
 // Voltage analysis & grid quality endpoints
+fastify.register(authRoutes);
+fastify.addHook('onRequest', requireAuthentication);
 fastify.register(voltageRoutes);
 fastify.register(powerRoutes);
 

@@ -5,6 +5,7 @@ const BASE_URL =
     : import.meta.env.DEV
       ? 'http://localhost:3000'
       : '';
+const AUTH_TOKEN_KEY = 'auth-token';
 
 function buildUrl(endpoint: string): string {
   return endpoint.startsWith('http') ? endpoint : `${BASE_URL}${endpoint}`;
@@ -36,6 +37,23 @@ async function parseJsonResponse<TData>(response: Response, url: string): Promis
   }
 }
 
+export function getAuthToken(): string | null {
+  return localStorage.getItem(AUTH_TOKEN_KEY);
+}
+
+export function setAuthToken(token: string): void {
+  localStorage.setItem(AUTH_TOKEN_KEY, token);
+}
+
+export function clearAuthToken(): void {
+  localStorage.removeItem(AUTH_TOKEN_KEY);
+}
+
+function authHeaders(): HeadersInit {
+  const token = getAuthToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 export class ApiError extends Error {
   readonly status: number;
   readonly statusText: string;
@@ -51,7 +69,9 @@ export class ApiError extends Error {
 export async function apiFetch<TData>(endpoint: string): Promise<TData> {
   const url = buildUrl(endpoint);
 
-  const response = await fetch(url);
+  const response = await fetch(url, {
+    headers: authHeaders(),
+  });
 
   return parseJsonResponse<TData>(response, url);
 }
@@ -65,6 +85,7 @@ export async function apiPost<TData, TBody = unknown>(
   const response = await fetch(url, {
     method: 'POST',
     headers: {
+      ...authHeaders(),
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(body),
@@ -82,6 +103,7 @@ export async function apiPatch<TData, TBody = unknown>(
   const response = await fetch(url, {
     method: 'PATCH',
     headers: {
+      ...authHeaders(),
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(body),
@@ -99,6 +121,7 @@ export async function apiPut<TData, TBody = unknown>(
   const response = await fetch(url, {
     method: 'PUT',
     headers: {
+      ...authHeaders(),
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(body),
@@ -112,6 +135,7 @@ export async function apiDelete(endpoint: string): Promise<void> {
 
   const response = await fetch(url, {
     method: 'DELETE',
+    headers: authHeaders(),
   });
 
   if (!response.ok) {
@@ -126,7 +150,9 @@ export async function apiDelete(endpoint: string): Promise<void> {
 export async function apiDownload(endpoint: string, filename?: string): Promise<void> {
   const url = buildUrl(endpoint);
 
-  const response = await fetch(url);
+  const response = await fetch(url, {
+    headers: authHeaders(),
+  });
 
   if (!response.ok) {
     throw new ApiError(
