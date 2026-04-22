@@ -42,6 +42,7 @@ type AuthMode = 'loading' | 'setup' | 'login' | 'authenticated';
 
 export function AuthGate({ children }: AuthGateProps) {
   const [mode, setMode] = useState<AuthMode>('loading');
+  const [setupRequired, setSetupRequired] = useState(false);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [identifier, setIdentifier] = useState('');
   const [email, setEmail] = useState('');
@@ -57,12 +58,7 @@ export function AuthGate({ children }: AuthGateProps) {
       try {
         const status = await apiFetch<StatusResponse>('/api/auth/status');
         if (cancelled) return;
-
-        if (status.setupRequired) {
-          clearAuthToken();
-          setMode('setup');
-          return;
-        }
+        setSetupRequired(status.setupRequired);
 
         if (!getAuthToken()) {
           setMode('login');
@@ -107,6 +103,7 @@ export function AuthGate({ children }: AuthGateProps) {
           displayName: displayName.trim() || null,
           password,
         });
+        setSetupRequired(false);
         completeAuthentication(response);
       } else {
         const response = await apiPost<AuthResponse>('/api/auth/login', {
@@ -147,6 +144,16 @@ export function AuthGate({ children }: AuthGateProps) {
 
   const isSetup = mode === 'setup';
 
+  const switchToLogin = () => {
+    setMode('login');
+    setError(null);
+  };
+
+  const switchToSetup = () => {
+    setMode('setup');
+    setError(null);
+  };
+
   return (
     <Center mih="100vh" px="md">
       <Container size={420} w="100%">
@@ -159,7 +166,7 @@ export function AuthGate({ children }: AuthGateProps) {
                 </Title>
                 <Text c="dimmed" size="sm">
                   {isSetup
-                    ? 'Set up the first user before opening P1 Monitor.'
+                    ? 'Create the first account to access P1 Monitor.'
                     : 'Use your email or username to access P1 Monitor.'}
                 </Text>
               </Stack>
@@ -205,6 +212,24 @@ export function AuthGate({ children }: AuthGateProps) {
               <Button type="submit" loading={submitting} color="yellow">
                 {isSetup ? 'Create account' : 'Log in'}
               </Button>
+
+              {isSetup ? (
+                <Button type="button" variant="subtle" color="gray" onClick={switchToLogin}>
+                  Already have an account? Log in
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  variant="subtle"
+                  color="gray"
+                  onClick={switchToSetup}
+                  disabled={!setupRequired}
+                >
+                  {setupRequired
+                    ? "Don't have an account? Register"
+                    : 'Registration is closed'}
+                </Button>
+              )}
             </Stack>
           </form>
         </Paper>

@@ -104,7 +104,10 @@ export function Navbar({ page, onNavigate, userEmail, onLogout }: NavbarProps) {
         justify={{ base: 'center', md: 'space-between' }}
         gap="md"
       >
-        <Box display={{ base: 'none', md: 'block' }}>
+        <Box
+          display={{ base: 'none', md: 'flex' }}
+          style={{ flex: 1, justifyContent: 'flex-start' }}
+        >
           {logo}
         </Box>
 
@@ -141,7 +144,10 @@ export function Navbar({ page, onNavigate, userEmail, onLogout }: NavbarProps) {
           ))}
         </Group>
 
-        <Box display={{ base: 'none', md: 'block' }}>
+        <Box
+          display={{ base: 'none', md: 'flex' }}
+          style={{ flex: 1, justifyContent: 'flex-end' }}
+        >
           <Group gap="xs" justify="flex-end">
             <WeatherTemperature />
             {userEmail && (
