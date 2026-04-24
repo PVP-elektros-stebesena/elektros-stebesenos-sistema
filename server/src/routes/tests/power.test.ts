@@ -5,9 +5,31 @@ import { powerRoutes } from '../power.js';
 
 let app: FastifyInstance;
 let testDeviceId: number;
+let ownerUserId: number;
+let otherUserId: number;
 
 beforeAll(async () => {
   app = Fastify();
+  app.addHook('onRequest', async (req) => {
+    const rawUserId = req.headers['x-test-user-id'];
+    if (typeof rawUserId !== 'string') {
+      return;
+    }
+
+    const userId = Number(rawUserId);
+    if (!Number.isSafeInteger(userId) || userId <= 0) {
+      return;
+    }
+
+    req.authUser = {
+      id: userId,
+      email: `user${userId}@example.com`,
+      username: `user${userId}`,
+      displayName: `User ${userId}`,
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      lastLoginAt: null,
+    };
+  });
   app.register(powerRoutes);
   await app.ready();
 });
@@ -17,6 +39,25 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
+  const [owner, other] = await Promise.all([
+    prisma.user.create({
+      data: {
+        email: `power-owner-${Date.now()}-${Math.random()}@example.com`,
+        username: `power_owner_${Date.now()}_${Math.floor(Math.random() * 100000)}`,
+        passwordHash: 'test-hash',
+      },
+    }),
+    prisma.user.create({
+      data: {
+        email: `power-other-${Date.now()}-${Math.random()}@example.com`,
+        username: `power_other_${Date.now()}_${Math.floor(Math.random() * 100000)}`,
+        passwordHash: 'test-hash',
+      },
+    }),
+  ]);
+  ownerUserId = owner.id;
+  otherUserId = other.id;
+
   const device = await prisma.device.create({
     data: { name: 'PowerTestDevice', pollInterval: 10, isActive: true },
   });
@@ -24,15 +65,17 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  await prisma.standbyBaseline.deleteMany({ where: { deviceId: testDeviceId } });
   await prisma.powerPolicyOverride.deleteMany({ where: { deviceId: testDeviceId } });
   await prisma.anomaly.deleteMany({ where: { deviceId: testDeviceId } });
   await prisma.aggregatedData.deleteMany({ where: { deviceId: testDeviceId } });
   await prisma.reading.deleteMany({ where: { deviceId: testDeviceId } });
   await prisma.device.deleteMany({ where: { id: testDeviceId } });
+  await prisma.user.deleteMany({ where: { id: { in: [ownerUserId, otherUserId] } } });
 });
 
-function injectGet(url: string) {
-  return app.inject({ method: 'GET', url });
+function injectGet(url: string, headers?: Record<string, string>) {
+  return app.inject({ method: 'GET', url, headers });
 }
 
 describe('GET /api/power/latest', () => {
@@ -316,5 +359,114 @@ describe('GET /api/power/policy', () => {
     expect(body.policy.warningThreshold).toBe(8.1);
     expect(body.policy.criticalThreshold).toBe(9);
     expect(body.policy.minPowerFactor).toBe(0.92);
+  });
+});
+
+describe('GET /api/power/standby', () => {
+  it('returns 400 when deviceId is missing', async () => {
+    const res = await injectGet('/api/power/standby');
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({
+      error: 'MISSING_DEVICE_ID',
+      message: 'deviceId query parameter is required',
+    });
+  });
+
+  it('returns a complete ghost-load overview when a standby baseline and fixed tariff are available', async () => {
+    await prisma.standbyBaseline.create({
+      data: {
+        deviceId: testDeviceId,
+        baselineDate: '2026-04-06',
+        baselinePowerKw: 0.25,
+        windowStartsAt: new Date('2026-04-06T23:00:00.000Z'),
+        windowEndsAt: new Date('2026-04-06T23:10:00.000Z'),
+        sampleCount: 60,
+      },
+    });
+
+    await prisma.billingPlan.create({
+      data: {
+        deviceId: testDeviceId,
+        pricingMode: 'FIXED',
+        effectiveFrom: new Date('2026-04-01T00:00:00.000Z'),
+        rateT1: 0.12,
+        rateT2: 0.21,
+        monthlyFixedFeeEur: null,
+      },
+    });
+
+    await prisma.reading.create({
+      data: {
+        deviceId: testDeviceId,
+        timestamp: new Date('2026-04-07T06:00:00.000Z'),
+        electricityTariff: 1,
+      },
+    });
+
+    const res = await injectGet(`/api/power/standby?deviceId=${testDeviceId}`);
+    const body = res.json();
+
+    expect(res.statusCode).toBe(200);
+    expect(body.status).toBe('complete');
+    expect(body.baselineDate).toBe('2026-04-06');
+    expect(body.baselinePowerWatts).toBe(250);
+    expect(body.projectedDailyKwh).toBeCloseTo(6, 6);
+    expect(body.currentRateEurPerKwh).toBeCloseTo(0.12, 6);
+    expect(body.projectedMonthlyCostEur).toBeGreaterThan(0);
+  });
+
+  it('returns unavailable when no standby baseline exists for the device', async () => {
+    const res = await injectGet(`/api/power/standby?deviceId=${testDeviceId}`);
+    const body = res.json();
+
+    expect(res.statusCode).toBe(200);
+    expect(body.status).toBe('unavailable');
+    expect(body.baselineDate).toBeNull();
+    expect(body.baselinePowerKw).toBeNull();
+    expect(body.projectedMonthlyCostEur).toBeNull();
+    expect(body.messageCode).toBe('NO_BASELINE');
+    expect(body.message).toBe('No standby baseline is available yet.');
+  });
+
+  it('returns 404 when the requested device belongs to a different authenticated user', async () => {
+    await prisma.device.update({
+      where: { id: testDeviceId },
+      data: { userId: ownerUserId },
+    });
+
+    const res = await injectGet(
+      `/api/power/standby?deviceId=${testDeviceId}`,
+      { 'x-test-user-id': String(otherUserId) },
+    );
+
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error).toBe('NOT_FOUND');
+  });
+
+  it('returns the standby overview when the authenticated user owns the device', async () => {
+    await prisma.device.update({
+      where: { id: testDeviceId },
+      data: { userId: ownerUserId },
+    });
+
+    await prisma.standbyBaseline.create({
+      data: {
+        deviceId: testDeviceId,
+        baselineDate: '2026-04-06',
+        baselinePowerKw: 0.19,
+        windowStartsAt: new Date('2026-04-06T23:10:00.000Z'),
+        windowEndsAt: new Date('2026-04-06T23:20:00.000Z'),
+        sampleCount: 60,
+      },
+    });
+
+    const res = await injectGet(
+      `/api/power/standby?deviceId=${testDeviceId}`,
+      { 'x-test-user-id': String(ownerUserId) },
+    );
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().baselinePowerWatts).toBe(190);
   });
 });
