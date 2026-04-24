@@ -35,6 +35,7 @@ model Device {
   notificationToggles NotificationEventToggle[]
   powerPolicyOverrides PowerPolicyOverride[]
   billingPlans BillingPlan[]
+  standbyBaselines StandbyBaseline[]
 
   @@index([userId])
   @@map("devices")
@@ -375,4 +376,21 @@ model NotificationEventToggle {
   @@unique([eventType, deviceId])
   @@index([deviceId])
   @@map("notification_event_toggles")
+}
+
+model StandbyBaseline {
+  id             Int      @id @default(autoincrement())
+  deviceId       Int
+  baselineDate   String
+  baselinePowerKw Float
+  windowStartsAt DateTime
+  windowEndsAt   DateTime
+  sampleCount    Int
+  computedAt     DateTime @default(now())
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceId, baselineDate])
+  @@index([deviceId, computedAt])
+  @@map("standby_baselines")
 }
