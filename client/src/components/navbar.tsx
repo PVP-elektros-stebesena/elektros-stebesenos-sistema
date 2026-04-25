@@ -1,4 +1,4 @@
-import { ActionIcon, Group, Tooltip, UnstyledButton, Text, Flex, Box } from "@mantine/core"
+import { ActionIcon, Group, Tooltip, UnstyledButton, Text, Flex, Box, Divider, Stack } from "@mantine/core"
 import type { Page } from '../types/energy';
 import { useI18n } from '../i18n/i18n';
 import { WeatherTemperature } from './weather-temperature';
@@ -22,6 +22,16 @@ function IconLogout({ size = 20, color = "currentColor" }: { size?: number; colo
   );
 }
 
+function IconMenu({ size = 20, color = "currentColor" }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M4 7h16" stroke={color} strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M4 12h16" stroke={color} strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M4 17h16" stroke={color} strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 
 
 interface NavbarProps {
@@ -30,9 +40,10 @@ interface NavbarProps {
   connected?: boolean;
   userEmail?: string;
   onLogout?: () => void | Promise<void>;
+  onHide?: () => void;
 }
 
-export function Navbar({ page, onNavigate, userEmail, onLogout }: NavbarProps) {
+export function Navbar({ page, onNavigate, userEmail, onLogout, onHide }: NavbarProps) {
   const { t } = useI18n()
 
   const navItems: { label: string; page: Page }[] = [
@@ -69,71 +80,45 @@ export function Navbar({ page, onNavigate, userEmail, onLogout }: NavbarProps) {
 
   return (
     <Box
-      px={{ base: 'xs', sm: 'lg' }}
-      py="sm"
-      mx={{ base: 0, sm: 'md' }}
-      mt={{ base: 0, sm: 'md' }}
+      component="nav"
+      p="md"
+      h="100vh"
+      style={{
+        width: 280,
+        backgroundColor: "#2F2F2F",
+        borderRight: "1px solid #515151",
+        position: "sticky",
+        top: 0,
+        overflow: "auto",
+      }}
     >
-      <Flex 
-        display={{ base: 'flex', md: 'none' }} 
-        align="center" 
-        justify="space-between"
-        mb="md"
-      >
-        {logo}
-        <Group gap="xs">
-          <WeatherTemperature />
-          {onLogout && (
-            <Tooltip label={`Log out${userEmail ? ` ${userEmail}` : ''}`}>
-              <ActionIcon
-                aria-label="Log out"
-                variant="subtle"
-                color="gray"
-                onClick={onLogout}
-              >
-                <IconLogout size={19} />
+      <Flex direction="column" h="100%" gap="md">
+        <Group justify="space-between" align="center">
+          {logo}
+          {onHide && (
+            <Tooltip label="Hide menu">
+              <ActionIcon aria-label="Hide menu" variant="subtle" color="gray" onClick={onHide}>
+                <IconMenu size={18} />
               </ActionIcon>
             </Tooltip>
           )}
         </Group>
-      </Flex>
 
-      <Flex
-        direction="row"
-        align="center"
-        justify={{ base: 'center', md: 'space-between' }}
-        gap="md"
-      >
-        <Box
-          display={{ base: 'none', md: 'flex' }}
-          style={{ flex: 1, justifyContent: 'flex-start' }}
-        >
-          {logo}
-        </Box>
+        <Divider color="#515151" />
 
-        <Group
-          gap={4}
-          p={4}
-          justify="center"
-          style={{
-            backgroundColor: "#515151",
-            borderRadius: "34px",
-            flexWrap: "wrap",
-          }}
-        >
+        <Stack gap={6} style={{ flex: 1 }}>
           {navItems.map((item) => (
             <UnstyledButton
               key={item.label}
               onClick={() => onNavigate(item.page)}
-              px="lg"
-              py={8}
-              w={{ base: 'calc(50% - 4px)', sm: 'auto' }}
-              ta="center"
+              px="md"
+              py={10}
               style={{
-                borderRadius: "44px",
-                backgroundColor: page === item.page ? "#FFCC59" : "#515151",
+                width: '100%',
+                borderRadius: 12,
+                backgroundColor: page === item.page ? "#FFCC59" : "transparent",
                 color: page === item.page ? "#000000" : "#EBEBEB",
-                fontWeight: 500,
+                fontWeight: 600,
                 fontSize: "14px",
                 transition: "all 150ms ease",
                 cursor: "pointer",
@@ -142,33 +127,27 @@ export function Navbar({ page, onNavigate, userEmail, onLogout }: NavbarProps) {
               {item.label}
             </UnstyledButton>
           ))}
-        </Group>
+        </Stack>
 
-        <Box
-          display={{ base: 'none', md: 'flex' }}
-          style={{ flex: 1, justifyContent: 'flex-end' }}
-        >
-          <Group gap="xs" justify="flex-end">
-            <WeatherTemperature />
+        <Divider color="#515151" />
+
+        <Group gap="xs" justify="space-between" wrap="nowrap">
+          <WeatherTemperature />
+          <Box style={{ flex: 1, minWidth: 0 }}>
             {userEmail && (
-              <Text c="dimmed" size="sm" maw={180} truncate>
+              <Text c="dimmed" size="sm" truncate>
                 {userEmail}
               </Text>
             )}
-            {onLogout && (
-              <Tooltip label="Log out">
-                <ActionIcon
-                  aria-label="Log out"
-                  variant="subtle"
-                  color="gray"
-                  onClick={onLogout}
-                >
-                  <IconLogout size={19} />
-                </ActionIcon>
-              </Tooltip>
-            )}
-          </Group>
-        </Box>
+          </Box>
+          {onLogout && (
+            <Tooltip label={`Log out${userEmail ? ` ${userEmail}` : ''}`}>
+              <ActionIcon aria-label="Log out" variant="subtle" color="gray" onClick={onLogout}>
+                <IconLogout size={19} />
+              </ActionIcon>
+            </Tooltip>
+          )}
+        </Group>
       </Flex>
     </Box>
   );
