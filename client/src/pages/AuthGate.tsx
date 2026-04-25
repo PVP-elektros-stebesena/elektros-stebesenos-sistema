@@ -28,6 +28,7 @@ interface AuthResponse {
 
 interface StatusResponse {
   setupRequired: boolean;
+  authDisabled?: boolean;
 }
 
 interface MeResponse {
@@ -35,13 +36,19 @@ interface MeResponse {
 }
 
 interface AuthGateProps {
-  children: (auth: { user: AuthUser; onLogout: () => Promise<void> }) => ReactNode;
+  children: (auth: {
+    user: AuthUser;
+    authDisabled: boolean;
+    onLogout: () => Promise<void>;
+  }) => ReactNode;
 }
 
 type AuthMode = 'loading' | 'setup' | 'login' | 'authenticated';
 
 export function AuthGate({ children }: AuthGateProps) {
   const [mode, setMode] = useState<AuthMode>('loading');
+  const [authDisabled, setAuthDisabled] = useState(false);
+  const [setupRequired, setSetupRequired] = useState(false);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [identifier, setIdentifier] = useState('');
   const [email, setEmail] = useState('');
@@ -57,10 +64,15 @@ export function AuthGate({ children }: AuthGateProps) {
       try {
         const status = await apiFetch<StatusResponse>('/api/auth/status');
         if (cancelled) return;
+        setAuthDisabled(Boolean(status.authDisabled));
+        setSetupRequired(status.setupRequired);
 
-        if (status.setupRequired) {
+        if (status.authDisabled) {
+          const me = await apiFetch<MeResponse>('/api/auth/me');
+          if (cancelled) return;
           clearAuthToken();
-          setMode('setup');
+          setUser(me.user);
+          setMode('authenticated');
           return;
         }
 
@@ -75,6 +87,7 @@ export function AuthGate({ children }: AuthGateProps) {
         setMode('authenticated');
       } catch {
         if (cancelled) return;
+        setAuthDisabled(false);
         clearAuthToken();
         setMode('login');
       }
@@ -107,6 +120,7 @@ export function AuthGate({ children }: AuthGateProps) {
           displayName: displayName.trim() || null,
           password,
         });
+        setSetupRequired(false);
         completeAuthentication(response);
       } else {
         const response = await apiPost<AuthResponse>('/api/auth/login', {
@@ -123,6 +137,11 @@ export function AuthGate({ children }: AuthGateProps) {
   };
 
   const handleLogout = async () => {
+    if (authDisabled) {
+      clearAuthToken();
+      return;
+    }
+
     try {
       await apiPost<void>('/api/auth/logout', {});
     } finally {
@@ -142,10 +161,20 @@ export function AuthGate({ children }: AuthGateProps) {
   }
 
   if (mode === 'authenticated' && user) {
-    return children({ user, onLogout: handleLogout });
+    return children({ user, authDisabled, onLogout: handleLogout });
   }
 
   const isSetup = mode === 'setup';
+
+  const switchToLogin = () => {
+    setMode('login');
+    setError(null);
+  };
+
+  const switchToSetup = () => {
+    setMode('setup');
+    setError(null);
+  };
 
   return (
     <Center mih="100vh" px="md">
@@ -159,7 +188,7 @@ export function AuthGate({ children }: AuthGateProps) {
                 </Title>
                 <Text c="dimmed" size="sm">
                   {isSetup
-                    ? 'Set up the first user before opening P1 Monitor.'
+                    ? 'Create the first account to access P1 Monitor.'
                     : 'Use your email or username to access P1 Monitor.'}
                 </Text>
               </Stack>
@@ -205,6 +234,24 @@ export function AuthGate({ children }: AuthGateProps) {
               <Button type="submit" loading={submitting} color="yellow">
                 {isSetup ? 'Create account' : 'Log in'}
               </Button>
+
+              {isSetup ? (
+                <Button type="button" variant="subtle" color="gray" onClick={switchToLogin}>
+                  Already have an account? Log in
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  variant="subtle"
+                  color="gray"
+                  onClick={switchToSetup}
+                  disabled={!setupRequired}
+                >
+                  {setupRequired
+                    ? "Don't have an account? Register"
+                    : 'Registration is closed'}
+                </Button>
+              )}
             </Stack>
           </form>
         </Paper>

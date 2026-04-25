@@ -90,13 +90,24 @@ export async function createFirstUser(input: {
   const usersCount = await prisma.user.count();
   if (usersCount > 0) return null;
 
-  const user = await prisma.user.create({
-    data: {
-      email: normalizeIdentifier(input.email),
-      username: input.username ? normalizeIdentifier(input.username) : null,
-      displayName: input.displayName?.trim() || null,
-      passwordHash: await hashPassword(input.password),
-    },
+  const passwordHash = await hashPassword(input.password);
+  const user = await prisma.$transaction(async (tx) => {
+    const createdUser = await tx.user.create({
+      data: {
+        email: normalizeIdentifier(input.email),
+        username: input.username ? normalizeIdentifier(input.username) : null,
+        displayName: input.displayName?.trim() || null,
+        passwordHash,
+      },
+    });
+
+    // Claim any pre-auth or local-dev devices for the first real user.
+    await tx.device.updateMany({
+      where: { userId: null },
+      data: { userId: createdUser.id },
+    });
+
+    return createdUser;
   });
 
   const session = await createSession(user.id, input.userAgent);
