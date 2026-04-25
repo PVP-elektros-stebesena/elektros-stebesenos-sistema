@@ -100,6 +100,12 @@ export type PowerProfilePreset =
   | 'SOLAR_PROSUMER_3P_22KW';
 
 export type PricingMode = 'FIXED' | 'DYNAMIC';
+export type GhostLoadMessageCode =
+  | 'NO_BASELINE'
+  | 'NO_ACTIVE_BILLING_PLAN'
+  | 'FIXED_TARIFF_UNAVAILABLE'
+  | 'DYNAMIC_CONFIG_INCOMPLETE'
+  | 'SPOT_PRICE_UNAVAILABLE';
 
 export interface BillingPlan {
   id?: number;
@@ -138,6 +144,24 @@ export interface EstimatedCost {
   fixedFeesEur: number;
   breakdown: EstimatedCostBreakdownItem[];
   missingCoveragePct: number;
+}
+
+export interface GhostLoadOverview {
+  status: 'complete' | 'partial' | 'unavailable';
+  currency: 'EUR';
+  pricingMode: PricingMode | null;
+  baselineDate: string | null;
+  computedAt: string | null;
+  sourceWindowStartsAt: string | null;
+  sourceWindowEndsAt: string | null;
+  baselinePowerKw: number | null;
+  baselinePowerWatts: number | null;
+  projectedDailyKwh: number | null;
+  projectedMonthlyKwh: number | null;
+  currentRateEurPerKwh: number | null;
+  projectedMonthlyCostEur: number | null;
+  messageCode: GhostLoadMessageCode | null;
+  message: string | null;
 }
 
 export interface AppSettings {
