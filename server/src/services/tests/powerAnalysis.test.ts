@@ -107,13 +107,46 @@ describe('evaluatePowerPolicyBreaches', () => {
     );
 
     expect(breaches).toEqual(expect.arrayContaining([
-      expect.objectContaining({ metricName: 'ACTIVE_POWER_TOTAL', observedValue: 15 }),
-      expect.objectContaining({ metricName: 'REACTIVE_POWER_TOTAL', observedValue: 9 }),
-      expect.objectContaining({ metricName: 'POWER_FACTOR', observedValue: 0.75 }),
-      expect.objectContaining({ metricName: 'PHASE_IMBALANCE' }),
-      expect.objectContaining({ metricName: 'ACTIVE_POWER_RAMP', observedValue: 12 }),
+      expect.objectContaining({
+        metricName: 'ACTIVE_POWER_TOTAL',
+        observedValue: 15,
+        severity: 'CRITICAL',
+        thresholdValue: DEFAULT_POWER_POLICY.criticalThreshold,
+      }),
+      expect.objectContaining({ metricName: 'REACTIVE_POWER_TOTAL', observedValue: 9, severity: 'WARNING' }),
+      expect.objectContaining({ metricName: 'POWER_FACTOR', observedValue: 0.75, severity: 'WARNING' }),
+      expect.objectContaining({ metricName: 'PHASE_IMBALANCE', severity: 'WARNING' }),
+      expect.objectContaining({ metricName: 'ACTIVE_POWER_RAMP', observedValue: 12, severity: 'WARNING' }),
     ]));
     expect(breaches).toHaveLength(5);
+  });
+
+  it('marks active power above warning threshold as warning', () => {
+    const current = analysePowerReading(makeReading({
+      activePowerTotalKw: 10.2,
+      activePowerL1Kw: 3.4,
+      activePowerL2Kw: 3.4,
+      activePowerL3Kw: 3.4,
+      reactivePowerL1Kvar: 0,
+      reactivePowerL2Kvar: 0,
+      reactivePowerL3Kvar: 0,
+      apparentPowerTotalKva: 10.2,
+    }, '2026-03-27T10:01:00.000Z'));
+
+    const breaches = evaluatePowerPolicyBreaches(
+      current,
+      DEFAULT_POWER_POLICY,
+      new Date('2026-03-27T10:01:00.000Z'),
+    );
+
+    expect(breaches).toEqual([
+      expect.objectContaining({
+        metricName: 'ACTIVE_POWER_TOTAL',
+        severity: 'WARNING',
+        thresholdValue: DEFAULT_POWER_POLICY.warningThreshold,
+        observedValue: 10.2,
+      }),
+    ]);
   });
 });
 

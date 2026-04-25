@@ -35,7 +35,8 @@ describe('power profile presets', () => {
 
     expect(policy.source).toBe('profile_preset');
     expect(policy.profile).toBe(DEFAULT_POWER_PROFILE);
-    expect(policy.maxActivePowerKw).toBe(11);
+    expect(policy.warningThreshold).toBe(9.9);
+    expect(policy.criticalThreshold).toBe(11);
     expect(policy.perPhaseCurrentLimitAmps).toBe(16);
   });
 });

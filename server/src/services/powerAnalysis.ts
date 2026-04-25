@@ -39,6 +39,7 @@ export interface PowerMetrics {
 
 export interface PowerPolicyBreach {
   metricName: PowerMetricName;
+  severity: 'WARNING' | 'CRITICAL';
   thresholdValue: number;
   observedValue: number;
   unit: 'kW' | 'kVAr' | '%';
@@ -193,11 +194,23 @@ export function evaluatePowerPolicyBreaches(
 
   if (
     metrics.activePowerTotalKw != null &&
-    metrics.activePowerTotalKw > policy.maxActivePowerKw
+    metrics.activePowerTotalKw > policy.criticalThreshold
   ) {
     breaches.push({
       metricName: 'ACTIVE_POWER_TOTAL',
-      thresholdValue: policy.maxActivePowerKw,
+      severity: 'CRITICAL',
+      thresholdValue: policy.criticalThreshold,
+      observedValue: metrics.activePowerTotalKw,
+      unit: 'kW',
+    });
+  } else if (
+    metrics.activePowerTotalKw != null &&
+    metrics.activePowerTotalKw > policy.warningThreshold
+  ) {
+    breaches.push({
+      metricName: 'ACTIVE_POWER_TOTAL',
+      severity: 'WARNING',
+      thresholdValue: policy.warningThreshold,
       observedValue: metrics.activePowerTotalKw,
       unit: 'kW',
     });
@@ -209,6 +222,7 @@ export function evaluatePowerPolicyBreaches(
   ) {
     breaches.push({
       metricName: 'REACTIVE_POWER_TOTAL',
+      severity: 'WARNING',
       thresholdValue: policy.maxReactivePowerKvar,
       observedValue: Math.abs(metrics.reactivePowerTotalKvar),
       unit: 'kVAr',
@@ -221,6 +235,7 @@ export function evaluatePowerPolicyBreaches(
   ) {
     breaches.push({
       metricName: 'POWER_FACTOR',
+      severity: 'WARNING',
       thresholdValue: policy.minPowerFactor,
       observedValue: metrics.powerFactor,
       unit: '%',
@@ -233,6 +248,7 @@ export function evaluatePowerPolicyBreaches(
   ) {
     breaches.push({
       metricName: 'PHASE_IMBALANCE',
+      severity: 'WARNING',
       thresholdValue: policy.maxPhaseImbalancePct,
       observedValue: metrics.phaseImbalancePct,
       unit: '%',
@@ -254,6 +270,7 @@ export function evaluatePowerPolicyBreaches(
       if (rampKwPerMinute > policy.maxRampKwPerMinute) {
         breaches.push({
           metricName: 'ACTIVE_POWER_RAMP',
+          severity: 'WARNING',
           thresholdValue: policy.maxRampKwPerMinute,
           observedValue: rampKwPerMinute,
           unit: 'kW',
