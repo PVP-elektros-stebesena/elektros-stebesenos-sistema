@@ -41,6 +41,21 @@ interface SetupBody {
   password: string;
 }
 
+function isAuthDisabled(): boolean {
+  return process.env.DISABLE_AUTH === 'true'
+    && process.env.NODE_ENV !== 'production'
+    && process.env.NODE_ENV !== 'test';
+}
+
+function getLocalDevUser() {
+  return {
+    id: 0,
+    email: 'local-dev@example.com',
+    username: 'local-dev',
+    displayName: 'Local Dev',
+  };
+}
+
 function getBearerToken(req: FastifyRequest): string | undefined {
   const header = req.headers.authorization;
   if (!header) return undefined;
@@ -50,6 +65,10 @@ function getBearerToken(req: FastifyRequest): string | undefined {
 }
 
 export async function requireAuthentication(req: FastifyRequest, reply: FastifyReply): Promise<void> {
+  if (isAuthDisabled()) {
+    return;
+  }
+
   if (req.method === 'OPTIONS') return;
   if (!req.url.startsWith('/api/')) return;
   if (
@@ -74,6 +93,13 @@ export async function requireAuthentication(req: FastifyRequest, reply: FastifyR
 
 export async function authRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get('/api/auth/status', async (_req, reply) => {
+    if (isAuthDisabled()) {
+      return reply.send({
+        setupRequired: false,
+        authDisabled: true,
+      });
+    }
+
     return reply.send({ setupRequired: await isSetupRequired() });
   });
 
@@ -114,6 +140,10 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
   });
 
   fastify.get('/api/auth/me', async (req, reply) => {
+    if (isAuthDisabled()) {
+      return reply.send({ user: getLocalDevUser() });
+    }
+
     const user = await authenticateToken(getBearerToken(req));
     if (!user) {
       return reply.code(401).send({
@@ -126,6 +156,10 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
   });
 
   fastify.post('/api/auth/logout', async (req, reply) => {
+    if (isAuthDisabled()) {
+      return reply.code(204).send();
+    }
+
     await revokeSession(getBearerToken(req));
     return reply.code(204).send();
   });
