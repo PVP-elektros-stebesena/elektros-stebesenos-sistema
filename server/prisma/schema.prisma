@@ -35,6 +35,8 @@ model Device {
   notificationToggles NotificationEventToggle[]
   powerPolicyOverrides PowerPolicyOverride[]
   billingPlans BillingPlan[]
+  renterAllocations RenterAllocation[]
+  billingPeriods BillingPeriod[]
 
   @@index([userId])
   @@map("devices")
@@ -52,6 +54,7 @@ model User {
 
   sessions AuthSession[]
   devices  Device[]
+  renters  Renter[]
 
   @@map("users")
 }
@@ -109,6 +112,57 @@ model BillingPlan {
   @@index([deviceId, effectiveTo])
   @@unique([deviceId, effectiveFrom])
   @@map("billing_plans")
+}
+
+model Renter {
+  id              Int      @id @default(autoincrement())
+  landlordUserId  Int
+  name            String
+  email           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  landlord    User               @relation(fields: [landlordUserId], references: [id], onDelete: Cascade)
+  allocations RenterAllocation[]
+
+  @@index([landlordUserId, name])
+  @@map("renters")
+}
+
+model RenterAllocation {
+  id        Int      @id @default(autoincrement())
+  deviceId  Int
+  renterId  Int
+  startsAt  DateTime
+  endsAt    DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  renter Renter @relation(fields: [renterId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceId, renterId, startsAt])
+  @@index([deviceId, startsAt])
+  @@index([renterId, startsAt])
+  @@map("renter_allocations")
+}
+
+model BillingPeriod {
+  id        Int      @id @default(autoincrement())
+  deviceId  Int
+  startsAt  DateTime
+  endsAt    DateTime
+  status    String   @default("OPEN")
+  closedAt  DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceId, startsAt, endsAt])
+  @@index([deviceId, startsAt])
+  @@index([deviceId, status, startsAt])
+  @@map("billing_periods")
 }
 
 model Reading {
