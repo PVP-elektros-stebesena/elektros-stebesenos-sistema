@@ -28,6 +28,7 @@ interface AuthResponse {
 
 interface StatusResponse {
   setupRequired: boolean;
+  authDisabled?: boolean;
 }
 
 interface MeResponse {
@@ -35,13 +36,18 @@ interface MeResponse {
 }
 
 interface AuthGateProps {
-  children: (auth: { user: AuthUser; onLogout: () => Promise<void> }) => ReactNode;
+  children: (auth: {
+    user: AuthUser;
+    authDisabled: boolean;
+    onLogout: () => Promise<void>;
+  }) => ReactNode;
 }
 
 type AuthMode = 'loading' | 'setup' | 'login' | 'authenticated';
 
 export function AuthGate({ children }: AuthGateProps) {
   const [mode, setMode] = useState<AuthMode>('loading');
+  const [authDisabled, setAuthDisabled] = useState(false);
   const [setupRequired, setSetupRequired] = useState(false);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [identifier, setIdentifier] = useState('');
@@ -58,7 +64,17 @@ export function AuthGate({ children }: AuthGateProps) {
       try {
         const status = await apiFetch<StatusResponse>('/api/auth/status');
         if (cancelled) return;
+        setAuthDisabled(Boolean(status.authDisabled));
         setSetupRequired(status.setupRequired);
+
+        if (status.authDisabled) {
+          const me = await apiFetch<MeResponse>('/api/auth/me');
+          if (cancelled) return;
+          clearAuthToken();
+          setUser(me.user);
+          setMode('authenticated');
+          return;
+        }
 
         if (!getAuthToken()) {
           setMode('login');
@@ -71,6 +87,7 @@ export function AuthGate({ children }: AuthGateProps) {
         setMode('authenticated');
       } catch {
         if (cancelled) return;
+        setAuthDisabled(false);
         clearAuthToken();
         setMode('login');
       }
@@ -120,6 +137,11 @@ export function AuthGate({ children }: AuthGateProps) {
   };
 
   const handleLogout = async () => {
+    if (authDisabled) {
+      clearAuthToken();
+      return;
+    }
+
     try {
       await apiPost<void>('/api/auth/logout', {});
     } finally {
@@ -139,7 +161,7 @@ export function AuthGate({ children }: AuthGateProps) {
   }
 
   if (mode === 'authenticated' && user) {
-    return children({ user, onLogout: handleLogout });
+    return children({ user, authDisabled, onLogout: handleLogout });
   }
 
   const isSetup = mode === 'setup';

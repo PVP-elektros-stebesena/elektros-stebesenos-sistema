@@ -19,14 +19,14 @@ export default function App() {
     <I18nProvider>
       <MantineProvider theme={theme} defaultColorScheme="dark">
         <AuthGate>
-          {({ user, onLogout }) => (
+          {({ user, authDisabled, onLogout }) => (
             <Box mih="100vh">
               <Navbar
                 page={page}
                 onNavigate={setPage}
                 connected
                 userEmail={user.email}
-                onLogout={onLogout}
+                onLogout={authDisabled ? undefined : onLogout}
               />
 
               <Box component="main" p="md">

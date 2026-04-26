@@ -6,6 +6,8 @@ import prisma from '../../lib/prisma.js';
 import { hashPassword } from '../../services/authService.js';
 
 let app: FastifyInstance;
+const originalDisableAuth = process.env.DISABLE_AUTH;
+const originalNodeEnv = process.env.NODE_ENV;
 
 beforeAll(async () => {
   app = Fastify();
@@ -17,6 +19,8 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  process.env.DISABLE_AUTH = originalDisableAuth;
+  process.env.NODE_ENV = originalNodeEnv;
   await prisma.authSession.deleteMany();
   await prisma.device.deleteMany();
   await prisma.user.deleteMany();
@@ -25,6 +29,8 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
+  process.env.DISABLE_AUTH = 'false';
+  process.env.NODE_ENV = 'test';
   await prisma.authSession.deleteMany();
   await prisma.device.deleteMany();
   await prisma.user.deleteMany();
@@ -162,5 +168,60 @@ describe('authentication routes', () => {
     expect(listRes.statusCode).toBe(200);
     expect(listRes.json()).toHaveLength(1);
     expect(listRes.json()[0].name).toBe('Owned meter');
+  });
+
+  it('claims existing unowned devices when the first user is created', async () => {
+    const device = await prisma.device.create({
+      data: {
+        name: 'Local dev device',
+      },
+    });
+
+    const setupRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/setup',
+      payload: {
+        email: 'admin@example.com',
+        displayName: 'Admin',
+        password: 'correct horse battery staple',
+      },
+    });
+
+    expect(setupRes.statusCode).toBe(201);
+    expect(setupRes.json().user.email).toBe('admin@example.com');
+
+    const updatedDevice = await prisma.device.findUnique({
+      where: { id: device.id },
+    });
+
+    expect(updatedDevice?.userId).toBe(setupRes.json().user.id);
+  });
+
+  it('allows the auth bypass only outside production and test', async () => {
+    process.env.NODE_ENV = 'development';
+    process.env.DISABLE_AUTH = 'true';
+
+    const statusRes = await app.inject({ method: 'GET', url: '/api/auth/status' });
+    expect(statusRes.statusCode).toBe(200);
+    expect(statusRes.json()).toEqual({
+      setupRequired: false,
+      authDisabled: true,
+    });
+
+    const allowed = await app.inject({ method: 'GET', url: '/api/protected' });
+    expect(allowed.statusCode).toBe(200);
+    expect(allowed.json()).toEqual({ ok: true });
+  });
+
+  it('ignores the auth bypass in production', async () => {
+    process.env.NODE_ENV = 'production';
+    process.env.DISABLE_AUTH = 'true';
+
+    const denied = await app.inject({ method: 'GET', url: '/api/protected' });
+    expect(denied.statusCode).toBe(401);
+
+    const statusRes = await app.inject({ method: 'GET', url: '/api/auth/status' });
+    expect(statusRes.statusCode).toBe(200);
+    expect(statusRes.json()).toEqual({ setupRequired: true });
   });
 });
