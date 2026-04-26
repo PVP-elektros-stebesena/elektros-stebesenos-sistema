@@ -30,7 +30,7 @@ import {
 import { usePolling } from '../hooks/usePolling';
 import { apiFetch } from '../services/apiClient';
 import { useI18n } from '../i18n/i18n';
-import type { EstimatedCost } from '../types/energy';
+import type { EstimatedCost, GhostLoadOverview } from '../types/energy';
 
 interface DeviceOption {
   id: number;
@@ -238,6 +238,26 @@ function estimatedCostStatusColor(status: EstimatedCost['status']): string {
   return 'gray';
 }
 
+function standbyStatusColor(status: GhostLoadOverview['status']): string {
+  if (status === 'complete') return 'green';
+  if (status === 'partial') return 'yellow';
+  return 'gray';
+}
+
+function standbyStatusLabel(status: GhostLoadOverview['status'], language: 'en' | 'lt'): string {
+  if (status === 'complete') return tr(language, 'Complete', 'Pilna');
+  if (status === 'partial') return tr(language, 'Partial', 'Dalinė');
+  return tr(language, 'Unavailable', 'Nepasiekiama');
+}
+
+function standbyMessageKey(messageCode: GhostLoadOverview['messageCode']): string {
+  if (messageCode === 'NO_ACTIVE_BILLING_PLAN') return 'power.ghostLoadNoActiveBillingPlanUi';
+  if (messageCode === 'FIXED_TARIFF_UNAVAILABLE') return 'power.ghostLoadFixedTariffUnavailableUi';
+  if (messageCode === 'DYNAMIC_CONFIG_INCOMPLETE') return 'power.ghostLoadDynamicConfigIncompleteUi';
+  if (messageCode === 'SPOT_PRICE_UNAVAILABLE') return 'power.ghostLoadSpotPriceUnavailableUi';
+  return 'power.ghostLoadNoBaseline';
+}
+
 function formatPfBand(latest: PowerLatest | undefined): string {
   if (!latest) return '—';
 
@@ -328,6 +348,12 @@ export function PowerPage() {
     { intervalSeconds: 300, enabled: latestReportId != null },
   );
 
+  const { data: standbyOverview, isLoading: standbyLoading, error: standbyError } = usePolling<GhostLoadOverview>(
+    ['power', 'standby', selectedDeviceId ?? 'none'],
+    selectedDeviceId ? `/api/power/standby?deviceId=${selectedDeviceId}` : '',
+    { intervalSeconds: 60, enabled: selectedDeviceId != null },
+  );
+
   const trendData: PowerTrendPoint[] = useMemo(() => {
     return (history?.data ?? []).map((point) => ({
       time: new Date(point.timestamp).toLocaleTimeString(),
@@ -409,6 +435,18 @@ export function PowerPage() {
       return parts.join(' ');
     })()
     : null;
+
+  const standbyUpdatedLabel = standbyOverview?.baselineDate
+    ? t('power.ghostLoadUpdated', {
+      date: new Date(`${standbyOverview.baselineDate}T00:00:00`).toLocaleDateString(
+        language === 'lt' ? 'lt-LT' : 'en-GB',
+      ),
+    })
+    : null;
+
+  const standbyMessage = standbyOverview
+    ? t(standbyMessageKey(standbyOverview.messageCode) as never)
+    : t('power.ghostLoadNoBaseline');
 
   return (
     <Stack p="lg" gap="md" style={{ width: '100%' }}>
@@ -602,6 +640,76 @@ export function PowerPage() {
                   </SimpleGrid>
                 </Card>
               </SimpleGrid>
+
+              <Card p="md" radius="md">
+                <Group justify="space-between" mb="md">
+                  <div>
+                    <Text fw={700}>{t('power.ghostLoadOverview')}</Text>
+                    {standbyUpdatedLabel && (
+                      <Text size="sm" c="dimmed">{standbyUpdatedLabel}</Text>
+                    )}
+                  </div>
+                  {standbyOverview && (
+                    <Badge color={standbyStatusColor(standbyOverview.status)} variant="light">
+                      {standbyStatusLabel(standbyOverview.status, language)}
+                    </Badge>
+                  )}
+                </Group>
+
+                {standbyError ? (
+                  <Alert color="red" title={t('power.ghostLoadOverview')}>
+                    {t('power.failedLiveDescription')}
+                  </Alert>
+                ) : standbyLoading && !standbyOverview ? (
+                  <Group justify="center" py="md"><Loader size="sm" /></Group>
+                ) : !standbyOverview || standbyOverview.baselinePowerWatts == null ? (
+                  <Text c="dimmed">
+                    {standbyMessage}
+                  </Text>
+                ) : (
+                  <Stack gap="sm">
+                    <Text>{t('power.ghostLoadConstantDraw', { watts: standbyOverview.baselinePowerWatts })}</Text>
+                    <Text>{t('power.ghostLoadDailyUsage', { kwh: standbyOverview.projectedDailyKwh?.toFixed(1) ?? '0.0' })}</Text>
+
+                    <SimpleGrid cols={{ base: 1, sm: 3 }}>
+                      <Card p="sm" withBorder>
+                        <Text size="xs" c="dimmed">{t('power.ghostLoadMonthlyUsage')}</Text>
+                        <Text fw={700} fz="xl">
+                          {standbyOverview.projectedMonthlyKwh != null ? `${standbyOverview.projectedMonthlyKwh.toFixed(1)} kWh` : '—'}
+                        </Text>
+                      </Card>
+                      <Card p="sm" withBorder>
+                        <Text size="xs" c="dimmed">{t('power.ghostLoadCurrentRate')}</Text>
+                        <Text fw={700} fz="xl">
+                          {standbyOverview.currentRateEurPerKwh != null
+                            ? `${standbyOverview.currentRateEurPerKwh.toFixed(3)} €/kWh`
+                            : '—'}
+                        </Text>
+                      </Card>
+                      <Card p="sm" withBorder>
+                        <Text size="xs" c="dimmed">{t('power.ghostLoadMonthlyCostLabel')}</Text>
+                        <Text fw={700} fz="xl">
+                          {standbyOverview.projectedMonthlyCostEur != null
+                            ? formatCurrency(standbyOverview.projectedMonthlyCostEur, language)
+                            : '—'}
+                        </Text>
+                      </Card>
+                    </SimpleGrid>
+
+                    {standbyOverview.projectedMonthlyCostEur != null ? (
+                      <Text>
+                        {t('power.ghostLoadMonthlyCost', {
+                          cost: formatCurrency(standbyOverview.projectedMonthlyCostEur, language),
+                        })}
+                      </Text>
+                    ) : (
+                      <Text c="dimmed">
+                        {standbyMessage}
+                      </Text>
+                    )}
+                  </Stack>
+                )}
+              </Card>
 
               <SimpleGrid cols={{ base: 1, lg: 2 }}>
                 <Card p="md" radius="md">

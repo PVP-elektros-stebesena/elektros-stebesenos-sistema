@@ -257,6 +257,7 @@ async function seedAggregatesAndAnomalies(deviceId: number, start: Date, now: Da
     compliantL2: boolean;
     compliantL3: boolean;
     sampleCount: number;
+    activePowerAvgTotal: number;
   }> = [];
 
   const anomalies: Array<{
@@ -285,6 +286,18 @@ async function seedAggregatesAndAnomalies(deviceId: number, start: Date, now: Da
     const deviationL3Window = day % 4 === 0 && hour >= 14 && hour <= 15;
     const shortInterruptionWindow = day % 8 === 0 && hour === 6 && minute < 20;
     const longInterruptionWindow = day % 11 === 0 && hour === 2 && minute < 40;
+    const isStandbyWindow = hour >= 2 && hour < 5;
+    const quietStandbyPocket = isStandbyWindow && minute === 10;
+
+    let activePowerAvgTotal = 0.75 + 0.18 * Math.sin((hour / 24) * Math.PI * 2) + 0.05 * Math.cos(day / 3);
+
+    if (isStandbyWindow) {
+      activePowerAvgTotal = 0.24 + 0.03 * Math.sin(day / 2);
+    }
+
+    if (quietStandbyPocket) {
+      activePowerAvgTotal = 0.16 + 0.02 * Math.sin(day / 2);
+    }
 
     let v1 = 229 + 1.5 * Math.sin(hour / 2);
     let v2 = 230 + 1.2 * Math.cos(hour / 2);
@@ -294,22 +307,26 @@ async function seedAggregatesAndAnomalies(deviceId: number, start: Date, now: Da
       v1 = 216;
       v2 = 217;
       v3 = 218;
+      activePowerAvgTotal *= 1.35;
     }
 
     if (overVoltageWindow) {
       v1 = 242;
       v2 = 246;
       v3 = 244;
+      activePowerAvgTotal *= 0.8;
     }
 
     if (deviationL3Window) {
       v3 = 241;
+      activePowerAvgTotal *= 1.05;
     }
 
     if (shortInterruptionWindow || longInterruptionWindow) {
       v1 = 0;
       v2 = 0;
       v3 = 0;
+      activePowerAvgTotal = 0;
     }
 
     const c1 = v1 >= 220 && v1 <= 240;
@@ -330,6 +347,7 @@ async function seedAggregatesAndAnomalies(deviceId: number, start: Date, now: Da
       compliantL2: c2,
       compliantL3: c3,
       sampleCount: 60,
+      activePowerAvgTotal: +activePowerAvgTotal.toFixed(6),
     });
 
     if (underVoltageWindow && hour === 9 && minute === 0) {

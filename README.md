@@ -74,6 +74,8 @@ SQLite via Prisma. The schema lives in `server/prisma/schema.prisma`, generated 
 - **WeeklyReport** – ESO weekly 95% compliance summaries
 - **Anomaly** – voltage and power anomaly events with severity, thresholds, and duration
 
+- **StandbyBaseline** - one stored standby baseline per device per completed billing-local night
+
 All child models cascade-delete when a device is removed.
 
 ### Common Prisma commands
@@ -158,7 +160,24 @@ Estimated cost statuses exposed in report responses:
 - `partial` – some time/energy coverage missing
 - `unavailable` – configuration/data/error prevents a reliable estimate
 
-If estimated-cost calculation fails at runtime, report endpoints still return successfully with `estimatedCost.status = unavailable` instead of failing the full response.
+## API - Power
+
+Power endpoints provide live power metrics, summaries, anomaly history, and standby-load projections for the selected device.
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/power/latest` | Most recent power reading and policy/breach state |
+| `GET` | `/api/power/summary` | Power dashboard totals and anomaly counters |
+| `GET` | `/api/power/history` | Time-series power data |
+| `GET` | `/api/power/anomalies` | Power anomaly history |
+| `GET` | `/api/power/standby` | Latest nightly standby baseline and ghost-load cost projection |
+
+### Standby baseline behavior
+
+- Standby analysis uses the quietest complete **10-minute** `AggregatedData.activePowerAvgTotal` window between **02:00 and 05:00** in `Europe/Vilnius`.
+- Results are persisted in `StandbyBaseline` with one row per `(deviceId, baselineDate)`.
+- On server startup, the latest completed night is backfilled if missing, then a scheduler recomputes new baselines daily at **05:05** billing-local time.
+- `GET /api/power/standby` returns standby power in `kW`/`W`, projected daily and monthly `kWh`, current-rate pricing, projected monthly EUR cost, and a status of `complete`, `partial`, or `unavailable`.
 
 ## API – Voltage & Grid Quality
 

@@ -13,6 +13,7 @@ import { startReportScheduler, stopReportScheduler } from './services/reportSche
 import { ConsoleNotificationSender, notificationService } from './services/notificationService.js';
 import { createBrevoEmailNotificationSender } from './services/emailNotificationSender.js';
 import { startSpotPriceScheduler, stopSpotPriceScheduler } from './services/spotPriceScheduler.js';
+import { startStandbyPowerScheduler, stopStandbyPowerScheduler } from './services/standbyPowerScheduler.js';
 
 const fastify = Fastify({ logger: true });
 
@@ -70,6 +71,7 @@ const start = async () => {
         // Start weekly report cron scheduler
         startReportScheduler();
         await startSpotPriceScheduler(parseInt(process.env.SPOT_PRICE_BACKFILL_DAYS || '7', 10));
+        await startStandbyPowerScheduler();
     } catch (err) {
         fastify.log.error(err);
         process.exit(1);
@@ -79,6 +81,7 @@ const start = async () => {
 // Graceful shutdown
 async function shutdown() {
     console.log('Shutting down…');
+    stopStandbyPowerScheduler();
     stopSpotPriceScheduler();
     stopReportScheduler();
     await devicePoller.stop();
