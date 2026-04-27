@@ -7,6 +7,8 @@ export type MultiTenantDomainErrorCode =
   | 'DEVICE_NOT_OWNED'
   | 'RENTER_NOT_FOUND'
   | 'RENTER_NOT_OWNED'
+  | 'RENTER_IN_USE'
+  | 'ALLOCATION_NOT_FOUND'
   | 'INVALID_DATE_RANGE'
   | 'ALLOCATION_OVERLAP';
 
@@ -34,10 +36,26 @@ export interface CreateRenterInput {
   email?: string | null;
 }
 
+export interface UpdateRenterInput {
+  renterId: number;
+  landlordUserId: number;
+  name?: string;
+  email?: string | null;
+}
+
 export interface CreateRenterAllocationInput {
   deviceId: number;
   renterId: number;
   startsAt: Date | string;
+  endsAt?: Date | string | null;
+  landlordUserId?: number;
+}
+
+export interface UpdateRenterAllocationInput {
+  allocationId: number;
+  deviceId: number;
+  renterId?: number;
+  startsAt?: Date | string;
   endsAt?: Date | string | null;
   landlordUserId?: number;
 }
@@ -67,6 +85,12 @@ export interface RenterAllocationSummary {
   };
 }
 
+export interface DeleteRenterAllocationInput {
+  allocationId: number;
+  deviceId?: number;
+  landlordUserId?: number;
+}
+
 function normalizeRequiredDate(value: Date | string, fieldName: string): Date {
   const parsed = typeof value === 'string' ? new Date(value) : value;
   if (!(parsed instanceof Date) || Number.isNaN(parsed.getTime())) {
@@ -84,6 +108,12 @@ function normalizeOptionalDate(value: Date | string | null | undefined, fieldNam
   }
 
   return parsed;
+}
+
+function validateDateRange(startsAt: Date, endsAt: Date | null): void {
+  if (endsAt != null && endsAt.getTime() <= startsAt.getTime()) {
+    throw new MultiTenantDomainError('INVALID_DATE_RANGE', 'endsAt must be after startsAt');
+  }
 }
 
 function toRenterSummary(row: {
@@ -170,6 +200,71 @@ export async function createRenter(input: CreateRenterInput): Promise<RenterSumm
   return toRenterSummary(created);
 }
 
+export async function updateRenter(input: UpdateRenterInput): Promise<RenterSummary> {
+  const renter = await prisma.renter.findUnique({
+    where: { id: input.renterId },
+    select: {
+      id: true,
+      landlordUserId: true,
+    },
+  });
+
+  if (!renter) {
+    throw new MultiTenantDomainError('RENTER_NOT_FOUND', `Renter ${input.renterId} not found`);
+  }
+
+  if (renter.landlordUserId !== input.landlordUserId) {
+    throw new MultiTenantDomainError(
+      'RENTER_NOT_OWNED',
+      `Renter ${input.renterId} is not owned by landlord ${input.landlordUserId}`,
+    );
+  }
+
+  const updated = await prisma.renter.update({
+    where: { id: input.renterId },
+    data: {
+      ...(input.name !== undefined ? { name: input.name.trim() } : {}),
+      ...(input.email !== undefined ? { email: input.email?.trim() || null } : {}),
+    },
+  });
+
+  return toRenterSummary(updated);
+}
+
+export async function deleteRenter(renterId: number, landlordUserId: number): Promise<void> {
+  const renter = await prisma.renter.findUnique({
+    where: { id: renterId },
+    select: {
+      id: true,
+      landlordUserId: true,
+    },
+  });
+
+  if (!renter) {
+    throw new MultiTenantDomainError('RENTER_NOT_FOUND', `Renter ${renterId} not found`);
+  }
+
+  if (renter.landlordUserId !== landlordUserId) {
+    throw new MultiTenantDomainError(
+      'RENTER_NOT_OWNED',
+      `Renter ${renterId} is not owned by landlord ${landlordUserId}`,
+    );
+  }
+
+  const activeAllocations = await prisma.renterAllocation.count({
+    where: { renterId },
+  });
+
+  if (activeAllocations > 0) {
+    throw new MultiTenantDomainError(
+      'RENTER_IN_USE',
+      'Renter has allocation history and cannot be deleted',
+    );
+  }
+
+  await prisma.renter.delete({ where: { id: renterId } });
+}
+
 export async function listRentersForLandlord(landlordUserId: number): Promise<RenterSummary[]> {
   const rows = await prisma.renter.findMany({
     where: { landlordUserId },
@@ -187,10 +282,7 @@ export async function createRenterAllocation(
 ): Promise<RenterAllocationSummary> {
   const startsAt = normalizeRequiredDate(input.startsAt, 'startsAt');
   const endsAt = normalizeOptionalDate(input.endsAt, 'endsAt');
-
-  if (endsAt != null && endsAt.getTime() <= startsAt.getTime()) {
-    throw new MultiTenantDomainError('INVALID_DATE_RANGE', 'endsAt must be after startsAt');
-  }
+  validateDateRange(startsAt, endsAt);
 
   const created = await prisma.$transaction(async (tx) => {
     const device = await tx.device.findUnique({
@@ -283,6 +375,126 @@ export async function createRenterAllocation(
   return toAllocationSummary(created);
 }
 
+export async function updateRenterAllocation(
+  input: UpdateRenterAllocationInput,
+): Promise<RenterAllocationSummary> {
+  const updated = await prisma.$transaction(async (tx) => {
+    const existing = await tx.renterAllocation.findUnique({
+      where: { id: input.allocationId },
+      select: {
+        id: true,
+        deviceId: true,
+        renterId: true,
+        startsAt: true,
+        endsAt: true,
+      },
+    });
+
+    if (!existing || existing.deviceId !== input.deviceId) {
+      throw new MultiTenantDomainError('ALLOCATION_NOT_FOUND', `Allocation ${input.allocationId} not found`);
+    }
+
+    const startsAt = input.startsAt !== undefined
+      ? normalizeRequiredDate(input.startsAt, 'startsAt')
+      : existing.startsAt;
+    const endsAt = input.endsAt !== undefined
+      ? normalizeOptionalDate(input.endsAt, 'endsAt')
+      : existing.endsAt;
+    const renterId = input.renterId ?? existing.renterId;
+
+    validateDateRange(startsAt, endsAt);
+
+    const device = await tx.device.findUnique({
+      where: { id: existing.deviceId },
+      select: {
+        id: true,
+        userId: true,
+      },
+    });
+
+    if (!device) {
+      throw new MultiTenantDomainError('DEVICE_NOT_FOUND', `Device ${existing.deviceId} not found`);
+    }
+
+    if (input.landlordUserId != null && device.userId !== input.landlordUserId) {
+      throw new MultiTenantDomainError(
+        'DEVICE_NOT_OWNED',
+        `Device ${existing.deviceId} is not owned by landlord ${input.landlordUserId}`,
+      );
+    }
+
+    const renter = await tx.renter.findUnique({
+      where: { id: renterId },
+      select: {
+        id: true,
+        landlordUserId: true,
+      },
+    });
+
+    if (!renter) {
+      throw new MultiTenantDomainError('RENTER_NOT_FOUND', `Renter ${renterId} not found`);
+    }
+
+    if (input.landlordUserId != null && renter.landlordUserId !== input.landlordUserId) {
+      throw new MultiTenantDomainError(
+        'RENTER_NOT_OWNED',
+        `Renter ${renterId} is not owned by landlord ${input.landlordUserId}`,
+      );
+    }
+
+    if (device.userId != null && renter.landlordUserId !== device.userId) {
+      throw new MultiTenantDomainError(
+        'RENTER_NOT_OWNED',
+        'Renter must belong to the same landlord as the device',
+      );
+    }
+
+    const effectiveEnd = endsAt ?? FAR_FUTURE_DATE;
+    const overlap = await tx.renterAllocation.findFirst({
+      where: {
+        deviceId: existing.deviceId,
+        id: { not: existing.id },
+        startsAt: { lt: effectiveEnd },
+        OR: [
+          { endsAt: null },
+          { endsAt: { gt: startsAt } },
+        ],
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (overlap) {
+      throw new MultiTenantDomainError(
+        'ALLOCATION_OVERLAP',
+        'Overlapping renter allocations are not allowed for the same device period',
+      );
+    }
+
+    return tx.renterAllocation.update({
+      where: { id: existing.id },
+      data: {
+        renterId,
+        startsAt,
+        endsAt,
+      },
+      include: {
+        renter: {
+          select: {
+            id: true,
+            landlordUserId: true,
+            name: true,
+            email: true,
+          },
+        },
+      },
+    });
+  });
+
+  return toAllocationSummary(updated);
+}
+
 export async function listRenterAllocationsForDevice(
   deviceId: number,
   landlordUserId?: number,
@@ -324,4 +536,41 @@ export async function listRenterAllocationsForDevice(
   });
 
   return rows.map(toAllocationSummary);
+}
+
+export async function deleteRenterAllocation(input: DeleteRenterAllocationInput): Promise<void> {
+  const existing = await prisma.renterAllocation.findUnique({
+    where: { id: input.allocationId },
+    select: {
+      id: true,
+      deviceId: true,
+    },
+  });
+
+  if (!existing || (input.deviceId != null && existing.deviceId !== input.deviceId)) {
+    throw new MultiTenantDomainError('ALLOCATION_NOT_FOUND', `Allocation ${input.allocationId} not found`);
+  }
+
+  if (input.landlordUserId != null) {
+    const device = await prisma.device.findUnique({
+      where: { id: existing.deviceId },
+      select: {
+        id: true,
+        userId: true,
+      },
+    });
+
+    if (!device) {
+      throw new MultiTenantDomainError('DEVICE_NOT_FOUND', `Device ${existing.deviceId} not found`);
+    }
+
+    if (device.userId !== input.landlordUserId) {
+      throw new MultiTenantDomainError(
+        'DEVICE_NOT_OWNED',
+        `Device ${existing.deviceId} is not owned by landlord ${input.landlordUserId}`,
+      );
+    }
+  }
+
+  await prisma.renterAllocation.delete({ where: { id: existing.id } });
 }
