@@ -39,6 +39,7 @@ export function Navbar({ page, onNavigate, userEmail, onLogout }: NavbarProps) {
     { label: t('nav.voltage'), page: 'voltage' },
     { label: t('nav.power'), page: 'power' },
     { label: t('nav.reports'), page: 'reports' },
+    { label: t('nav.billing'), page: 'billing' },
     { label: t('nav.currentData'), page: 'currentData' },
     { label: t('nav.settings'), page: 'settings' },
   ]

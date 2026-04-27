@@ -38,6 +38,7 @@ model Device {
   standbyBaselines StandbyBaseline[]
   renterAllocations RenterAllocation[]
   billingPeriods BillingPeriod[]
+  billingReports BillingReport[]
 
   @@index([userId])
   @@map("devices")
@@ -123,8 +124,9 @@ model Renter {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  landlord    User               @relation(fields: [landlordUserId], references: [id], onDelete: Cascade)
-  allocations RenterAllocation[]
+  landlord       User               @relation(fields: [landlordUserId], references: [id], onDelete: Cascade)
+  allocations    RenterAllocation[]
+  billingReports BillingReport[]
 
   @@index([landlordUserId, name])
   @@map("renters")
@@ -447,4 +449,23 @@ model StandbyBaseline {
   @@unique([deviceId, baselineDate])
   @@index([deviceId, computedAt])
   @@map("standby_baselines")
+}
+
+model BillingReport {
+  id             Int      @id @default(autoincrement())
+  deviceId       Int
+  renterId       Int?
+  startsAt       DateTime
+  endsAt         DateTime
+  generatedAt    DateTime @default(now())
+  totalKwh       Float    @default(0)
+  unallocatedKwh Float    @default(0)
+  reportJson     String
+
+  device Device  @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  renter Renter? @relation(fields: [renterId], references: [id], onDelete: SetNull)
+
+  @@index([deviceId, generatedAt])
+  @@index([deviceId, renterId, generatedAt])
+  @@map("billing_reports")
 }

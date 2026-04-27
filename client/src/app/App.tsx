@@ -8,6 +8,7 @@ import { VoltagePage } from '../pages/voltagePage';
 import { PowerPage } from '../pages/powerPage';
 import { SettingsPage } from '../pages/settingsPage';
 import { ReportsPage } from '../pages/reportsPage';
+import { BillingPage } from '../pages/billingPage';
 import type { Page } from '../types/energy';
 import { I18nProvider } from '../i18n/i18n';
 import { AuthGate } from '../pages/AuthGate';
@@ -34,6 +35,7 @@ export default function App() {
                 <Box display={page === 'voltage' ? undefined : 'none'}><VoltagePage /></Box>
                 <Box display={page === 'power' ? undefined : 'none'}><PowerPage /></Box>
                 <Box display={page === 'reports' ? undefined : 'none'}><ReportsPage /></Box>
+                <Box display={page === 'billing' ? undefined : 'none'}><BillingPage /></Box>
                 <Box display={page === 'settings' ? undefined : 'none'}><SettingsPage /></Box>
               </Box>
             </Box>
