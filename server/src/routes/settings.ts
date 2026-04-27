@@ -1,4 +1,4 @@
-import type { FastifyInstance, FastifyError } from 'fastify';
+import type { FastifyInstance, FastifyError, FastifyReply } from 'fastify';
 import prisma from '../lib/prisma.js';
 import {
   DEFAULT_POWER_PROFILE,
@@ -28,6 +28,17 @@ import {
   type SpotProvider,
   type SpotZone,
 } from '../services/billingPlanService.js';
+import {
+  MultiTenantDomainError,
+  createRenter,
+  createRenterAllocation,
+  deleteRenter,
+  deleteRenterAllocation,
+  listRenterAllocationsForDevice,
+  listRentersForLandlord,
+  updateRenter,
+  updateRenterAllocation,
+} from '../services/renterAllocationService.js';
 import {
   SPOT_PRICE_PROVIDER_NAMES,
   SPOT_PRICE_ZONES,
@@ -126,6 +137,65 @@ const billingPlanBodySchema = {
   },
 } as const;
 
+const renterBodySchema = {
+  type: 'object',
+  required: ['name'],
+  additionalProperties: false,
+  properties: {
+    name: { type: 'string', minLength: 1, pattern: '\\S' },
+    email: { type: ['string', 'null'] },
+  },
+} as const;
+
+const renterPatchBodySchema = {
+  type: 'object',
+  additionalProperties: false,
+  minProperties: 1,
+  properties: {
+    name: { type: 'string', minLength: 1, pattern: '\\S' },
+    email: { type: ['string', 'null'] },
+  },
+} as const;
+
+const renterIdParamSchema = {
+  type: 'object',
+  required: ['renterId'],
+  properties: {
+    renterId: { type: 'integer' },
+  },
+} as const;
+
+const allocationBodySchema = {
+  type: 'object',
+  required: ['renterId', 'startsAt'],
+  additionalProperties: false,
+  properties: {
+    renterId: { type: 'integer', minimum: 1 },
+    startsAt: { type: 'string', minLength: 1 },
+    endsAt: { type: ['string', 'null'] },
+  },
+} as const;
+
+const allocationPatchBodySchema = {
+  type: 'object',
+  additionalProperties: false,
+  minProperties: 1,
+  properties: {
+    renterId: { type: 'integer', minimum: 1 },
+    startsAt: { type: 'string', minLength: 1 },
+    endsAt: { type: ['string', 'null'] },
+  },
+} as const;
+
+const allocationParamSchema = {
+  type: 'object',
+  required: ['id', 'allocationId'],
+  properties: {
+    id: { type: 'integer' },
+    allocationId: { type: 'integer' },
+  },
+} as const;
+
 interface NotificationPatchBody {
   notificationsEnabled: boolean;
   selectedEvents: NotificationEventType[];
@@ -138,6 +208,36 @@ interface BillingPlanBody extends BillingPlanPayload {
     zone: SpotZone;
     spotAdderEurPerKwh: number;
   };
+}
+
+interface RenterBody {
+  name: string;
+  email?: string | null;
+}
+
+interface RenterPatchBody {
+  name?: string;
+  email?: string | null;
+}
+
+interface RenterIdParam {
+  renterId: number;
+}
+
+interface AllocationBody {
+  renterId: number;
+  startsAt: string;
+  endsAt?: string | null;
+}
+
+interface AllocationPatchBody {
+  renterId?: number;
+  startsAt?: string;
+  endsAt?: string | null;
+}
+
+interface AllocationParam extends IdParam {
+  allocationId: number;
 }
 
 // Typescript interfaces
@@ -176,6 +276,52 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
         ...deviceOwnerFilter(req),
       },
     });
+  }
+
+  function requireAuthUserId(req: { authUser?: { id: number } }, reply: FastifyReply): number | null {
+    if (!req.authUser?.id) {
+      reply.code(401).send({
+        error: 'UNAUTHENTICATED',
+        message: 'Log in to access this resource.',
+      });
+      return null;
+    }
+
+    return req.authUser.id;
+  }
+
+  function sendMultiTenantError(reply: FastifyReply, error: unknown): boolean {
+    if (!(error instanceof MultiTenantDomainError)) {
+      return false;
+    }
+
+    switch (error.code) {
+      case 'INVALID_DATE_RANGE':
+      case 'ALLOCATION_OVERLAP':
+        reply.code(400).send({
+          error: error.code,
+          message: error.message,
+        });
+        return true;
+      case 'RENTER_IN_USE':
+        reply.code(409).send({
+          error: error.code,
+          message: error.message,
+        });
+        return true;
+      case 'DEVICE_NOT_FOUND':
+      case 'DEVICE_NOT_OWNED':
+      case 'RENTER_NOT_FOUND':
+      case 'RENTER_NOT_OWNED':
+      case 'ALLOCATION_NOT_FOUND':
+        reply.code(404).send({
+          error: 'NOT_FOUND',
+          message: error.message,
+        });
+        return true;
+      default:
+        return false;
+    }
   }
 
   // Custom error format so validation errors use our { error, message } shape
@@ -414,6 +560,169 @@ fastify.patch<{ Params: IdParam; Body: NotificationPatchBody }>(
     });
   },
 );
+
+  fastify.get('/api/settings/renters', async (req, reply) => {
+    const landlordUserId = requireAuthUserId(req, reply);
+    if (landlordUserId == null) return;
+
+    const renters = await listRentersForLandlord(landlordUserId);
+    return reply.send(renters);
+  });
+
+  fastify.post<{ Body: RenterBody }>('/api/settings/renters', {
+    schema: { body: renterBodySchema },
+  }, async (req, reply) => {
+    const landlordUserId = requireAuthUserId(req, reply);
+    if (landlordUserId == null) return;
+
+    const renter = await createRenter({
+      landlordUserId,
+      name: req.body.name,
+      email: req.body.email ?? null,
+    });
+
+    return reply.code(201).send(renter);
+  });
+
+  fastify.patch<{ Params: RenterIdParam; Body: RenterPatchBody }>('/api/settings/renters/:renterId', {
+    schema: { params: renterIdParamSchema, body: renterPatchBodySchema },
+  }, async (req, reply) => {
+    const landlordUserId = requireAuthUserId(req, reply);
+    if (landlordUserId == null) return;
+
+    try {
+      const updated = await updateRenter({
+        renterId: req.params.renterId,
+        landlordUserId,
+        ...(req.body.name !== undefined ? { name: req.body.name } : {}),
+        ...(req.body.email !== undefined ? { email: req.body.email } : {}),
+      });
+
+      return reply.send(updated);
+    } catch (error) {
+      if (sendMultiTenantError(reply, error)) return;
+      throw error;
+    }
+  });
+
+  fastify.delete<{ Params: RenterIdParam }>('/api/settings/renters/:renterId', {
+    schema: { params: renterIdParamSchema },
+  }, async (req, reply) => {
+    const landlordUserId = requireAuthUserId(req, reply);
+    if (landlordUserId == null) return;
+
+    try {
+      await deleteRenter(req.params.renterId, landlordUserId);
+      return reply.code(204).send();
+    } catch (error) {
+      if (sendMultiTenantError(reply, error)) return;
+      throw error;
+    }
+  });
+
+  fastify.get<{ Params: IdParam }>('/api/settings/:id/renter-allocations', {
+    schema: { params: idParamSchema },
+  }, async (req, reply) => {
+    const { id } = req.params;
+    const existing = await findAccessibleDevice(id, req);
+    if (!existing) {
+      return reply.code(404).send({
+        error: 'NOT_FOUND',
+        message: `Device ${id} not found`,
+      });
+    }
+
+    try {
+      const allocations = await listRenterAllocationsForDevice(id, req.authUser?.id);
+      return reply.send(allocations);
+    } catch (error) {
+      if (sendMultiTenantError(reply, error)) return;
+      throw error;
+    }
+  });
+
+  fastify.post<{ Params: IdParam; Body: AllocationBody }>('/api/settings/:id/renter-allocations', {
+    schema: { params: idParamSchema, body: allocationBodySchema },
+  }, async (req, reply) => {
+    const { id } = req.params;
+    const existing = await findAccessibleDevice(id, req);
+    if (!existing) {
+      return reply.code(404).send({
+        error: 'NOT_FOUND',
+        message: `Device ${id} not found`,
+      });
+    }
+
+    try {
+      const allocation = await createRenterAllocation({
+        deviceId: id,
+        renterId: req.body.renterId,
+        startsAt: req.body.startsAt,
+        endsAt: req.body.endsAt,
+        landlordUserId: req.authUser?.id,
+      });
+
+      return reply.code(201).send(allocation);
+    } catch (error) {
+      if (sendMultiTenantError(reply, error)) return;
+      throw error;
+    }
+  });
+
+  fastify.patch<{ Params: AllocationParam; Body: AllocationPatchBody }>('/api/settings/:id/renter-allocations/:allocationId', {
+    schema: { params: allocationParamSchema, body: allocationPatchBodySchema },
+  }, async (req, reply) => {
+    const { id, allocationId } = req.params;
+    const existing = await findAccessibleDevice(id, req);
+    if (!existing) {
+      return reply.code(404).send({
+        error: 'NOT_FOUND',
+        message: `Device ${id} not found`,
+      });
+    }
+
+    try {
+      const updated = await updateRenterAllocation({
+        allocationId,
+        deviceId: id,
+        ...(req.body.renterId !== undefined ? { renterId: req.body.renterId } : {}),
+        ...(req.body.startsAt !== undefined ? { startsAt: req.body.startsAt } : {}),
+        ...(req.body.endsAt !== undefined ? { endsAt: req.body.endsAt } : {}),
+        landlordUserId: req.authUser?.id,
+      });
+
+      return reply.send(updated);
+    } catch (error) {
+      if (sendMultiTenantError(reply, error)) return;
+      throw error;
+    }
+  });
+
+  fastify.delete<{ Params: AllocationParam }>('/api/settings/:id/renter-allocations/:allocationId', {
+    schema: { params: allocationParamSchema },
+  }, async (req, reply) => {
+    const { id, allocationId } = req.params;
+    const existing = await findAccessibleDevice(id, req);
+    if (!existing) {
+      return reply.code(404).send({
+        error: 'NOT_FOUND',
+        message: `Device ${id} not found`,
+      });
+    }
+
+    try {
+      await deleteRenterAllocation({
+        allocationId,
+        deviceId: id,
+        landlordUserId: req.authUser?.id,
+      });
+
+      return reply.code(204).send();
+    } catch (error) {
+      if (sendMultiTenantError(reply, error)) return;
+      throw error;
+    }
+  });
 
   fastify.get<{ Params: IdParam }>('/api/settings/:id/billing-plan', {
     schema: { params: idParamSchema },
