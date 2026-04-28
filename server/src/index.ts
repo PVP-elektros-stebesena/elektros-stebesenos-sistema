@@ -14,6 +14,7 @@ import { ConsoleNotificationSender, notificationService } from './services/notif
 import { createBrevoEmailNotificationSender } from './services/emailNotificationSender.js';
 import { startSpotPriceScheduler, stopSpotPriceScheduler } from './services/spotPriceScheduler.js';
 import { startStandbyPowerScheduler, stopStandbyPowerScheduler } from './services/standbyPowerScheduler.js';
+import { billingReportRoutes } from './routes/billingReports.js';
 
 const fastify = Fastify({ logger: true });
 
@@ -44,6 +45,9 @@ fastify.register(notificationRoutes);
 
 // Export endpoints
 await fastify.register(exportRoutes);
+
+// Billing report endpoints
+fastify.register(billingReportRoutes);
 // Poller status endpoint
 fastify.get('/api/poller/status', async () => {
     return { devices: devicePoller.getStatus() };
