@@ -211,6 +211,27 @@ describe('authentication routes', () => {
     const allowed = await app.inject({ method: 'GET', url: '/api/protected' });
     expect(allowed.statusCode).toBe(200);
     expect(allowed.json()).toEqual({ ok: true });
+
+    const meRes = await app.inject({ method: 'GET', url: '/api/auth/me' });
+    expect(meRes.statusCode).toBe(200);
+    expect(meRes.json().user.id).toBeGreaterThan(0);
+    expect(meRes.json().user.email).toBe('local-dev@example.com');
+
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/settings',
+      payload: { name: 'Bypass-owned meter' },
+    });
+    expect(createRes.statusCode).toBe(201);
+    expect(createRes.json().userId).toBe(meRes.json().user.id);
+
+    const renterRes = await app.inject({
+      method: 'POST',
+      url: '/api/settings/renters',
+      payload: { name: 'Bypass renter' },
+    });
+    expect(renterRes.statusCode).toBe(201);
+    expect(renterRes.json().landlordUserId).toBe(meRes.json().user.id);
   });
 
   it('ignores the auth bypass in production', async () => {
