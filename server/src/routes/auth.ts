@@ -4,8 +4,10 @@ import {
   createFirstUser,
   isSetupRequired,
   login,
+  type PublicUser,
   revokeSession,
 } from '../services/authService.js';
+import prisma from '../lib/prisma.js';
 
 const credentialsSchema = {
   type: 'object',
@@ -47,13 +49,50 @@ function isAuthDisabled(): boolean {
     && process.env.NODE_ENV !== 'test';
 }
 
-function getLocalDevUser() {
+const LOCAL_DEV_EMAIL = 'local-dev@example.com';
+
+function toPublicUser(user: {
+  id: number;
+  email: string;
+  username: string | null;
+  displayName: string | null;
+  createdAt: Date;
+  lastLoginAt: Date | null;
+}): PublicUser {
   return {
-    id: 0,
-    email: 'local-dev@example.com',
-    username: 'local-dev',
-    displayName: 'Local Dev',
+    id: user.id,
+    email: user.email,
+    username: user.username,
+    displayName: user.displayName,
+    createdAt: user.createdAt,
+    lastLoginAt: user.lastLoginAt,
   };
+}
+
+async function getLocalDevUser(): Promise<PublicUser> {
+  const user = await prisma.$transaction(async (tx) => {
+    const localDevUser = await tx.user.upsert({
+      where: { email: LOCAL_DEV_EMAIL },
+      update: {
+        displayName: 'Local Dev',
+      },
+      create: {
+        email: LOCAL_DEV_EMAIL,
+        username: null,
+        displayName: 'Local Dev',
+        passwordHash: 'disabled-auth-local-dev',
+      },
+    });
+
+    await tx.device.updateMany({
+      where: { userId: null },
+      data: { userId: localDevUser.id },
+    });
+
+    return localDevUser;
+  });
+
+  return toPublicUser(user);
 }
 
 function getBearerToken(req: FastifyRequest): string | undefined {
@@ -65,12 +104,14 @@ function getBearerToken(req: FastifyRequest): string | undefined {
 }
 
 export async function requireAuthentication(req: FastifyRequest, reply: FastifyReply): Promise<void> {
+  if (req.method === 'OPTIONS') return;
+  if (!req.url.startsWith('/api/')) return;
+
   if (isAuthDisabled()) {
+    req.authUser = await getLocalDevUser();
     return;
   }
 
-  if (req.method === 'OPTIONS') return;
-  if (!req.url.startsWith('/api/')) return;
   if (
     req.url.startsWith('/api/auth/status') ||
     req.url.startsWith('/api/auth/setup') ||
@@ -141,7 +182,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get('/api/auth/me', async (req, reply) => {
     if (isAuthDisabled()) {
-      return reply.send({ user: getLocalDevUser() });
+      return reply.send({ user: await getLocalDevUser() });
     }
 
     const user = await authenticateToken(getBearerToken(req));

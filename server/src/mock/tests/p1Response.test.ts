@@ -12,7 +12,7 @@ const sampleOutput: ScenarioOutput = {
 describe('toP1Response', () => {
   it('returns all string values (matching real gateway format)', () => {
     const response = toP1Response(sampleOutput);
-    for (const [key, val] of Object.entries(response)) {
+    for (const val of Object.values(response)) {
       expect(typeof val).toBe('string');
     }
   });

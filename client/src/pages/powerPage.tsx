@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Alert,
   Badge,
@@ -28,14 +28,9 @@ import {
   YAxis,
 } from 'recharts';
 import { usePolling } from '../hooks/usePolling';
-import { apiFetch } from '../services/apiClient';
 import { useI18n } from '../i18n/i18n';
 import type { EstimatedCost, GhostLoadOverview } from '../types/energy';
-
-interface DeviceOption {
-  id: number;
-  name: string;
-}
+import { resolveDeviceSelection, useDeviceOptions } from '../hooks/useDeviceOptions';
 
 interface PowerLatest {
   deviceId: number;
@@ -277,67 +272,47 @@ function formatPfBand(latest: PowerLatest | undefined): string {
 
 export function PowerPage() {
   const { t, language } = useI18n();
-  const [devices, setDevices] = useState<DeviceOption[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
-  const [devicesLoading, setDevicesLoading] = useState(true);
-  const [devicesError, setDevicesError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let active = true;
-
-    apiFetch<DeviceOption[]>('/api/settings')
-      .then((res) => {
-        if (!active) return;
-        setDevices(res);
-        if (res.length > 0) {
-          setSelectedDeviceId((prev) => prev ?? String(res[0].id));
-        }
-      })
-      .catch(() => {
-        if (active) setDevicesError(t('power.failedLoadDevices'));
-      })
-      .finally(() => {
-        if (active) setDevicesLoading(false);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [t]);
+  const {
+    devices,
+    isLoading: devicesLoading,
+    error: devicesError,
+  } = useDeviceOptions();
+  const activeSelectedDeviceId = resolveDeviceSelection(selectedDeviceId, devices);
 
   const deviceQuery = useMemo(
-    () => (selectedDeviceId ? `?deviceId=${selectedDeviceId}` : ''),
-    [selectedDeviceId],
+    () => (activeSelectedDeviceId ? `?deviceId=${activeSelectedDeviceId}` : ''),
+    [activeSelectedDeviceId],
   );
 
   const { data: latest, isLoading: latestLoading, error: latestError } = usePolling<PowerLatest>(
-    ['power', 'latest', selectedDeviceId ?? 'none'],
-    selectedDeviceId ? `/api/power/latest${deviceQuery}` : '',
-    { intervalSeconds: 5, enabled: selectedDeviceId != null },
+    ['power', 'latest', activeSelectedDeviceId ?? 'none'],
+    activeSelectedDeviceId ? `/api/power/latest${deviceQuery}` : '',
+    { intervalSeconds: 5, enabled: activeSelectedDeviceId != null },
   );
 
   const { data: summary, isLoading: summaryLoading, error: summaryError } = usePolling<PowerSummary>(
-    ['power', 'summary', selectedDeviceId ?? 'none'],
-    selectedDeviceId ? `/api/power/summary${deviceQuery}` : '',
-    { intervalSeconds: 10, enabled: selectedDeviceId != null },
+    ['power', 'summary', activeSelectedDeviceId ?? 'none'],
+    activeSelectedDeviceId ? `/api/power/summary${deviceQuery}` : '',
+    { intervalSeconds: 10, enabled: activeSelectedDeviceId != null },
   );
 
   const { data: history, isLoading: historyLoading, error: historyError } = usePolling<PowerHistoryResponse>(
-    ['power', 'history', selectedDeviceId ?? 'none'],
-    selectedDeviceId ? `/api/power/history?interval=raw&points=60&deviceId=${selectedDeviceId}` : '',
-    { intervalSeconds: 10, enabled: selectedDeviceId != null },
+    ['power', 'history', activeSelectedDeviceId ?? 'none'],
+    activeSelectedDeviceId ? `/api/power/history?interval=raw&points=60&deviceId=${activeSelectedDeviceId}` : '',
+    { intervalSeconds: 10, enabled: activeSelectedDeviceId != null },
   );
 
   const { data: anomalies, isLoading: anomaliesLoading, error: anomaliesError } = usePolling<PowerAnomalyResponse>(
-    ['power', 'anomalies', selectedDeviceId ?? 'none'],
-    selectedDeviceId ? `/api/power/anomalies?limit=10&deviceId=${selectedDeviceId}` : '',
-    { intervalSeconds: 10, enabled: selectedDeviceId != null },
+    ['power', 'anomalies', activeSelectedDeviceId ?? 'none'],
+    activeSelectedDeviceId ? `/api/power/anomalies?limit=10&deviceId=${activeSelectedDeviceId}` : '',
+    { intervalSeconds: 10, enabled: activeSelectedDeviceId != null },
   );
 
   const { data: reportsList, isLoading: reportsLoading, error: reportsError } = usePolling<ReportListResponse>(
-    ['reports', 'latest', selectedDeviceId ?? 'none'],
-    selectedDeviceId ? `/api/reports?limit=1&deviceId=${selectedDeviceId}&reportUse=technical` : '',
-    { intervalSeconds: 30, enabled: selectedDeviceId != null },
+    ['reports', 'latest', activeSelectedDeviceId ?? 'none'],
+    activeSelectedDeviceId ? `/api/reports?limit=1&deviceId=${activeSelectedDeviceId}&reportUse=technical` : '',
+    { intervalSeconds: 30, enabled: activeSelectedDeviceId != null },
   );
 
   const latestReportId = reportsList?.data[0]?.id ?? null;
@@ -349,9 +324,9 @@ export function PowerPage() {
   );
 
   const { data: standbyOverview, isLoading: standbyLoading, error: standbyError } = usePolling<GhostLoadOverview>(
-    ['power', 'standby', selectedDeviceId ?? 'none'],
-    selectedDeviceId ? `/api/power/standby?deviceId=${selectedDeviceId}` : '',
-    { intervalSeconds: 60, enabled: selectedDeviceId != null },
+    ['power', 'standby', activeSelectedDeviceId ?? 'none'],
+    activeSelectedDeviceId ? `/api/power/standby?deviceId=${activeSelectedDeviceId}` : '',
+    { intervalSeconds: 60, enabled: activeSelectedDeviceId != null },
   );
 
   const trendData: PowerTrendPoint[] = useMemo(() => {
@@ -465,7 +440,7 @@ export function PowerPage() {
               value: String(device.id),
               label: device.name,
             }))}
-            value={selectedDeviceId}
+            value={activeSelectedDeviceId}
             onChange={setSelectedDeviceId}
             style={{ maxWidth: 320 }}
             disabled={devicesLoading || devices.length === 0}
@@ -474,7 +449,7 @@ export function PowerPage() {
 
         {devicesError && (
           <Alert mt="md" color="red" title={t('power.failedLoadDevicesTitle')}>
-            {devicesError}
+            {t('power.failedLoadDevices')}
           </Alert>
         )}
 
@@ -485,7 +460,7 @@ export function PowerPage() {
         )}
       </Card>
 
-      {selectedDeviceId && (
+      {activeSelectedDeviceId && (
         <>
           {(summaryLoading || latestLoading) && (
             <Group justify="center" py="md">

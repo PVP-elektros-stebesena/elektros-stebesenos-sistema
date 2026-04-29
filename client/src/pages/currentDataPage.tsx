@@ -3,11 +3,7 @@ import { Alert, Button, Card, Group, Loader, Select, Stack, Table, Text, TextInp
 import type { LiveData } from '../types/energy'
 import { apiDownload, apiFetch } from '../services/apiClient'
 import { useI18n } from '../i18n/i18n'
-
-interface Device {
-  id: number
-  name: string
-}
+import { resolveDeviceSelection, useDeviceOptions } from '../hooks/useDeviceOptions'
 
 function KeyValueTable<T extends object>({ data }: { data: T }) {
   const rows = Object.entries(data).map(([key, value]) => (
@@ -38,14 +34,17 @@ export function CurrentDataPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const [devices, setDevices] = useState<Device[]>([])
-  const [devicesLoading, setDevicesLoading] = useState(true)
-
   const [exportDeviceId, setExportDeviceId] = useState<string | null>(null)
   const [exportFromDate, setExportFromDate] = useState<string>('')
   const [exportToDate, setExportToDate] = useState<string>('')
   const [exporting, setExporting] = useState<'csv' | 'xlsx' | null>(null)
   const [exportError, setExportError] = useState<string | null>(null)
+  const {
+    devices,
+    isLoading: devicesLoading,
+    error: devicesError,
+  } = useDeviceOptions()
+  const activeExportDeviceId = resolveDeviceSelection(exportDeviceId, devices)
 
   useEffect(() => {
     let active = true
@@ -76,39 +75,7 @@ export function CurrentDataPage() {
       active = false
       clearInterval(interval)
     }
-  }, [])
-
-  useEffect(() => {
-    let active = true
-
-    const loadDevices = async () => {
-      try {
-        const result = await apiFetch<Device[]>('/api/settings')
-
-        if (!active) return
-
-        setDevices(result)
-
-        if (result.length > 0) {
-          setExportDeviceId((prev) => prev ?? String(result[0].id))
-        }
-      } catch (err) {
-        if (active) {
-          setExportError(err instanceof Error ? err.message : t('current.errorLoadDevices'))
-        }
-      } finally {
-        if (active) {
-          setDevicesLoading(false)
-        }
-      }
-    }
-
-    loadDevices()
-
-    return () => {
-      active = false
-    }
-  }, [])
+  }, [t])
 
   useEffect(() => {
     const today = new Date()
@@ -125,7 +92,7 @@ export function CurrentDataPage() {
   const handleExport = async (format: 'csv' | 'xlsx') => {
     setExportError(null)
 
-    if (!exportDeviceId) {
+    if (!activeExportDeviceId) {
       setExportError(t('current.errorSelectDevice'))
       return
     }
@@ -163,7 +130,7 @@ export function CurrentDataPage() {
       const to = endDateTime
 
       const params = new URLSearchParams({
-        deviceId: exportDeviceId,
+        deviceId: activeExportDeviceId,
         from,
         to,
         format,
@@ -171,7 +138,7 @@ export function CurrentDataPage() {
 
       await apiDownload(
         `/api/exports/readings?${params.toString()}`,
-        `readings-device-${exportDeviceId}-${exportFromDate}-to-${exportToDate}.${format}`,
+        `readings-device-${activeExportDeviceId}-${exportFromDate}-to-${exportToDate}.${format}`,
       )
     } catch (err) {
       console.error('Export failed:', err)
@@ -194,7 +161,7 @@ export function CurrentDataPage() {
               value: String(device.id),
               label: device.name,
             }))}
-            value={exportDeviceId}
+            value={activeExportDeviceId}
             onChange={setExportDeviceId}
             disabled={devicesLoading}
             style={{ minWidth: 220 }}
@@ -218,7 +185,7 @@ export function CurrentDataPage() {
             variant="light"
             onClick={() => handleExport('csv')}
             loading={exporting === 'csv'}
-            disabled={!exportDeviceId || devicesLoading}
+            disabled={!activeExportDeviceId || devicesLoading}
           >
             {t('current.exportCsv')}
           </Button>
@@ -227,11 +194,17 @@ export function CurrentDataPage() {
             variant="light"
             onClick={() => handleExport('xlsx')}
             loading={exporting === 'xlsx'}
-            disabled={!exportDeviceId || devicesLoading}
+            disabled={!activeExportDeviceId || devicesLoading}
           >
             {t('current.exportExcel')}
           </Button>
         </Group>
+
+        {devicesError && (
+          <Alert color="red" mt="md">
+            {devicesError instanceof Error ? devicesError.message : t('current.errorLoadDevices')}
+          </Alert>
+        )}
 
         {exportError && (
           <Alert color="red" title={t('current.exportFailed')} mt="md">

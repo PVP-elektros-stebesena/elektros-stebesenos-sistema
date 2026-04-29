@@ -7,7 +7,6 @@ import {
   getMonthStart,
   getMonthEnd,
   resolvePresetPeriodRange,
-  type HealthScore,
 } from '../reportGenerator.js';
 import type { WeeklyComplianceResult } from '../voltageAnalysis.js';
 

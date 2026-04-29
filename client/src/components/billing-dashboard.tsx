@@ -19,7 +19,7 @@ import {
   Tooltip,
 } from '@mantine/core'
 import { apiFetch, apiPost, apiPatch, apiDelete, apiDownload } from '../services/apiClient'
-import { useI18n } from '../i18n/i18n'
+import { resolveDeviceSelection, useDeviceOptions } from '../hooks/useDeviceOptions'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -119,21 +119,22 @@ function RenterReportModal({ renter, devices, onClose }: RenterReportModalProps)
   const [currentReport, setCurrentReport] = useState<FullReport | null>(null)
   const [historicalReports, setHistoricalReports] = useState<BillingReportSummary[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
+  const activeDeviceId = resolveDeviceSelection(deviceId, devices)
 
   useEffect(() => {
-    if (!deviceId) { setHistoricalReports([]); return }
+    if (!activeDeviceId) { setHistoricalReports([]); return }
     let active = true
     setHistoryLoading(true)
-    apiFetch<BillingReportSummary[]>(`/api/billing-reports?deviceId=${deviceId}&renterId=${renter.id}`)
+    apiFetch<BillingReportSummary[]>(`/api/billing-reports?deviceId=${activeDeviceId}&renterId=${renter.id}`)
       .then((r) => { if (active) setHistoricalReports(r) })
       .catch(() => {})
       .finally(() => { if (active) setHistoryLoading(false) })
     return () => { active = false }
-  }, [deviceId, renter.id])
+  }, [activeDeviceId, renter.id])
 
   async function handleGenerate() {
     setGenerateError(null)
-    if (!deviceId) { setGenerateError('Select a device.'); return }
+    if (!activeDeviceId) { setGenerateError('Select a device.'); return }
     if (!fromDate || !toDate) { setGenerateError('Select a period.'); return }
     const from = new Date(fromDate)
     const to = new Date(toDate + 'T23:59:59.999Z')
@@ -141,7 +142,7 @@ function RenterReportModal({ renter, devices, onClose }: RenterReportModalProps)
     setGenerating(true)
     try {
       const report = await apiPost<FullReport, unknown>('/api/billing-reports', {
-        deviceId: parseInt(deviceId, 10),
+        deviceId: parseInt(activeDeviceId, 10),
         renterId: renter.id,
         startsAt: from.toISOString(),
         endsAt: to.toISOString(),
@@ -184,10 +185,10 @@ function RenterReportModal({ renter, devices, onClose }: RenterReportModalProps)
     >
       <Stack gap="sm">
         <Group align="flex-end" gap="sm">
-          <Select label="Device" placeholder="Select device" data={deviceOptions} value={deviceId} onChange={setDeviceId} styles={inputStyles} style={{ flex: 1 }} />
+          <Select label="Device" placeholder="Select device" data={deviceOptions} value={activeDeviceId} onChange={setDeviceId} styles={inputStyles} style={{ flex: 1 }} />
           <TextInput label="From" type="date" value={fromDate} onChange={(e) => setFromDate(e.currentTarget.value)} styles={inputStyles} min="2000-01-01" style={{ flex: 1 }} />
           <TextInput label="To" type="date" value={toDate} onChange={(e) => setToDate(e.currentTarget.value)} styles={inputStyles} min="2000-01-01" style={{ flex: 1 }} />
-          <Button onClick={handleGenerate} loading={generating} disabled={!deviceId || !fromDate || !toDate} style={{ backgroundColor: '#FFCC59', color: '#000' }}>
+          <Button onClick={handleGenerate} loading={generating} disabled={!activeDeviceId || !fromDate || !toDate} style={{ backgroundColor: '#FFCC59', color: '#000' }}>
             Generate
           </Button>
         </Group>
@@ -226,7 +227,7 @@ function RenterReportModal({ renter, devices, onClose }: RenterReportModalProps)
           </Alert>
         )}
 
-        {deviceId && (
+        {activeDeviceId && (
           <>
             <Divider my="xs" label="Historical renter reports" labelPosition="left" />
             {historyLoading && <Group gap="xs"><Loader size="xs" /><Text size="sm" c="dimmed">Loading…</Text></Group>}
@@ -415,6 +416,7 @@ function AllocationSection({ devices, renters }: AllocationSectionProps) {
   const [editStartsAt, setEditStartsAt] = useState('')
   const [editEndsAt, setEditEndsAt] = useState('')
   const [editSaving, setEditSaving] = useState(false)
+  const activeDeviceId = resolveDeviceSelection(deviceId, devices)
 
   const loadAllocations = useCallback(async (id: string) => {
     setLoading(true)
@@ -428,35 +430,35 @@ function AllocationSection({ devices, renters }: AllocationSectionProps) {
   }, [])
 
   useEffect(() => {
-    if (deviceId) loadAllocations(deviceId)
+    if (activeDeviceId) loadAllocations(activeDeviceId)
     else setAllocations([])
-  }, [deviceId, loadAllocations])
+  }, [activeDeviceId, loadAllocations])
 
   async function handleAdd() {
-    if (!deviceId || !newRenterId || !newStartsAt) {
+    if (!activeDeviceId || !newRenterId || !newStartsAt) {
       setAddError('Device, renter, and start date are required.')
       return
     }
     setAddError(null)
     setAdding(true)
     try {
-      await apiPost(`/api/settings/${deviceId}/renter-allocations`, {
+      await apiPost(`/api/settings/${activeDeviceId}/renter-allocations`, {
         renterId: parseInt(newRenterId, 10),
         startsAt: new Date(newStartsAt).toISOString(),
         endsAt: newEndsAt ? new Date(newEndsAt + 'T23:59:59.999Z').toISOString() : null,
       })
       setNewRenterId(null); setNewStartsAt(''); setNewEndsAt('')
-      loadAllocations(deviceId)
+      loadAllocations(activeDeviceId)
     } catch (e) {
       setAddError(e instanceof Error ? e.message : 'Failed to create allocation.')
     } finally { setAdding(false) }
   }
 
   async function handleDelete(allocId: number) {
-    if (!deviceId || !window.confirm('Remove this allocation?')) return
+    if (!activeDeviceId || !window.confirm('Remove this allocation?')) return
     try {
-      await apiDelete(`/api/settings/${deviceId}/renter-allocations/${allocId}`)
-      loadAllocations(deviceId)
+      await apiDelete(`/api/settings/${activeDeviceId}/renter-allocations/${allocId}`)
+      loadAllocations(activeDeviceId)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to delete allocation.')
     }
@@ -469,15 +471,15 @@ function AllocationSection({ devices, renters }: AllocationSectionProps) {
   }
 
   async function handleEditSave(allocId: number) {
-    if (!deviceId || !editStartsAt) return
+    if (!activeDeviceId || !editStartsAt) return
     setEditSaving(true)
     try {
-      await apiPatch(`/api/settings/${deviceId}/renter-allocations/${allocId}`, {
+      await apiPatch(`/api/settings/${activeDeviceId}/renter-allocations/${allocId}`, {
         startsAt: new Date(editStartsAt).toISOString(),
         endsAt: editEndsAt ? new Date(editEndsAt + 'T23:59:59.999Z').toISOString() : null,
       })
       setEditId(null)
-      loadAllocations(deviceId)
+      loadAllocations(activeDeviceId)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to update allocation.')
     } finally { setEditSaving(false) }
@@ -495,7 +497,7 @@ function AllocationSection({ devices, renters }: AllocationSectionProps) {
         label="Device"
         placeholder="Select device"
         data={deviceOptions}
-        value={deviceId}
+        value={activeDeviceId}
         onChange={setDeviceId}
         styles={inputStyles}
         mb="md"
@@ -504,7 +506,7 @@ function AllocationSection({ devices, renters }: AllocationSectionProps) {
       {loading && <Group gap="xs"><Loader size="xs" /><Text size="sm" c="dimmed">Loading…</Text></Group>}
       {error && <Alert color="red" variant="light" p="xs" mb="sm"><Text size="sm">{error}</Text></Alert>}
 
-      {deviceId && !loading && (
+      {activeDeviceId && !loading && (
         <>
           {allocations.length === 0 && <Text size="sm" c="dimmed" mb="md">No allocations for this device yet.</Text>}
 
@@ -632,21 +634,22 @@ function ReportSection({ devices }: ReportSectionProps) {
 
   const [exporting, setExporting] = useState<'csv' | 'xlsx' | null>(null)
   const [exportError, setExportError] = useState<string | null>(null)
+  const activeDeviceId = resolveDeviceSelection(deviceId, devices)
 
   useEffect(() => {
-    if (!deviceId) { setHistoricalReports([]); setCurrentReport(null); return }
+    if (!activeDeviceId) { setHistoricalReports([]); setCurrentReport(null); return }
     let active = true
     setHistoryLoading(true)
-    apiFetch<BillingReportSummary[]>(`/api/billing-reports?deviceId=${deviceId}`)
+    apiFetch<BillingReportSummary[]>(`/api/billing-reports?deviceId=${activeDeviceId}`)
       .then((r) => { if (active) setHistoricalReports(r) })
       .catch(() => {})
       .finally(() => { if (active) setHistoryLoading(false) })
     return () => { active = false }
-  }, [deviceId])
+  }, [activeDeviceId])
 
   async function handleGenerate() {
     setGenerateError(null)
-    if (!deviceId) { setGenerateError('Select a device.'); return }
+    if (!activeDeviceId) { setGenerateError('Select a device.'); return }
     if (!fromDate || !toDate) { setGenerateError('Select a period.'); return }
     const from = new Date(fromDate)
     const to = new Date(toDate + 'T23:59:59.999Z')
@@ -655,7 +658,7 @@ function ReportSection({ devices }: ReportSectionProps) {
     setGenerating(true)
     try {
       const report = await apiPost<FullReport, unknown>('/api/billing-reports', {
-        deviceId: parseInt(deviceId, 10),
+        deviceId: parseInt(activeDeviceId, 10),
         startsAt: from.toISOString(),
         endsAt: to.toISOString(),
       })
@@ -690,7 +693,7 @@ function ReportSection({ devices }: ReportSectionProps) {
       <Title order={5} c="white" mb="sm">Billing Reports</Title>
 
       <Stack gap="sm">
-        <Select label="Device" placeholder="Select device" data={deviceOptions} value={deviceId} onChange={setDeviceId} styles={inputStyles} />
+        <Select label="Device" placeholder="Select device" data={deviceOptions} value={activeDeviceId} onChange={setDeviceId} styles={inputStyles} />
         <Group grow>
           <TextInput label="From" type="date" value={fromDate} onChange={(e) => setFromDate(e.currentTarget.value)} styles={inputStyles} min="2000-01-01" />
           <TextInput label="To" type="date" value={toDate} onChange={(e) => setToDate(e.currentTarget.value)} styles={inputStyles} min="2000-01-01" />
@@ -699,7 +702,7 @@ function ReportSection({ devices }: ReportSectionProps) {
         <Button
           onClick={handleGenerate}
           loading={generating}
-          disabled={!deviceId || !fromDate || !toDate}
+          disabled={!activeDeviceId || !fromDate || !toDate}
           style={{ backgroundColor: '#FFCC59', color: '#000', alignSelf: 'flex-start' }}
         >
           {generating ? 'Generating…' : 'Generate report'}
@@ -797,7 +800,7 @@ function ReportSection({ devices }: ReportSectionProps) {
         </>
       )}
 
-      {deviceId && (
+      {activeDeviceId && (
         <>
           <Divider my="md" label="Historical reports" labelPosition="left" />
           {historyLoading && <Group gap="xs"><Loader size="xs" /><Text size="sm" c="dimmed">Loading…</Text></Group>}
@@ -837,8 +840,7 @@ function ReportSection({ devices }: ReportSectionProps) {
 // ─── Main dashboard ───────────────────────────────────────────────────────────
 
 export function BillingDashboard() {
-  const [devices, setDevices] = useState<Device[]>([])
-  const [devicesLoading, setDevicesLoading] = useState(true)
+  const { devices, isLoading: devicesLoading } = useDeviceOptions()
   const [renters, setRenters] = useState<Renter[]>([])
   const [rentersLoading, setRentersLoading] = useState(true)
 
@@ -846,15 +848,6 @@ export function BillingDashboard() {
     try {
       setRenters(await apiFetch<Renter[]>('/api/settings/renters'))
     } catch { /* ignore */ } finally { setRentersLoading(false) }
-  }, [])
-
-  useEffect(() => {
-    let active = true
-    apiFetch<Device[]>('/api/settings')
-      .then((r) => { if (active) setDevices(r) })
-      .catch(() => {})
-      .finally(() => { if (active) setDevicesLoading(false) })
-    return () => { active = false }
   }, [])
 
   useEffect(() => { loadRenters() }, [loadRenters])

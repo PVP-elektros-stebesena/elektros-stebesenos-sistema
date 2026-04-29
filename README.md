@@ -60,6 +60,18 @@ npm run dev
 
 Client runs at `http://localhost:5173`, server at `http://localhost:3000`.
 
+## Verification
+
+Run the same checks as CI:
+
+```bash
+npm ci --prefix client
+npm ci --prefix server
+npm run verify
+```
+
+Use `npm run verify` for the full local health check. It runs client lint/typecheck and server lint/typecheck/tests in the same order as CI. If you only want to run server tests, use `npm --prefix server run test`.
+
 ## Database
 
 SQLite via Prisma. The schema lives in `server/prisma/schema.prisma`, generated client output goes to `server/generated/prisma`. The database file (`dev.db`) is created automatically on first migration.
