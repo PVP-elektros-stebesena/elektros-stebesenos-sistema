@@ -76,7 +76,7 @@ export function CurrentDataPage() {
       active = false
       clearInterval(interval)
     }
-  }, [])
+  }, [t])
 
   useEffect(() => {
     let active = true
@@ -108,7 +108,7 @@ export function CurrentDataPage() {
     return () => {
       active = false
     }
-  }, [])
+  }, [t])
 
   useEffect(() => {
     const today = new Date()

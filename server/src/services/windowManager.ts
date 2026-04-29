@@ -4,7 +4,6 @@ import {
   getWindowStart,
   aggregateWindow,
 } from './voltageAnalysis.js';
-import { ESO } from '../config/eso.js';
 
 /**
  * Manages accumulation of readings into 10-minute windows

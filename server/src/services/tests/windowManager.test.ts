@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import { WindowManager } from '../windowManager.js';
-import type { VoltageReading } from '../voltageAnalysis.js';
 
 describe('WindowManager', () => {
   it('buffers readings within the same window', () => {

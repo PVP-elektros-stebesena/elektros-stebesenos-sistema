@@ -1,5 +1,5 @@
 import { Button, Card, Stack, TextInput, NumberInput, Switch, Text, Select, MultiSelect, Group, SimpleGrid, Badge } from '@mantine/core'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import type { AppSettings, BillingPlan, PowerProfilePreset, PricingMode } from '../types/energy'
 import { apiDelete, apiFetch, apiPost, apiPatch, apiPut } from '../services/apiClient'
 import { useI18n } from '../i18n/i18n'
@@ -222,15 +222,15 @@ export function SettingsForm() {
 
   const selectedDevice = deviceId ? devices.find((device) => device.id === deviceId) ?? null : null
 
-  const applyBillingPlanToForm = (plan: BillingPlan | null) => {
+  const applyBillingPlanToForm = useCallback((plan: BillingPlan | null) => {
     setActiveBillingPlan(plan)
     setS((prev) => ({
       ...prev,
       ...billingPlanToSettings(plan),
     }))
-  }
+  }, [])
 
-  const applyDeviceToForm = (device: Device) => {
+  const applyDeviceToForm = useCallback((device: Device) => {
     setDeviceId(device.id)
     setDeviceName(device.name)
     setS((prev) => ({
@@ -246,17 +246,17 @@ export function SettingsForm() {
       ...billingPlanToSettings(device.billingPlan ?? null),
     }))
     setActiveBillingPlan(device.billingPlan ?? null)
-  }
+  }, [])
 
-  const resetFormForNewDevice = () => {
+  const resetFormForNewDevice = useCallback(() => {
     setDeviceId(null)
     setDeviceName(defaultDeviceName)
     setS(EMPTY_DEVICE_SETTINGS)
     setSelectedEvents(DEFAULT_SELECTED_EVENTS)
     setActiveBillingPlan(null)
-  }
+  }, [defaultDeviceName])
 
-  const loadNotificationSettings = async (id: number) => {
+  const loadNotificationSettings = useCallback(async (id: number) => {
     try {
       const notificationSettings = await apiFetch<NotificationSettingsResponse>(
         `/api/settings/${id}/notifications`,
@@ -275,9 +275,9 @@ export function SettingsForm() {
     } catch (notificationErr) {
       console.error('Failed to load notification settings:', notificationErr)
     }
-  }
+  }, [])
 
-  const loadBillingPlan = async (id: number) => {
+  const loadBillingPlan = useCallback(async (id: number) => {
     try {
       const billingPlanResponse = await apiFetch<BillingPlanResponse>(
         `/api/settings/${id}/billing-plan`,
@@ -287,9 +287,10 @@ export function SettingsForm() {
       console.error('Failed to load billing plan:', billingPlanErr)
       applyBillingPlanToForm(null)
     }
-  }
+  }, [applyBillingPlanToForm])
 
   useEffect(() => {
+    // Initial settings load only; avoid overwriting edits on language change.
     const loadSettings = async () => {
       try {
         const loadedDevices = await apiFetch<Device[]>('/api/settings')
@@ -312,6 +313,7 @@ export function SettingsForm() {
     }
 
     void loadSettings()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const handleSelectDevice = async (value: string | null) => {

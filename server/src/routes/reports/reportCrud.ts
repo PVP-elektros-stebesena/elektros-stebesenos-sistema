@@ -78,7 +78,9 @@ export function registerReportCrudRoutes(fastify: FastifyInstance): void {
           try {
             const parsed = JSON.parse(r.anomalySummary) as RawAnomalySummaryRow[];
             anomalySummary = Array.isArray(parsed) ? parsed : [];
-          } catch {}
+          } catch {
+            // Ignore invalid anomaly summary payloads.
+          }
 
           const powerHealthScore = (r.powerHealthScore as HealthScore | null)
             ?? computePowerHealthScore(anomalySummary);
@@ -131,7 +133,9 @@ export function registerReportCrudRoutes(fastify: FastifyInstance): void {
     try {
       const parsed = JSON.parse(report.anomalySummary) as RawAnomalySummaryRow[];
       anomalySummary = Array.isArray(parsed) ? parsed : [];
-    } catch {}
+    } catch {
+      // Ignore invalid anomaly summary payloads.
+    }
 
     const anomaliesInRange = await prisma.anomaly.findMany({
       where: {

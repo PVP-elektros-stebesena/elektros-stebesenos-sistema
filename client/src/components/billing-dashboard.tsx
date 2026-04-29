@@ -19,7 +19,6 @@ import {
   Tooltip,
 } from '@mantine/core'
 import { apiFetch, apiPost, apiPatch, apiDelete, apiDownload } from '../services/apiClient'
-import { useI18n } from '../i18n/i18n'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

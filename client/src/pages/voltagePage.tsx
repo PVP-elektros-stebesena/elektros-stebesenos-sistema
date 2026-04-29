@@ -257,7 +257,7 @@ export function VoltagePage() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [t]);
 
   const deviceQuery = useMemo(
     () => (selectedDeviceId ? `?deviceId=${selectedDeviceId}` : ''),
@@ -312,6 +312,7 @@ export function VoltagePage() {
 
     historyLoadedFor.current = null;
     prevTs.current = null;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setVoltageHistory([...EMPTY_HISTORY]);
   }, [selectedDeviceId]);
 
@@ -364,6 +365,7 @@ export function VoltagePage() {
       L3: phaseMap.L3 ?? 0,
     };
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setVoltageHistory((prev) => [...prev.slice(1), point]);
   }, [latest]);
 

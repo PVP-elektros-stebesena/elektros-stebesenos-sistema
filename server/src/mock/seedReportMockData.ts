@@ -44,12 +44,6 @@ function dayStart(date: Date): Date {
   return d;
 }
 
-function inDayHours(base: Date, hour: number, minute: number): Date {
-  const d = new Date(base);
-  d.setHours(hour, minute, 0, 0);
-  return d;
-}
-
 async function ensureDevice(name: string, pollIntervalSeconds: number, useMqtt: boolean) {
   const desiredConfig = {
     deviceIp: 'http://127.0.0.1:3001/smartmeter/api/read',
