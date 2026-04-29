@@ -29,3 +29,7 @@ server/generated
 .env
 
 .dev.db
+server/prisma/test.db
+server/prisma/test.db-wal
+server/prisma/test.db-shm
+server/prisma/test.db-journal
