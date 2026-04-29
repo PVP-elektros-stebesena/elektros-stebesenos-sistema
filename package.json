@@ -2,6 +2,6 @@
   "name": "elektros-stebesenos-sistema",
   "private": true,
   "scripts": {
-    "verify": "npm --prefix client run lint && npm --prefix client run typecheck && npm --prefix server run lint && npm --prefix server run typecheck && npm --prefix server run test"
+    "verify": "npm --prefix client run lint && npm --prefix client run typecheck && npm --prefix server run prisma:generate && npm --prefix server run lint && npm --prefix server run typecheck && npm --prefix server run test"
   }
 }

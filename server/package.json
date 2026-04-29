@@ -11,6 +11,7 @@
     "mock:watch": "tsx watch src/mock/mockServer.ts",
     "mock:seed-report": "tsx src/mock/seedReportMockData.ts",
     "prisma": "npx prisma studio",
+    "prisma:generate": "prisma generate",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "build": "tsc",
