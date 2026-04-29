@@ -1,8 +1,10 @@
 import { Button, Card, Stack, TextInput, NumberInput, Switch, Text, Select, MultiSelect, Group, SimpleGrid, Badge } from '@mantine/core'
 import { useState, useEffect, useCallback } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import type { AppSettings, BillingPlan, PowerProfilePreset, PricingMode } from '../types/energy'
 import { apiDelete, apiFetch, apiPost, apiPatch, apiPut } from '../services/apiClient'
 import { useI18n } from '../i18n/i18n'
+import { SETTINGS_DEVICES_QUERY_KEY } from '../hooks/useDeviceOptions'
 
 interface Device {
   id: number
@@ -210,6 +212,7 @@ function hasBillingPlanInput(settings: AppSettings): boolean {
 
 export function SettingsForm() {
   const { t, language, setLanguage } = useI18n()
+  const queryClient = useQueryClient()
   const defaultDeviceName = t('settings.defaultDeviceName')
   const [s, setS] = useState<AppSettings>(EMPTY_DEVICE_SETTINGS)
   const [devices, setDevices] = useState<Device[]>([])
@@ -359,6 +362,7 @@ export function SettingsForm() {
       setDevices((prev) =>
         prev.map((device) => (device.id === updatedDevice.id ? updatedDevice : device)),
       )
+      await queryClient.invalidateQueries({ queryKey: SETTINGS_DEVICES_QUERY_KEY })
 
       setMessage({
         type: 'success',
@@ -405,6 +409,7 @@ export function SettingsForm() {
         resetFormForNewDevice()
       }
 
+      await queryClient.invalidateQueries({ queryKey: SETTINGS_DEVICES_QUERY_KEY })
       setMessage({ type: 'success', text: t('settings.successDeviceRemoved') })
     } catch (err) {
       console.error('Failed to remove device:', err)
@@ -585,6 +590,7 @@ export function SettingsForm() {
         })
       }
 
+      await queryClient.invalidateQueries({ queryKey: SETTINGS_DEVICES_QUERY_KEY })
       setMessage({
         type: 'success',
         text: deviceId ? t('settings.successUpdated') : t('settings.successSaved'),

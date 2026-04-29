@@ -26,6 +26,7 @@ import { usePolling } from '../hooks/usePolling';
 import { apiFetch, apiPost } from '../services/apiClient';
 import { useI18n, type Language } from '../i18n/i18n';
 import type { EstimatedCost } from '../types/energy';
+import { resolveDeviceSelection, useDeviceOptions } from '../hooks/useDeviceOptions';
 
 /* ── API response types ─────────────────────────────────────────── */
 
@@ -131,19 +132,9 @@ interface ReportDetail {
   estimatedCost: EstimatedCost;
 }
 
-interface DeviceOption {
-  id: number;
-  name: string;
-}
-
 interface ReportListResponse {
   count: number;
   data: ReportListItem[];
-}
-
-interface DeviceListResponse {
-  id: number;
-  name: string;
 }
 
 interface AnomalyContextPoint {
@@ -1510,15 +1501,7 @@ export function ReportsPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [reportUse, setReportUse] = useState<'home' | 'technical' | 'solar'>('home');
 
-  const { data: devicesRaw } = usePolling<DeviceListResponse[]>(
-    ['settings', 'all'],
-    '/api/settings',
-    { intervalSeconds: 60 },
-  );
-  const devices: DeviceOption[] = (devicesRaw ?? []).map((d) => ({
-    id: d.id,
-    name: d.name,
-  }));
+  const { devices } = useDeviceOptions(60);
 
   const { data: reportList, refetch: refetchReports } = usePolling<ReportListResponse>(
     ['reports', 'list'],
@@ -1560,6 +1543,8 @@ export function ReportsPage() {
     { value: 'monthly', label: tr(language, '1 month', '1 mėnuo') },
   ];
 
+  const activeGenDeviceId = resolveDeviceSelection(genDeviceId, devices);
+
   useEffect(() => {
     setFormError(null);
 
@@ -1581,7 +1566,7 @@ export function ReportsPage() {
   }, [reportUse]);
 
   const handleGenerate = useCallback(async () => {
-    if (!genDeviceId || !genPeriod) return;
+    if (!activeGenDeviceId || !genPeriod) return;
 
     setFormError(null);
 
@@ -1611,7 +1596,7 @@ export function ReportsPage() {
     setGenerating(true);
     try {
       await apiPost('/api/reports/generate', {
-        deviceId: parseInt(genDeviceId, 10),
+        deviceId: parseInt(activeGenDeviceId, 10),
         reportUse,
         periodType: genPeriod,
         ...(genPeriod === 'custom'
@@ -1637,7 +1622,7 @@ export function ReportsPage() {
   }, [
     genCustomEndDate,
     genCustomStartDate,
-    genDeviceId,
+    activeGenDeviceId,
     genPeriod,
     refetchReports,
     reportUse,
@@ -1686,7 +1671,7 @@ export function ReportsPage() {
           label={tr(language, 'Device', 'Įrenginys')}
           placeholder={tr(language, 'Select device', 'Pasirinkite įrenginį')}
           data={devices.map((d) => ({ value: String(d.id), label: d.name }))}
-          value={genDeviceId}
+          value={activeGenDeviceId}
           onChange={setGenDeviceId}
           style={{ minWidth: 220 }}
         />
@@ -1719,7 +1704,7 @@ export function ReportsPage() {
         <Button
           onClick={handleGenerate}
           loading={generating}
-          disabled={!genDeviceId || !genPeriod}
+          disabled={!activeGenDeviceId || !genPeriod}
         >
           {tr(language, 'Generate', 'Generuoti')}
         </Button>

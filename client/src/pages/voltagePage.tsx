@@ -27,15 +27,11 @@ import {
 import { usePolling } from '../hooks/usePolling';
 import { apiFetch } from '../services/apiClient';
 import { useI18n } from '../i18n/i18n';
+import { resolveDeviceSelection, useDeviceOptions } from '../hooks/useDeviceOptions';
 
 const MAX_POINTS = 60;
 
 /* ── API response types ─────────────────────────────────────────── */
-
-interface DeviceOption {
-  id: number;
-  name: string;
-}
 
 interface PhaseResult {
   phase: string;
@@ -227,100 +223,80 @@ const PhaseCard = memo(function PhaseCard({
 
 export function VoltagePage() {
   const { t } = useI18n();
-  const [devices, setDevices] = useState<DeviceOption[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
-  const [devicesError, setDevicesError] = useState<string | null>(null);
+  const {
+    devices,
+    isLoading: devicesLoading,
+    error: devicesError,
+  } = useDeviceOptions();
+  const activeSelectedDeviceId = resolveDeviceSelection(selectedDeviceId, devices);
 
   const [voltageHistory, setVoltageHistory] = useState<VoltagePoint[]>(() => [...EMPTY_HISTORY]);
   const prevTs = useRef<string | null>(null);
   const historyLoadedFor = useRef<string | null>(null);
 
-  useEffect(() => {
-    let active = true;
-
-    apiFetch<DeviceOption[]>('/api/settings')
-      .then((res) => {
-        if (!active) return;
-
-        setDevices(res);
-        if (res.length > 0) {
-          setSelectedDeviceId((prev) => prev ?? String(res[0].id));
-        }
-      })
-      .catch((err) => {
-        console.error('Failed to load devices:', err);
-        if (active) {
-          setDevicesError(t('voltage.failedLoadDevices'));
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [t]);
-
   const deviceQuery = useMemo(
-    () => (selectedDeviceId ? `?deviceId=${selectedDeviceId}` : ''),
-    [selectedDeviceId],
+    () => (activeSelectedDeviceId ? `?deviceId=${activeSelectedDeviceId}` : ''),
+    [activeSelectedDeviceId],
   );
 
   const historyQuery = useMemo(
     () =>
-      selectedDeviceId
-        ? `/api/voltage/history?interval=latest&points=${MAX_POINTS}&deviceId=${selectedDeviceId}`
+      activeSelectedDeviceId
+        ? `/api/voltage/history?interval=latest&points=${MAX_POINTS}&deviceId=${activeSelectedDeviceId}`
         : '',
-    [selectedDeviceId],
+    [activeSelectedDeviceId],
   );
 
   const anomaliesQuery = useMemo(
-    () => (selectedDeviceId ? `/api/voltage/anomalies?limit=10&deviceId=${selectedDeviceId}` : ''),
-    [selectedDeviceId],
+    () => (activeSelectedDeviceId ? `/api/voltage/anomalies?limit=10&deviceId=${activeSelectedDeviceId}` : ''),
+    [activeSelectedDeviceId],
   );
 
   const { data: latest } = usePolling<VoltageLatest>(
-    ['voltage', 'latest', selectedDeviceId ?? 'none'],
-    selectedDeviceId ? `/api/voltage/latest${deviceQuery}` : '',
+    ['voltage', 'latest', activeSelectedDeviceId ?? 'none'],
+    activeSelectedDeviceId ? `/api/voltage/latest${deviceQuery}` : '',
     { intervalSeconds: 5 },
   );
 
   const { data: summary } = usePolling<VoltageSummary>(
-    ['voltage', 'summary', selectedDeviceId ?? 'none'],
-    selectedDeviceId ? `/api/voltage/summary${deviceQuery}` : '',
+    ['voltage', 'summary', activeSelectedDeviceId ?? 'none'],
+    activeSelectedDeviceId ? `/api/voltage/summary${deviceQuery}` : '',
     { intervalSeconds: 10 },
   );
 
   const { data: compliance } = usePolling<ComplianceWeekly>(
-    ['voltage', 'compliance', selectedDeviceId ?? 'none'],
-    selectedDeviceId ? `/api/voltage/compliance/weekly${deviceQuery}` : '',
+    ['voltage', 'compliance', activeSelectedDeviceId ?? 'none'],
+    activeSelectedDeviceId ? `/api/voltage/compliance/weekly${deviceQuery}` : '',
     { intervalSeconds: 30 },
   );
 
   const { data: activeAnomalies } = usePolling<AnomalyResponse>(
-    ['voltage', 'anomalies', 'active', selectedDeviceId ?? 'none'],
-    selectedDeviceId ? `/api/voltage/anomalies/active${deviceQuery}` : '',
+    ['voltage', 'anomalies', 'active', activeSelectedDeviceId ?? 'none'],
+    activeSelectedDeviceId ? `/api/voltage/anomalies/active${deviceQuery}` : '',
     { intervalSeconds: 5 },
   );
 
   const { data: recentAnomalies } = usePolling<AnomalyResponse>(
-    ['voltage', 'anomalies', 'recent', selectedDeviceId ?? 'none'],
-    selectedDeviceId ? anomaliesQuery : '',
+    ['voltage', 'anomalies', 'recent', activeSelectedDeviceId ?? 'none'],
+    activeSelectedDeviceId ? anomaliesQuery : '',
     { intervalSeconds: 10 },
   );
 
   useEffect(() => {
-    if (!selectedDeviceId) return;
+    if (!activeSelectedDeviceId) return;
 
     historyLoadedFor.current = null;
     prevTs.current = null;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setVoltageHistory([...EMPTY_HISTORY]);
-  }, [selectedDeviceId]);
+  }, [activeSelectedDeviceId]);
 
   useEffect(() => {
-    if (!selectedDeviceId || !historyQuery) return;
-    if (historyLoadedFor.current === selectedDeviceId) return;
+    if (!activeSelectedDeviceId || !historyQuery) return;
+    if (historyLoadedFor.current === activeSelectedDeviceId) return;
 
-    historyLoadedFor.current = selectedDeviceId;
+    historyLoadedFor.current = activeSelectedDeviceId;
 
     apiFetch<VoltageHistoryResponse>(historyQuery)
       .then((res) => {
@@ -348,7 +324,7 @@ export function VoltagePage() {
       .catch(() => {
         setVoltageHistory([...EMPTY_HISTORY]);
       });
-  }, [selectedDeviceId, historyQuery]);
+  }, [activeSelectedDeviceId, historyQuery]);
 
   useEffect(() => {
     if (!latest) return;
@@ -394,32 +370,32 @@ export function VoltagePage() {
           </div>
 
           <Select
-            placeholder={t('voltage.selectDevice')}
+            placeholder={devicesLoading ? t('current.loadingDevices') : t('voltage.selectDevice')}
             data={devices.map((d) => ({
               value: String(d.id),
               label: d.name,
             }))}
-            value={selectedDeviceId}
+            value={activeSelectedDeviceId}
             onChange={setSelectedDeviceId}
             style={{ maxWidth: 320 }}
-            disabled={devices.length === 0}
+            disabled={devicesLoading || devices.length === 0}
           />
         </Stack>
 
         {devicesError && (
           <Alert mt="md" color="red" title={t('voltage.failedLoadDevicesTitle')}>
-            {devicesError}
+            {t('voltage.failedLoadDevices')}
           </Alert>
         )}
 
-        {!devicesError && devices.length === 0 && (
+        {!devicesError && !devicesLoading && devices.length === 0 && (
           <Alert mt="md" color="yellow" title={t('voltage.noDevicesTitle')}>
             {t('voltage.noDevicesDescription')}
           </Alert>
         )}
       </Card>
 
-      {selectedDeviceId && (
+      {activeSelectedDeviceId && (
         <>
           <SimpleGrid cols={{ base: 2, sm: 4 }}>
             <BigStat
