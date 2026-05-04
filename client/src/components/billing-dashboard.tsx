@@ -18,7 +18,7 @@ import {
   Title,
   Tooltip,
 } from '@mantine/core'
-import { apiFetch, apiPost, apiPatch, apiDelete, apiDownload } from '../services/apiClient'
+import { apiFetch, apiPost, apiPatch, apiDelete, apiDownload, getApiErrorMessage } from '../services/apiClient'
 import { resolveDeviceSelection, useDeviceOptions } from '../hooks/useDeviceOptions'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -150,7 +150,7 @@ function RenterReportModal({ renter, devices, onClose }: RenterReportModalProps)
       setCurrentReport(report)
       setHistoricalReports((prev) => [report, ...prev])
     } catch (e) {
-      setGenerateError(e instanceof Error ? e.message : 'Failed to generate report.')
+      setGenerateError(getApiErrorMessage(e, 'Failed to generate report.'))
     } finally { setGenerating(false) }
   }
 
@@ -293,7 +293,7 @@ function RenterSection({ renters, loading, onRefresh, devices }: RenterSectionPr
       setName(''); setEmail('')
       onRefresh()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to create renter.')
+      setError(getApiErrorMessage(e, 'Failed to create renter.'))
     } finally { setSaving(false) }
   }
 
@@ -305,7 +305,7 @@ function RenterSection({ renters, loading, onRefresh, devices }: RenterSectionPr
       setEditId(null)
       onRefresh()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to update renter.')
+      setError(getApiErrorMessage(e, 'Failed to update renter.'))
     } finally { setSaving(false) }
   }
 
@@ -315,7 +315,7 @@ function RenterSection({ renters, loading, onRefresh, devices }: RenterSectionPr
       await apiDelete(`/api/settings/renters/${id}`)
       onRefresh()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Cannot delete renter — remove their allocations first.')
+      setError(getApiErrorMessage(e, 'Cannot delete renter — remove their allocations first.'))
     }
   }
 
@@ -425,7 +425,7 @@ function AllocationSection({ devices, renters }: AllocationSectionProps) {
       const result = await apiFetch<RenterAllocation[]>(`/api/settings/${id}/renter-allocations`)
       setAllocations(result)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load allocations.')
+      setError(getApiErrorMessage(e, 'Failed to load allocations.'))
     } finally { setLoading(false) }
   }, [])
 
@@ -450,7 +450,7 @@ function AllocationSection({ devices, renters }: AllocationSectionProps) {
       setNewRenterId(null); setNewStartsAt(''); setNewEndsAt('')
       loadAllocations(activeDeviceId)
     } catch (e) {
-      setAddError(e instanceof Error ? e.message : 'Failed to create allocation.')
+      setAddError(getApiErrorMessage(e, 'Failed to create allocation.'))
     } finally { setAdding(false) }
   }
 
@@ -460,7 +460,7 @@ function AllocationSection({ devices, renters }: AllocationSectionProps) {
       await apiDelete(`/api/settings/${activeDeviceId}/renter-allocations/${allocId}`)
       loadAllocations(activeDeviceId)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to delete allocation.')
+      setError(getApiErrorMessage(e, 'Failed to delete allocation.'))
     }
   }
 
@@ -481,7 +481,7 @@ function AllocationSection({ devices, renters }: AllocationSectionProps) {
       setEditId(null)
       loadAllocations(activeDeviceId)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to update allocation.')
+      setError(getApiErrorMessage(e, 'Failed to update allocation.'))
     } finally { setEditSaving(false) }
   }
 
@@ -665,7 +665,7 @@ function ReportSection({ devices }: ReportSectionProps) {
       setCurrentReport(report)
       setHistoricalReports((prev) => [report, ...prev])
     } catch (e) {
-      setGenerateError(e instanceof Error ? e.message : 'Failed to generate report.')
+      setGenerateError(getApiErrorMessage(e, 'Failed to generate report.'))
     } finally { setGenerating(false) }
   }
 

@@ -15,10 +15,17 @@ async function parseJsonResponse<TData>(response: Response, url: string): Promis
   const raw = await response.text();
 
   if (!response.ok) {
+    let serverMessage: string | null = null;
+    try {
+      const parsed = JSON.parse(raw) as { message?: unknown };
+      if (typeof parsed.message === 'string') serverMessage = parsed.message;
+    } catch { /* not JSON */ }
+
     throw new ApiError(
       response.status,
       response.statusText,
       `Request failed: ${response.status} ${response.statusText} — ${url}${raw ? ` — ${raw.slice(0, 200)}` : ''}`,
+      serverMessage,
     );
   }
 
@@ -57,13 +64,22 @@ function authHeaders(): HeadersInit {
 export class ApiError extends Error {
   readonly status: number;
   readonly statusText: string;
+  readonly serverMessage: string | null;
 
-  constructor(status: number, statusText: string, message: string) {
+  constructor(status: number, statusText: string, message: string, serverMessage: string | null = null) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.statusText = statusText;
+    this.serverMessage = serverMessage;
   }
+}
+
+export function getApiErrorMessage(err: unknown, fallback: string): string {
+  if (err instanceof ApiError && err.serverMessage) {
+    return err.serverMessage;
+  }
+  return fallback;
 }
 
 export async function apiFetch<TData>(endpoint: string): Promise<TData> {

@@ -188,4 +188,4 @@ export interface AppSettings {
   retain_days: number;
 }
 
-export type Page = 'currentData' | 'voltage' | 'power' | 'settings' | 'reports' | 'billing';
+export type Page = 'currentData' | 'voltage' | 'power' | 'settings' | 'reports' | 'billing' | 'profile';
