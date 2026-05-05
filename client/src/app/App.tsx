@@ -9,11 +9,21 @@ import { PowerPage } from '../pages/powerPage';
 import { SettingsPage } from '../pages/settingsPage';
 import { ReportsPage } from '../pages/reportsPage';
 import { BillingPage } from '../pages/billingPage';
+import { ProfilePage } from '../pages/profilePage';
 import type { Page } from '../types/energy';
 import { I18nProvider } from '../i18n/i18n';
 import { AuthGate } from '../pages/AuthGate';
 import { useDisclosure } from '@mantine/hooks';
 import { WeatherTemperature } from '../components/weather-temperature';
+
+function IconUser({ size = 20, color = 'currentColor' }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="12" cy="8" r="4" stroke={color} strokeWidth="1.8" />
+      <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" stroke={color} strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
 
 function IconLogout({ size = 20, color = "currentColor" }: { size?: number; color?: string }) {
   return (
@@ -34,7 +44,7 @@ export default function App() {
     <I18nProvider>
       <MantineProvider theme={theme} defaultColorScheme="dark">
         <AuthGate>
-          {({ user, authDisabled, onLogout }) => (
+          {({ user, authDisabled, onLogout, onUserUpdate }) => (
             <Box mih="100vh">
               <Drawer
                 opened={mobileNavOpened}
@@ -101,6 +111,16 @@ export default function App() {
                       <Text c="dimmed" size="sm" maw={180} truncate>
                         {user.email}
                       </Text>
+                      <Tooltip label="Profile">
+                        <ActionIcon
+                          aria-label="Profile"
+                          variant="subtle"
+                          color="gray"
+                          onClick={() => setPage('profile')}
+                        >
+                          <IconUser size={19} />
+                        </ActionIcon>
+                      </Tooltip>
                       {!authDisabled && (
                         <Tooltip label="Log out">
                           <ActionIcon
@@ -137,6 +157,16 @@ export default function App() {
 
                     <Group gap="xs" wrap="nowrap">
                       <WeatherTemperature />
+                      <Tooltip label="Profile">
+                        <ActionIcon
+                          aria-label="Profile"
+                          variant="subtle"
+                          color="gray"
+                          onClick={() => setPage('profile')}
+                        >
+                          <IconUser size={19} />
+                        </ActionIcon>
+                      </Tooltip>
                       {!authDisabled && (
                         <Tooltip label="Log out">
                           <ActionIcon
@@ -158,6 +188,9 @@ export default function App() {
                     <Box display={page === 'power' ? undefined : 'none'}><PowerPage /></Box>
                     <Box display={page === 'reports' ? undefined : 'none'}><ReportsPage /></Box>
                     <Box display={page === 'billing' ? undefined : 'none'}><BillingPage /></Box>
+                    <Box display={page === 'profile' ? undefined : 'none'}>
+                      <ProfilePage user={user} onUserUpdate={onUserUpdate} authDisabled={authDisabled} />
+                    </Box>
                     <Box display={page === 'settings' ? undefined : 'none'}><SettingsPage /></Box>
                   </Box>
                 </Box>
