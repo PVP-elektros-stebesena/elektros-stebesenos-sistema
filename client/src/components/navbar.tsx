@@ -11,16 +11,7 @@ function IconBolt({ size = 20, color = "currentColor" }: { size?: number; color?
   );
 }
 
-function IconUser({ size = 20, color = "currentColor" }: { size?: number; color?: string }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="12" cy="8" r="4" stroke={color} strokeWidth="1.8" />
-      <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" stroke={color} strokeWidth="1.8" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function IconLogout({ size = 20, color = "currentColor" }: { size?: number; color?: string }) {
+function IconCollapse({ size = 20, color = "currentColor" }: { size?: number; color?: string }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
       <path d="M15 6l-6 6 6 6" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
@@ -33,38 +24,11 @@ function IconLogout({ size = 20, color = "currentColor" }: { size?: number; colo
 interface NavbarProps {
   page: Page;
   onNavigate: (page: Page) => void;
-  connected?: boolean;
-  userEmail?: string;
-  onLogout?: () => void | Promise<void>;
-  onProfileClick?: () => void;
+  onHide?: () => void;
 }
 
-export function Navbar({ page, onNavigate, userEmail, onLogout, onProfileClick }: NavbarProps) {
-  const { t, language, setLanguage } = useI18n()
-
-  const langToggle = (
-    <Group gap={2} style={{ backgroundColor: '#515151', borderRadius: 20, padding: '3px' }}>
-      {(['en', 'lt'] as const).map((lang) => (
-        <UnstyledButton
-          key={lang}
-          onClick={() => setLanguage(lang)}
-          px={8}
-          py={4}
-          style={{
-            borderRadius: 16,
-            backgroundColor: language === lang ? '#FFCC59' : 'transparent',
-            color: language === lang ? '#000000' : '#EBEBEB',
-            fontSize: 12,
-            fontWeight: 500,
-            lineHeight: 1,
-            transition: 'all 150ms ease',
-          }}
-        >
-          {lang.toUpperCase()}
-        </UnstyledButton>
-      ))}
-    </Group>
-  )
+export function Navbar({ page, onNavigate, onHide }: NavbarProps) {
+  const { t } = useI18n()
 
   const navItems: { label: string; page: Page }[] = [
     { label: t('nav.voltage'), page: 'voltage' },
@@ -86,35 +50,25 @@ export function Navbar({ page, onNavigate, userEmail, onLogout, onProfileClick }
         gap: 'var(--mantine-spacing-md)',
       }}
     >
-      <Flex 
-        display={{ base: 'flex', md: 'none' }} 
-        align="center" 
-        justify="space-between"
-        mb="md"
-      >
-        {logo}
-        <Group gap="xs">
-          <WeatherTemperature />
-          {langToggle}
-          {onProfileClick && (
-            <Tooltip label="Profile">
-              <ActionIcon aria-label="Profile" variant="subtle" color="gray" onClick={onProfileClick}>
-                <IconUser size={19} />
-              </ActionIcon>
-            </Tooltip>
-          )}
-          {onLogout && (
-            <Tooltip label={`Log out${userEmail ? ` ${userEmail}` : ''}`}>
-              <ActionIcon
-                aria-label="Log out"
-                variant="subtle"
-                color="gray"
-                onClick={onLogout}
-              >
-                <IconLogout size={19} />
-              </ActionIcon>
-            </Tooltip>
-          )}
+      <Group justify="space-between" wrap="nowrap">
+        <Group gap="sm" wrap="nowrap">
+          <Box
+            style={{
+              width: 32,
+              height: 32,
+              borderRadius: '50%',
+              backgroundColor: 'var(--mantine-color-primary-5)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flex: '0 0 auto',
+            }}
+          >
+            <IconBolt size={18} color="var(--mantine-color-black)" />
+          </Box>
+          <Text fw={500} size="lg" c="dark.0" style={{ lineHeight: 1 }}>
+            P1 Monitor
+          </Text>
         </Group>
 
         {onHide && (
@@ -168,45 +122,6 @@ export function Navbar({ page, onNavigate, userEmail, onLogout, onProfileClick }
         </Stack>
       </ScrollArea>
 
-        <Box
-          display={{ base: 'none', md: 'flex' }}
-          style={{ flex: 1, justifyContent: 'flex-end' }}
-        >
-          <Group gap="xs" justify="flex-end">
-            <WeatherTemperature />
-            {langToggle}
-            {userEmail && (
-              <UnstyledButton
-                onClick={onProfileClick}
-                style={{ cursor: onProfileClick ? 'pointer' : 'default' }}
-              >
-                <Text c="dimmed" size="sm" maw={180} truncate>
-                  {userEmail}
-                </Text>
-              </UnstyledButton>
-            )}
-            {onProfileClick && (
-              <Tooltip label="Profile">
-                <ActionIcon aria-label="Profile" variant="subtle" color="gray" onClick={onProfileClick}>
-                  <IconUser size={19} />
-                </ActionIcon>
-              </Tooltip>
-            )}
-            {onLogout && (
-              <Tooltip label="Log out">
-                <ActionIcon
-                  aria-label="Log out"
-                  variant="subtle"
-                  color="gray"
-                  onClick={onLogout}
-                >
-                  <IconLogout size={19} />
-                </ActionIcon>
-              </Tooltip>
-            )}
-          </Group>
-        </Box>
-      </Flex>
     </Box>
   )
 }
