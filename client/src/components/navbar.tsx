@@ -12,6 +12,15 @@ function IconBolt({ size = 20, color = "currentColor" }: { size?: number; color?
   );
 }
 
+function IconUser({ size = 20, color = "currentColor" }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="12" cy="8" r="4" stroke={color} strokeWidth="1.8" />
+      <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" stroke={color} strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 function IconLogout({ size = 20, color = "currentColor" }: { size?: number; color?: string }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -30,10 +39,35 @@ interface NavbarProps {
   connected?: boolean;
   userEmail?: string;
   onLogout?: () => void | Promise<void>;
+  onProfileClick?: () => void;
 }
 
-export function Navbar({ page, onNavigate, userEmail, onLogout }: NavbarProps) {
-  const { t } = useI18n()
+export function Navbar({ page, onNavigate, userEmail, onLogout, onProfileClick }: NavbarProps) {
+  const { t, language, setLanguage } = useI18n()
+
+  const langToggle = (
+    <Group gap={2} style={{ backgroundColor: '#515151', borderRadius: 20, padding: '3px' }}>
+      {(['en', 'lt'] as const).map((lang) => (
+        <UnstyledButton
+          key={lang}
+          onClick={() => setLanguage(lang)}
+          px={8}
+          py={4}
+          style={{
+            borderRadius: 16,
+            backgroundColor: language === lang ? '#FFCC59' : 'transparent',
+            color: language === lang ? '#000000' : '#EBEBEB',
+            fontSize: 12,
+            fontWeight: 500,
+            lineHeight: 1,
+            transition: 'all 150ms ease',
+          }}
+        >
+          {lang.toUpperCase()}
+        </UnstyledButton>
+      ))}
+    </Group>
+  )
 
   const navItems: { label: string; page: Page }[] = [
     { label: t('nav.voltage'), page: 'voltage' },
@@ -84,6 +118,14 @@ export function Navbar({ page, onNavigate, userEmail, onLogout }: NavbarProps) {
         {logo}
         <Group gap="xs">
           <WeatherTemperature />
+          {langToggle}
+          {onProfileClick && (
+            <Tooltip label="Profile">
+              <ActionIcon aria-label="Profile" variant="subtle" color="gray" onClick={onProfileClick}>
+                <IconUser size={19} />
+              </ActionIcon>
+            </Tooltip>
+          )}
           {onLogout && (
             <Tooltip label={`Log out${userEmail ? ` ${userEmail}` : ''}`}>
               <ActionIcon
@@ -151,10 +193,23 @@ export function Navbar({ page, onNavigate, userEmail, onLogout }: NavbarProps) {
         >
           <Group gap="xs" justify="flex-end">
             <WeatherTemperature />
+            {langToggle}
             {userEmail && (
-              <Text c="dimmed" size="sm" maw={180} truncate>
-                {userEmail}
-              </Text>
+              <UnstyledButton
+                onClick={onProfileClick}
+                style={{ cursor: onProfileClick ? 'pointer' : 'default' }}
+              >
+                <Text c="dimmed" size="sm" maw={180} truncate>
+                  {userEmail}
+                </Text>
+              </UnstyledButton>
+            )}
+            {onProfileClick && (
+              <Tooltip label="Profile">
+                <ActionIcon aria-label="Profile" variant="subtle" color="gray" onClick={onProfileClick}>
+                  <IconUser size={19} />
+                </ActionIcon>
+              </Tooltip>
             )}
             {onLogout && (
               <Tooltip label="Log out">

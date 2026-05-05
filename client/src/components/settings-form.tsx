@@ -211,7 +211,7 @@ function hasBillingPlanInput(settings: AppSettings): boolean {
 }
 
 export function SettingsForm() {
-  const { t, language, setLanguage } = useI18n()
+  const { t, language } = useI18n()
   const queryClient = useQueryClient()
   const defaultDeviceName = t('settings.defaultDeviceName')
   const [s, setS] = useState<AppSettings>(EMPTY_DEVICE_SETTINGS)
@@ -621,265 +621,123 @@ export function SettingsForm() {
     },
   ]
 
+  const isNewDevice = deviceId === null
+
+  const cardStyle = {
+    backgroundColor: '#353535',
+    border: '1px solid #4A4A4A',
+  }
+
+  const ghostButtonStyle = {
+    root: {
+      backgroundColor: '#404040',
+      color: '#EBEBEB',
+      border: '1px solid #4A4A4A',
+      fontWeight: 400 as const,
+      height: '44px',
+      transition: 'all 160ms ease',
+    },
+  }
+
+  const dangerButtonStyle = {
+    root: {
+      backgroundColor: '#4a2b2b',
+      color: '#db9a9a',
+      border: '1px solid #7c4747',
+      fontWeight: 400 as const,
+      height: '44px',
+      transition: 'all 160ms ease',
+    },
+  }
+
   return (
     <Stack p="lg" gap="md" style={{ width: '100%', maxWidth: 600 }}>
-      <Card
-        p="md"
-        radius="lg"
-        style={{
-          backgroundColor: '#353535',
-          border: '1px solid #4A4A4A',
-        }}
-      >
+
+      {/* ── 1. Device picker ─────────────────────────────────────────── */}
+      <Card p="md" radius="lg" style={cardStyle}>
+        <Text fw={400} mb="sm" c="#EBEBEB">{t('settings.connection')}</Text>
+
         <Stack gap="sm">
-          <Group justify="space-between" align="flex-start" wrap="wrap">
-            <div>
-              <Text fw={400} mb={4} c="#EBEBEB">
-                {language === 'lt' ? 'Elektros planas' : 'Electricity Plan'}
-              </Text>
-              <Text size="sm" c="#999999">
-                {language === 'lt'
-                  ? 'Naudojame šiuos tarifus sąnaudų įvertinimui ataskaitose.'
-                  : 'These tariffs are used to estimate costs in reports.'}
-              </Text>
-            </div>
-            {activeBillingPlan && (
-              <Badge variant="light" color={s.pricing_mode === 'DYNAMIC' ? 'blue' : 'yellow'}>
-                {language === 'lt'
-                  ? `Aktyvuota nuo ${new Date(activeBillingPlan.effectiveFrom).toLocaleDateString('lt-LT')}`
-                  : `Active since ${new Date(activeBillingPlan.effectiveFrom).toLocaleDateString('en-GB')}`}
+          <Group gap="sm" align="flex-end">
+            <Select
+              label={t('settings.selectedDevice')}
+              placeholder={devices.length ? t('settings.chooseDevice') : t('settings.noDevicesYet')}
+              value={deviceId !== null ? String(deviceId) : null}
+              onChange={(value) => { void handleSelectDevice(value) }}
+              data={devices.map((d) => ({ value: String(d.id), label: d.name }))}
+              styles={inputStyles}
+              style={{ flex: 1 }}
+            />
+            <Button
+              radius="xl"
+              onClick={handleCreateNewDevice}
+              disabled={loading || isNewDevice}
+              styles={{
+                root: {
+                  backgroundColor: isNewDevice ? '#404040' : '#FFCC59',
+                  color: isNewDevice ? '#888' : '#000000',
+                  border: `1px solid ${isNewDevice ? '#4A4A4A' : '#FFCC59'}`,
+                  fontWeight: 400,
+                  height: '44px',
+                  whiteSpace: 'nowrap',
+                  transition: 'all 160ms ease',
+                },
+              }}
+            >
+              + {t('settings.addDevice')}
+            </Button>
+          </Group>
+
+          {selectedDevice && (
+            <Group gap="sm">
+              <Badge
+                variant="light"
+                color={selectedDevice.isActive ? 'green' : 'gray'}
+                size="sm"
+              >
+                {selectedDevice.isActive ? t('settings.statusConnected') : t('settings.statusDisconnected')}
               </Badge>
-            )}
-          </Group>
-
-          <Select
-            label={language === 'lt' ? 'Kainodaros tipas' : 'Pricing mode'}
-            value={s.pricing_mode}
-            onChange={(value) =>
-              setS((prev) => ({
-                ...prev,
-                pricing_mode: (value as PricingMode) ?? 'FIXED',
-              }))
-            }
-            data={pricingModeOptions}
-            styles={inputStyles}
-          />
-
-          {s.pricing_mode === 'FIXED' ? (
-            <>
-              <Text size="sm" c="#999999">
-                {language === 'lt'
-                  ? 'Įveskite tiekėjo taikomus T1-T4 tarifus EUR/kWh. Galite užpildyti tik naudojamus tarifus.'
-                  : 'Enter your supplier T1-T4 energy rates in EUR/kWh. You can fill only the tariffs you actually use.'}
-              </Text>
-
-              <SimpleGrid cols={{ base: 1, sm: 2 }}>
-                <NumberInput
-                  label="T1 (EUR/kWh)"
-                  value={s.rate_t1 ?? undefined}
-                  onChange={(value) => setS((prev) => ({ ...prev, rate_t1: toNullableNumber(value) }))}
-                  decimalScale={4}
-                  min={0}
-                  styles={inputStyles}
-                />
-                <NumberInput
-                  label="T2 (EUR/kWh)"
-                  value={s.rate_t2 ?? undefined}
-                  onChange={(value) => setS((prev) => ({ ...prev, rate_t2: toNullableNumber(value) }))}
-                  decimalScale={4}
-                  min={0}
-                  styles={inputStyles}
-                />
-                <NumberInput
-                  label="T3 (EUR/kWh)"
-                  value={s.rate_t3 ?? undefined}
-                  onChange={(value) => setS((prev) => ({ ...prev, rate_t3: toNullableNumber(value) }))}
-                  decimalScale={4}
-                  min={0}
-                  styles={inputStyles}
-                />
-                <NumberInput
-                  label="T4 (EUR/kWh)"
-                  value={s.rate_t4 ?? undefined}
-                  onChange={(value) => setS((prev) => ({ ...prev, rate_t4: toNullableNumber(value) }))}
-                  decimalScale={4}
-                  min={0}
-                  styles={inputStyles}
-                />
-              </SimpleGrid>
-            </>
-          ) : (
-            <>
-              <Text size="sm" c="#999999">
-                {language === 'lt'
-                  ? 'Dinaminis planas remiasi Elering LT Nord Pool kainomis. Čia galite pridėti tiekėjo antkainį.'
-                  : 'Dynamic pricing uses Elering LT Nord Pool spot prices. Add your supplier markup here.'}
-              </Text>
-
-              <SimpleGrid cols={{ base: 1, sm: 2 }}>
-                <TextInput
-                  label={language === 'lt' ? 'Duomenų šaltinis' : 'Price source'}
-                  value="Elering / LT"
-                  readOnly
-                  styles={inputStyles}
-                />
-                <NumberInput
-                  label={language === 'lt' ? 'Tiekėjo antkainis (EUR/kWh)' : 'Supplier markup (EUR/kWh)'}
-                  value={s.spot_adder_eur_per_kwh ?? undefined}
-                  onChange={(value) => setS((prev) => ({ ...prev, spot_adder_eur_per_kwh: toNullableNumber(value) ?? 0 }))}
-                  decimalScale={4}
-                  min={0}
-                  styles={inputStyles}
-                />
-              </SimpleGrid>
-            </>
+              <Group gap="xs" ml="auto">
+                <Button
+                  size="xs"
+                  radius="xl"
+                  onClick={handleToggleConnection}
+                  disabled={loading}
+                  styles={ghostButtonStyle}
+                >
+                  {selectedDevice.isActive ? t('settings.disconnect') : t('settings.connect')}
+                </Button>
+                <Button
+                  size="xs"
+                  radius="xl"
+                  onClick={() => { void handleRemoveDevice() }}
+                  disabled={loading}
+                  styles={dangerButtonStyle}
+                >
+                  {t('settings.remove')}
+                </Button>
+              </Group>
+            </Group>
           )}
-
-          <NumberInput
-            label={language === 'lt' ? 'Mėnesinis pastovus mokestis (EUR)' : 'Monthly fixed fee (EUR)'}
-            value={s.monthly_fixed_fee_eur ?? undefined}
-            onChange={(value) => setS((prev) => ({ ...prev, monthly_fixed_fee_eur: toNullableNumber(value) }))}
-            decimalScale={2}
-            min={0}
-            styles={inputStyles}
-          />
         </Stack>
       </Card>
 
-      <Card
-        p="md"
-        radius="lg"
-        style={{
-          backgroundColor: '#353535',
-          border: '1px solid #4A4A4A',
-        }}
-      >
-        <Text fw={400} mb="sm" c="#EBEBEB">
-          {t('settings.interface')}
-        </Text>
+      {/* ── 2. Device configuration ──────────────────────────────────── */}
+      <Card p="md" radius="lg" style={cardStyle}>
+        <Group justify="space-between" mb="sm">
+          <Text fw={400} c="#EBEBEB">
+            {isNewDevice
+              ? (language === 'lt' ? 'Naujas įrenginys' : 'New device')
+              : (language === 'lt' ? 'Įrenginio nustatymai' : 'Device settings')}
+          </Text>
+          {isNewDevice && (
+            <Badge variant="light" color="yellow" size="sm">
+              {language === 'lt' ? 'Kuriamas' : 'Creating'}
+            </Badge>
+          )}
+        </Group>
 
         <Stack gap="sm">
-          <Select
-            label={t('settings.language')}
-            value={language}
-            onChange={(value) => {
-              if (value === 'en' || value === 'lt') {
-                setLanguage(value)
-              }
-            }}
-            data={[
-              { value: 'en', label: t('settings.languageEnglish') },
-              { value: 'lt', label: t('settings.languageLithuanian') },
-            ]}
-            styles={inputStyles}
-          />
-
-          <Text size="sm" c="#999999">
-            {t('settings.languageDescription')}
-          </Text>
-        </Stack>
-      </Card>
-
-      <Card
-        p="md"
-        radius="lg"
-        style={{
-          backgroundColor: '#353535',
-          border: '1px solid #4A4A4A',
-        }}
-      >
-        <Text fw={400} mb="sm" c="#EBEBEB">
-          {t('settings.connection')}
-        </Text>
-
-        <Stack gap="sm">
-          <Button
-            radius="xl"
-            onClick={handleCreateNewDevice}
-            disabled={loading}
-            styles={{
-              root: {
-                backgroundColor: '#FFCC59',
-                color: '#000000',
-                border: '1px solid #FFCC59',
-                fontWeight: 400,
-                height: '44px',
-                transition: 'all 160ms ease',
-                '&:hover': {
-                  backgroundColor: '#ffd87a',
-                  borderColor: '#ffd87a',
-                },
-              },
-            }}
-          >
-            {t('settings.addDevice')}
-          </Button>
-
-          <Select
-            label={t('settings.selectedDevice')}
-            placeholder={devices.length ? t('settings.chooseDevice') : t('settings.noDevicesYet')}
-            value={deviceId !== null ? String(deviceId) : null}
-            onChange={(value) => {
-              void handleSelectDevice(value)
-            }}
-            data={devices.map((device) => ({ value: String(device.id), label: `${device.name} (#${device.id})` }))}
-            styles={inputStyles}
-          />
-
-          <Group grow>
-            <Button
-              radius="xl"
-              onClick={handleToggleConnection}
-              disabled={loading || !selectedDevice}
-              styles={{
-                root: {
-                  backgroundColor: '#404040',
-                  color: '#EBEBEB',
-                  border: '1px solid #4A4A4A',
-                  fontWeight: 400,
-                  height: '44px',
-                  transition: 'all 160ms ease',
-                  '&:hover': {
-                    backgroundColor: '#4a4a4a',
-                    borderColor: '#5a5a5a',
-                  },
-                },
-              }}
-            >
-              {selectedDevice?.isActive ? t('settings.disconnect') : t('settings.connect')}
-            </Button>
-
-            <Button
-              radius="xl"
-              onClick={() => {
-                void handleRemoveDevice()
-              }}
-              disabled={loading || !selectedDevice}
-              styles={{
-                root: {
-                  backgroundColor: '#4a2b2b',
-                  color: '#db9a9a',
-                  border: '1px solid #7c4747',
-                  fontWeight: 400,
-                  height: '44px',
-                  transition: 'all 160ms ease',
-                  '&:hover': {
-                    backgroundColor: '#5a3434',
-                    borderColor: '#935454',
-                  },
-                },
-              }}
-            >
-              {t('settings.remove')}
-            </Button>
-          </Group>
-
-          <Text size="sm" c="#999999">
-            {t('settings.status')}: {selectedDevice
-              ? (selectedDevice.isActive ? t('settings.statusConnected') : t('settings.statusDisconnected'))
-              : t('settings.statusNewDevice')}
-          </Text>
-
           <TextInput
             label={t('settings.deviceName')}
             value={deviceName}
@@ -896,19 +754,24 @@ export function SettingsForm() {
             styles={inputStyles}
           />
 
-          <TextInput
-            label={t('settings.mqttBroker')}
-            value={s.mqtt_broker}
-            onChange={(e) => setS({ ...s, mqtt_broker: e.target.value })}
-            styles={inputStyles}
-          />
+          <Text size="xs" c="#666" ta="center">
+            {language === 'lt' ? '— arba MQTT —' : '— or via MQTT —'}
+          </Text>
 
-          <NumberInput
-            label={t('settings.mqttPort')}
-            value={s.mqtt_port}
-            onChange={(v) => setS({ ...s, mqtt_port: Number(v) })}
-            styles={inputStyles}
-          />
+          <SimpleGrid cols={{ base: 1, sm: 2 }}>
+            <TextInput
+              label={t('settings.mqttBroker')}
+              value={s.mqtt_broker}
+              onChange={(e) => setS({ ...s, mqtt_broker: e.target.value })}
+              styles={inputStyles}
+            />
+            <NumberInput
+              label={t('settings.mqttPort')}
+              value={s.mqtt_port}
+              onChange={(v) => setS({ ...s, mqtt_port: Number(v) })}
+              styles={inputStyles}
+            />
+          </SimpleGrid>
 
           <TextInput
             label={t('settings.mqttTopic')}
@@ -917,40 +780,100 @@ export function SettingsForm() {
             styles={inputStyles}
           />
 
-          <NumberInput
-            label={t('settings.pollInterval')}
-            value={s.poll_interval}
-            onChange={(v) => setS({ ...s, poll_interval: Number(v) })}
-            min={1}
+          <SimpleGrid cols={{ base: 1, sm: 2 }}>
+            <NumberInput
+              label={t('settings.pollInterval')}
+              value={s.poll_interval}
+              onChange={(v) => setS({ ...s, poll_interval: Number(v) })}
+              min={1}
+              styles={inputStyles}
+            />
+            <Select
+              label={language === 'lt' ? 'Įrenginio tipas' : 'Installation type'}
+              value={s.power_profile}
+              onChange={(value) => setS({ ...s, power_profile: (value as PowerProfilePreset) ?? 'HOUSE_3P_11KW' })}
+              data={POWER_PROFILE_OPTIONS}
+              styles={inputStyles}
+            />
+          </SimpleGrid>
+        </Stack>
+      </Card>
+
+      {/* ── 3. Electricity / billing plan ────────────────────────────── */}
+      <Card p="md" radius="lg" style={cardStyle}>
+        <Group justify="space-between" align="flex-start" mb="sm" wrap="wrap">
+          <Text fw={400} c="#EBEBEB">
+            {language === 'lt' ? 'Elektros planas' : 'Electricity plan'}
+          </Text>
+          {activeBillingPlan && (
+            <Badge variant="light" color={s.pricing_mode === 'DYNAMIC' ? 'blue' : 'yellow'} size="sm">
+              {language === 'lt'
+                ? `Aktyvuota nuo ${new Date(activeBillingPlan.effectiveFrom).toLocaleDateString('lt-LT')}`
+                : `Active since ${new Date(activeBillingPlan.effectiveFrom).toLocaleDateString('en-GB')}`}
+            </Badge>
+          )}
+        </Group>
+
+        <Stack gap="sm">
+          <Text size="sm" c="#999999">
+            {language === 'lt'
+              ? 'Naudojame šiuos tarifus sąnaudų įvertinimui ataskaitose.'
+              : 'These tariffs are used to estimate costs in reports.'}
+          </Text>
+
+          <Select
+            label={language === 'lt' ? 'Kainodaros tipas' : 'Pricing mode'}
+            value={s.pricing_mode}
+            onChange={(value) => setS((prev) => ({ ...prev, pricing_mode: (value as PricingMode) ?? 'FIXED' }))}
+            data={pricingModeOptions}
             styles={inputStyles}
           />
 
-          <Select
-            label="Installation Type / Main Breaker Profile"
-            value={s.power_profile}
-            onChange={(value) =>
-              setS({
-                ...s,
-                power_profile: (value as PowerProfilePreset) ?? 'HOUSE_3P_11KW',
-              })
-            }
-            data={POWER_PROFILE_OPTIONS}
-            styles={inputStyles}
+          {s.pricing_mode === 'FIXED' ? (
+            <>
+              <Text size="sm" c="#999999">
+                {language === 'lt'
+                  ? 'Įveskite tiekėjo taikomus T1-T4 tarifus EUR/kWh.'
+                  : 'Enter your supplier T1-T4 energy rates in EUR/kWh.'}
+              </Text>
+              <SimpleGrid cols={{ base: 2, sm: 4 }}>
+                <NumberInput label="T1 (EUR/kWh)" value={s.rate_t1 ?? undefined} onChange={(v) => setS((p) => ({ ...p, rate_t1: toNullableNumber(v) }))} decimalScale={4} min={0} styles={inputStyles} />
+                <NumberInput label="T2 (EUR/kWh)" value={s.rate_t2 ?? undefined} onChange={(v) => setS((p) => ({ ...p, rate_t2: toNullableNumber(v) }))} decimalScale={4} min={0} styles={inputStyles} />
+                <NumberInput label="T3 (EUR/kWh)" value={s.rate_t3 ?? undefined} onChange={(v) => setS((p) => ({ ...p, rate_t3: toNullableNumber(v) }))} decimalScale={4} min={0} styles={inputStyles} />
+                <NumberInput label="T4 (EUR/kWh)" value={s.rate_t4 ?? undefined} onChange={(v) => setS((p) => ({ ...p, rate_t4: toNullableNumber(v) }))} decimalScale={4} min={0} styles={inputStyles} />
+              </SimpleGrid>
+            </>
+          ) : (
+            <>
+              <Text size="sm" c="#999999">
+                {language === 'lt'
+                  ? 'Dinaminis planas remiasi Elering LT Nord Pool kainomis.'
+                  : 'Dynamic pricing uses Elering LT Nord Pool spot prices.'}
+              </Text>
+              <SimpleGrid cols={{ base: 1, sm: 2 }}>
+                <TextInput label={language === 'lt' ? 'Duomenų šaltinis' : 'Price source'} value="Elering / LT" readOnly styles={inputStyles} />
+                <NumberInput
+                  label={language === 'lt' ? 'Tiekėjo antkainis (EUR/kWh)' : 'Supplier markup (EUR/kWh)'}
+                  value={s.spot_adder_eur_per_kwh ?? undefined}
+                  onChange={(v) => setS((p) => ({ ...p, spot_adder_eur_per_kwh: toNullableNumber(v) ?? 0 }))}
+                  decimalScale={4} min={0} styles={inputStyles}
+                />
+              </SimpleGrid>
+            </>
+          )}
+
+          <NumberInput
+            label={language === 'lt' ? 'Mėnesinis pastovus mokestis (EUR)' : 'Monthly fixed fee (EUR)'}
+            value={s.monthly_fixed_fee_eur ?? undefined}
+            onChange={(v) => setS((p) => ({ ...p, monthly_fixed_fee_eur: toNullableNumber(v) }))}
+            decimalScale={2} min={0} styles={inputStyles}
           />
         </Stack>
       </Card>
 
-      <Card
-        p="md"
-        radius="lg"
-        style={{
-          backgroundColor: '#353535',
-          border: '1px solid #4A4A4A',
-        }}
-      >
-        <Text fw={400} mb="sm" c="#EBEBEB">
-          {t('settings.alerts')}
-        </Text>
+      {/* ── 4. Alerts ────────────────────────────────────────────────── */}
+      <Card p="md" radius="lg" style={cardStyle}>
+        <Text fw={400} mb="sm" c="#EBEBEB">{t('settings.alerts')}</Text>
 
         <Stack gap="sm">
           <Switch
@@ -959,21 +882,9 @@ export function SettingsForm() {
             onChange={(e) => setS({ ...s, notifications_enabled: e.currentTarget.checked })}
             size="md"
             styles={{
-              track: {
-                backgroundColor: s.notifications_enabled ? '#FFCC59' : '#404040',
-                borderColor: s.notifications_enabled ? '#FFCC59' : '#4A4A4A',
-                cursor: 'pointer',
-              },
-              thumb: {
-                backgroundColor: '#FFFFFF',
-                borderColor: s.notifications_enabled ? '#FFCC59' : '#4A4A4A',
-              },
-              label: {
-                color: '#EBEBEB',
-                fontSize: '14px',
-                fontWeight: 400,
-                cursor: 'pointer',
-              },
+              track: { backgroundColor: s.notifications_enabled ? '#FFCC59' : '#404040', borderColor: s.notifications_enabled ? '#FFCC59' : '#4A4A4A', cursor: 'pointer' },
+              thumb: { backgroundColor: '#FFFFFF', borderColor: s.notifications_enabled ? '#FFCC59' : '#4A4A4A' },
+              label: { color: '#EBEBEB', fontSize: '14px', fontWeight: 400, cursor: 'pointer' },
             }}
           />
 
@@ -982,12 +893,7 @@ export function SettingsForm() {
               <Select
                 label={t('settings.notificationChannel')}
                 value={s.notification_channel as NotificationChannel}
-                onChange={(value) =>
-                  setS({
-                    ...s,
-                    notification_channel: (value as NotificationChannel) ?? 'none',
-                  })
-                }
+                onChange={(value) => setS({ ...s, notification_channel: (value as NotificationChannel) ?? 'none' })}
                 data={[
                   { value: 'email', label: t('settings.channelEmail') },
                   { value: 'sms', label: t('settings.channelSms') },
@@ -998,29 +904,13 @@ export function SettingsForm() {
               />
 
               {s.notification_channel === 'email' && (
-                <TextInput
-                  label={t('settings.emailAddress')}
-                  placeholder={t('settings.emailPlaceholder')}
-                  value={s.notification_target}
-                  onChange={(e) => setS({ ...s, notification_target: e.target.value })}
-                  styles={inputStyles}
-                />
+                <TextInput label={t('settings.emailAddress')} placeholder={t('settings.emailPlaceholder')} value={s.notification_target} onChange={(e) => setS({ ...s, notification_target: e.target.value })} styles={inputStyles} />
               )}
-
               {s.notification_channel === 'sms' && (
-                <TextInput
-                  label={t('settings.phoneNumber')}
-                  placeholder={t('settings.phonePlaceholder')}
-                  value={s.notification_target}
-                  onChange={(e) => setS({ ...s, notification_target: e.target.value })}
-                  styles={inputStyles}
-                />
+                <TextInput label={t('settings.phoneNumber')} placeholder={t('settings.phonePlaceholder')} value={s.notification_target} onChange={(e) => setS({ ...s, notification_target: e.target.value })} styles={inputStyles} />
               )}
-
               {s.notification_channel === 'push' && (
-                <Text size="sm" c="dimmed">
-                  {t('settings.pushInfo')}
-                </Text>
+                <Text size="sm" c="dimmed">{t('settings.pushInfo')}</Text>
               )}
 
               <MultiSelect
@@ -1039,29 +929,23 @@ export function SettingsForm() {
         </Stack>
       </Card>
 
+      {/* ── Save ─────────────────────────────────────────────────────── */}
       <Button
-        fullWidth
-        radius="xl"
-        size="lg"
+        fullWidth radius="xl" size="lg"
         onClick={handleSave}
         loading={loading}
         styles={{
-          root: {
-            backgroundColor: '#FFCC59',
-            color: '#000000',
-            fontWeight: 400,
-            fontSize: '16px',
-            height: '48px',
-          },
+          root: { backgroundColor: '#FFCC59', color: '#000000', fontWeight: 400, fontSize: '16px', height: '48px' },
         }}
       >
-        {t('settings.save')}
+        {isNewDevice
+          ? (language === 'lt' ? 'Sukurti įrenginį' : 'Create device')
+          : t('settings.save')}
       </Button>
 
       {message && (
         <Card
-          p="sm"
-          radius="lg"
+          p="sm" radius="lg"
           style={{
             backgroundColor: message.type === 'success' ? '#2d4a2b' : '#4a2b2b',
             border: `1px solid ${message.type === 'success' ? '#4a7c47' : '#7c4747'}`,
