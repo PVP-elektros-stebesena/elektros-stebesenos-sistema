@@ -1,7 +1,6 @@
-import { ActionIcon, Group, Tooltip, UnstyledButton, Text, Flex, Box } from "@mantine/core"
+import { ActionIcon, Box, Group, ScrollArea, Stack, Text, Tooltip, UnstyledButton } from "@mantine/core"
 import type { Page } from '../types/energy';
 import { useI18n } from '../i18n/i18n';
-import { WeatherTemperature } from './weather-temperature';
 
 
 function IconBolt({ size = 20, color = "currentColor" }: { size?: number; color?: string }) {
@@ -12,21 +11,10 @@ function IconBolt({ size = 20, color = "currentColor" }: { size?: number; color?
   );
 }
 
-function IconUser({ size = 20, color = "currentColor" }: { size?: number; color?: string }) {
+function IconCollapse({ size = 20, color = "currentColor" }: { size?: number; color?: string }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="12" cy="8" r="4" stroke={color} strokeWidth="1.8" />
-      <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" stroke={color} strokeWidth="1.8" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function IconLogout({ size = 20, color = "currentColor" }: { size?: number; color?: string }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M10 5H6.5A1.5 1.5 0 0 0 5 6.5v11A1.5 1.5 0 0 0 6.5 19H10" stroke={color} strokeWidth="1.8" strokeLinecap="round" />
-      <path d="M14 8l4 4-4 4" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M18 12H9" stroke={color} strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M15 6l-6 6 6 6" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -36,38 +24,11 @@ function IconLogout({ size = 20, color = "currentColor" }: { size?: number; colo
 interface NavbarProps {
   page: Page;
   onNavigate: (page: Page) => void;
-  connected?: boolean;
-  userEmail?: string;
-  onLogout?: () => void | Promise<void>;
-  onProfileClick?: () => void;
+  onHide?: () => void;
 }
 
-export function Navbar({ page, onNavigate, userEmail, onLogout, onProfileClick }: NavbarProps) {
-  const { t, language, setLanguage } = useI18n()
-
-  const langToggle = (
-    <Group gap={2} style={{ backgroundColor: '#515151', borderRadius: 20, padding: '3px' }}>
-      {(['en', 'lt'] as const).map((lang) => (
-        <UnstyledButton
-          key={lang}
-          onClick={() => setLanguage(lang)}
-          px={8}
-          py={4}
-          style={{
-            borderRadius: 16,
-            backgroundColor: language === lang ? '#FFCC59' : 'transparent',
-            color: language === lang ? '#000000' : '#EBEBEB',
-            fontSize: 12,
-            fontWeight: 500,
-            lineHeight: 1,
-            transition: 'all 150ms ease',
-          }}
-        >
-          {lang.toUpperCase()}
-        </UnstyledButton>
-      ))}
-    </Group>
-  )
+export function Navbar({ page, onNavigate, onHide }: NavbarProps) {
+  const { t } = useI18n()
 
   const navItems: { label: string; page: Page }[] = [
     { label: t('nav.voltage'), page: 'voltage' },
@@ -78,154 +39,89 @@ export function Navbar({ page, onNavigate, userEmail, onLogout, onProfileClick }
     { label: t('nav.settings'), page: 'settings' },
   ]
 
-  const logo = (
-    <Group gap="sm">
-      <Box
-        style={{
-          width: 32,
-          height: 32,
-          borderRadius: "50%",
-          backgroundColor: "#FFCC59",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <IconBolt size={18} color="#000000" />
-      </Box>
-      <Text fw={500} size="xl" c="white">
-        P1 Monitor
-      </Text>
-    </Group>
-  );
-
-
-
-
   return (
     <Box
-      px={{ base: 'xs', sm: 'lg' }}
-      py="sm"
-      mx={{ base: 0, sm: 'md' }}
-      mt={{ base: 0, sm: 'md' }}
+      h="100%"
+      bg="dark.7"
+      p="md"
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 'var(--mantine-spacing-md)',
+      }}
     >
-      <Flex 
-        display={{ base: 'flex', md: 'none' }} 
-        align="center" 
-        justify="space-between"
-        mb="md"
-      >
-        {logo}
-        <Group gap="xs">
-          <WeatherTemperature />
-          {langToggle}
-          {onProfileClick && (
-            <Tooltip label="Profile">
-              <ActionIcon aria-label="Profile" variant="subtle" color="gray" onClick={onProfileClick}>
-                <IconUser size={19} />
-              </ActionIcon>
-            </Tooltip>
-          )}
-          {onLogout && (
-            <Tooltip label={`Log out${userEmail ? ` ${userEmail}` : ''}`}>
-              <ActionIcon
-                aria-label="Log out"
-                variant="subtle"
-                color="gray"
-                onClick={onLogout}
-              >
-                <IconLogout size={19} />
-              </ActionIcon>
-            </Tooltip>
-          )}
+      <Group justify="space-between" wrap="nowrap">
+        <Group gap="sm" wrap="nowrap">
+          <Box
+            style={{
+              width: 32,
+              height: 32,
+              borderRadius: '50%',
+              backgroundColor: 'var(--mantine-color-primary-5)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flex: '0 0 auto',
+            }}
+          >
+            <IconBolt size={18} color="var(--mantine-color-black)" />
+          </Box>
+          <Text fw={500} size="lg" c="dark.0" style={{ lineHeight: 1 }}>
+            P1 Monitor
+          </Text>
         </Group>
-      </Flex>
 
-      <Flex
-        direction="row"
-        align="center"
-        justify={{ base: 'center', md: 'space-between' }}
-        gap="md"
-      >
-        <Box
-          display={{ base: 'none', md: 'flex' }}
-          style={{ flex: 1, justifyContent: 'flex-start' }}
-        >
-          {logo}
-        </Box>
-
-        <Group
-          gap={4}
-          p={4}
-          justify="center"
-          style={{
-            backgroundColor: "#515151",
-            borderRadius: "34px",
-            flexWrap: "wrap",
-          }}
-        >
-          {navItems.map((item) => (
-            <UnstyledButton
-              key={item.label}
-              onClick={() => onNavigate(item.page)}
-              px="lg"
-              py={8}
-              w={{ base: 'calc(50% - 4px)', sm: 'auto' }}
-              ta="center"
-              style={{
-                borderRadius: "44px",
-                backgroundColor: page === item.page ? "#FFCC59" : "#515151",
-                color: page === item.page ? "#000000" : "#EBEBEB",
-                fontWeight: 500,
-                fontSize: "14px",
-                transition: "all 150ms ease",
-                cursor: "pointer",
-              }}
+        {onHide && (
+          <Tooltip label="Hide menu">
+            <ActionIcon
+              aria-label="Hide menu"
+              variant="subtle"
+              color="gray"
+              onClick={onHide}
             >
-              {item.label}
-            </UnstyledButton>
-          ))}
-        </Group>
+              <IconCollapse size={20} />
+            </ActionIcon>
+          </Tooltip>
+        )}
+      </Group>
 
-        <Box
-          display={{ base: 'none', md: 'flex' }}
-          style={{ flex: 1, justifyContent: 'flex-end' }}
-        >
-          <Group gap="xs" justify="flex-end">
-            <WeatherTemperature />
-            {langToggle}
-            {userEmail && (
+      <ScrollArea type="auto" style={{ flex: 1 }}>
+        <Stack gap={6}>
+          {navItems.map((item) => {
+            const active = page === item.page
+            return (
               <UnstyledButton
-                onClick={onProfileClick}
-                style={{ cursor: onProfileClick ? 'pointer' : 'default' }}
+                key={item.page}
+                onClick={() => onNavigate(item.page)}
+                px="md"
+                py={10}
+                style={{
+                  borderRadius: '999px',
+                  backgroundColor: active ? 'var(--mantine-color-primary-5)' : 'transparent',
+                  color: active ? 'var(--mantine-color-black)' : 'var(--mantine-color-dark-0)',
+                  fontWeight: 500,
+                  fontSize: '14px',
+                  transition: 'background-color 150ms ease, color 150ms ease',
+                  cursor: 'pointer',
+                  width: '100%',
+                  textAlign: 'left',
+                }}
+                onMouseEnter={(e) => {
+                  if (active) return
+                  e.currentTarget.style.backgroundColor = 'var(--mantine-color-dark-6)'
+                }}
+                onMouseLeave={(e) => {
+                  if (active) return
+                  e.currentTarget.style.backgroundColor = 'transparent'
+                }}
               >
-                <Text c="dimmed" size="sm" maw={180} truncate>
-                  {userEmail}
-                </Text>
+                {item.label}
               </UnstyledButton>
-            )}
-            {onProfileClick && (
-              <Tooltip label="Profile">
-                <ActionIcon aria-label="Profile" variant="subtle" color="gray" onClick={onProfileClick}>
-                  <IconUser size={19} />
-                </ActionIcon>
-              </Tooltip>
-            )}
-            {onLogout && (
-              <Tooltip label="Log out">
-                <ActionIcon
-                  aria-label="Log out"
-                  variant="subtle"
-                  color="gray"
-                  onClick={onLogout}
-                >
-                  <IconLogout size={19} />
-                </ActionIcon>
-              </Tooltip>
-            )}
-          </Group>
-        </Box>
-      </Flex>
+            )
+          })}
+        </Stack>
+      </ScrollArea>
+
     </Box>
-  );
+  )
 }

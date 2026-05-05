@@ -1525,9 +1525,11 @@ export function ReportsPage() {
   const [genCustomEndDate, setGenCustomEndDate] = useState<string>(() => toDateInputValue(new Date()));
 
   const HOME_PERIOD_OPTIONS = [
-    { value: 'daily', label: tr(language, '1 day', '1 diena') },
+ { value: 'daily', label: tr(language, '1 day', '1 diena') },
     { value: 'weekly', label: tr(language, '1 week', '1 savaitė') },
+    { value: 'biweekly', label: tr(language, '2 weeks', '2 savaitės') },
     { value: 'monthly', label: tr(language, '1 month', '1 mėnuo') },
+    { value: 'custom', label: tr(language, 'Custom range', 'Pasirinktinis intervalas') },
   ];
 
   const TECHNICAL_PERIOD_OPTIONS = [
@@ -1539,8 +1541,11 @@ export function ReportsPage() {
   ];
 
   const SOLAR_PERIOD_OPTIONS = [
-    { value: 'daily', label: tr(language, '1 day', '1 diena') },
+ { value: 'daily', label: tr(language, '1 day', '1 diena') },
+    { value: 'weekly', label: tr(language, '1 week', '1 savaitė') },
+    { value: 'biweekly', label: tr(language, '2 weeks', '2 savaitės') },
     { value: 'monthly', label: tr(language, '1 month', '1 mėnuo') },
+    { value: 'custom', label: tr(language, 'Custom range', 'Pasirinktinis intervalas') },
   ];
 
   const activeGenDeviceId = resolveDeviceSelection(genDeviceId, devices);
