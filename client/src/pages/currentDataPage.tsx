@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Alert, Button, Card, Group, Loader, Select, Stack, Table, Text, TextInput } from '@mantine/core'
 import type { LiveData } from '../types/energy'
-import { apiDownload, apiFetch } from '../services/apiClient'
+import { apiDownload, apiFetch, getApiErrorMessage } from '../services/apiClient'
 import { useI18n } from '../i18n/i18n'
 import { resolveDeviceSelection, useDeviceOptions } from '../hooks/useDeviceOptions'
 
@@ -59,7 +59,7 @@ export function CurrentDataPage() {
         }
       } catch (err) {
         if (active) {
-          setError(err instanceof Error ? err.message : t('common.unknownError'))
+          setError(getApiErrorMessage(err, t('common.unknownError')))
         }
       } finally {
         if (active) {
@@ -202,7 +202,7 @@ export function CurrentDataPage() {
 
         {devicesError && (
           <Alert color="red" mt="md">
-            {devicesError instanceof Error ? devicesError.message : t('current.errorLoadDevices')}
+            {getApiErrorMessage(devicesError, t('current.errorLoadDevices'))}
           </Alert>
         )}
 

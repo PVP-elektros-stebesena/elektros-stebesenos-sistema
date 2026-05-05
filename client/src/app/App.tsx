@@ -9,6 +9,7 @@ import { PowerPage } from '../pages/powerPage';
 import { SettingsPage } from '../pages/settingsPage';
 import { ReportsPage } from '../pages/reportsPage';
 import { BillingPage } from '../pages/billingPage';
+import { ProfilePage } from '../pages/profilePage';
 import type { Page } from '../types/energy';
 import { I18nProvider } from '../i18n/i18n';
 import { AuthGate } from '../pages/AuthGate';
@@ -34,7 +35,7 @@ export default function App() {
     <I18nProvider>
       <MantineProvider theme={theme} defaultColorScheme="dark">
         <AuthGate>
-          {({ user, authDisabled, onLogout }) => (
+          {({ user, authDisabled, onLogout, onUserUpdate }) => (
             <Box mih="100vh">
               <Drawer
                 opened={mobileNavOpened}

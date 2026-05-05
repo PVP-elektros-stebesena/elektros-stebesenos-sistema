@@ -80,18 +80,17 @@ export async function createSession(userId: number, userAgent?: string): Promise
   return { token, expiresAt };
 }
 
-export async function createFirstUser(input: {
+export async function registerUser(input: {
   email: string;
   username?: string | null;
   displayName?: string | null;
   password: string;
   userAgent?: string;
-}): Promise<AuthResult | null> {
-  const usersCount = await prisma.user.count();
-  if (usersCount > 0) return null;
-
+}): Promise<AuthResult> {
   const passwordHash = await hashPassword(input.password);
   const user = await prisma.$transaction(async (tx) => {
+    const isFirstUser = (await tx.user.count()) === 0;
+
     const createdUser = await tx.user.create({
       data: {
         email: normalizeIdentifier(input.email),
@@ -101,11 +100,13 @@ export async function createFirstUser(input: {
       },
     });
 
-    // Claim any pre-auth or local-dev devices for the first real user.
-    await tx.device.updateMany({
-      where: { userId: null },
-      data: { userId: createdUser.id },
-    });
+    if (isFirstUser) {
+      // Claim any pre-auth or local-dev devices for the first real user.
+      await tx.device.updateMany({
+        where: { userId: null },
+        data: { userId: createdUser.id },
+      });
+    }
 
     return createdUser;
   });

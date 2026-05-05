@@ -40,6 +40,7 @@ interface AuthGateProps {
     user: AuthUser;
     authDisabled: boolean;
     onLogout: () => Promise<void>;
+    onUserUpdate: (user: AuthUser) => void;
   }) => ReactNode;
 }
 
@@ -48,7 +49,7 @@ type AuthMode = 'loading' | 'setup' | 'login' | 'authenticated';
 export function AuthGate({ children }: AuthGateProps) {
   const [mode, setMode] = useState<AuthMode>('loading');
   const [authDisabled, setAuthDisabled] = useState(false);
-  const [setupRequired, setSetupRequired] = useState(false);
+
   const [user, setUser] = useState<AuthUser | null>(null);
   const [identifier, setIdentifier] = useState('');
   const [email, setEmail] = useState('');
@@ -65,7 +66,6 @@ export function AuthGate({ children }: AuthGateProps) {
         const status = await apiFetch<StatusResponse>('/api/auth/status');
         if (cancelled) return;
         setAuthDisabled(Boolean(status.authDisabled));
-        setSetupRequired(status.setupRequired);
 
         if (status.authDisabled) {
           const me = await apiFetch<MeResponse>('/api/auth/me');
@@ -120,7 +120,6 @@ export function AuthGate({ children }: AuthGateProps) {
           displayName: displayName.trim() || null,
           password,
         });
-        setSetupRequired(false);
         completeAuthentication(response);
       } else {
         const response = await apiPost<AuthResponse>('/api/auth/login', {
@@ -161,7 +160,7 @@ export function AuthGate({ children }: AuthGateProps) {
   }
 
   if (mode === 'authenticated' && user) {
-    return children({ user, authDisabled, onLogout: handleLogout });
+    return children({ user, authDisabled, onLogout: handleLogout, onUserUpdate: setUser });
   }
 
   const isSetup = mode === 'setup';
@@ -184,11 +183,11 @@ export function AuthGate({ children }: AuthGateProps) {
             <Stack gap="md">
               <Stack gap={4}>
                 <Title order={1} size="h2" c="white">
-                  {isSetup ? 'Create admin account' : 'Log in'}
+                  {isSetup ? 'Create account' : 'Log in'}
                 </Title>
                 <Text c="dimmed" size="sm">
                   {isSetup
-                    ? 'Create the first account to access P1 Monitor.'
+                    ? 'Create an account to access P1 Monitor.'
                     : 'Use your email or username to access P1 Monitor.'}
                 </Text>
               </Stack>
@@ -240,16 +239,8 @@ export function AuthGate({ children }: AuthGateProps) {
                   Already have an account? Log in
                 </Button>
               ) : (
-                <Button
-                  type="button"
-                  variant="subtle"
-                  color="gray"
-                  onClick={switchToSetup}
-                  disabled={!setupRequired}
-                >
-                  {setupRequired
-                    ? "Don't have an account? Register"
-                    : 'Registration is closed'}
+                <Button type="button" variant="subtle" color="gray" onClick={switchToSetup}>
+                  Don't have an account? Register
                 </Button>
               )}
             </Stack>
