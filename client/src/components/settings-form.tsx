@@ -14,6 +14,7 @@ interface Device {
   mqttPort: number | null
   mqttTopic: string | null
   powerProfile: PowerProfilePreset
+  maxGridCapacityKw: number | null
   pollInterval: number
   isActive: boolean
   notificationChannel: 'email' | 'sms' | 'push' | 'none' | null
@@ -53,6 +54,7 @@ const DEFAULT: AppSettings = {
   mqtt_port: 1883,
   mqtt_topic: 'smartgateways/p1',
   power_profile: 'HOUSE_3P_11KW',
+  max_grid_capacity_kw: 11,
   poll_interval: 10,
   timezone: 'Europe/Amsterdam',
   dsmr_version: 'DSMR 5.0',
@@ -105,6 +107,18 @@ const POWER_PROFILE_OPTIONS: { value: PowerProfilePreset; label: string }[] = [
   { value: 'SOLAR_PROSUMER_3P_22KW', label: '22 kW Solar Prosumer (32 A)' },
 ]
 
+function defaultGridCapacityKw(profile: PowerProfilePreset): number {
+  const defaults: Record<PowerProfilePreset, number> = {
+    APARTMENT_1P_5KW: 5,
+    APARTMENT_1P_7KW: 7,
+    HOUSE_3P_11KW: 11,
+    HOUSE_3P_18KW: 18,
+    SOLAR_PROSUMER_3P_22KW: 22,
+  }
+
+  return defaults[profile]
+}
+
 const EMPTY_DEVICE_SETTINGS: AppSettings = {
   ...DEFAULT,
   device_ip: '',
@@ -112,6 +126,7 @@ const EMPTY_DEVICE_SETTINGS: AppSettings = {
   mqtt_port: 1883,
   mqtt_topic: '',
   power_profile: 'HOUSE_3P_11KW',
+  max_grid_capacity_kw: 11,
   poll_interval: 10,
   notifications_enabled: true,
   notification_channel: 'email',
@@ -248,6 +263,7 @@ export function SettingsForm() {
       mqtt_port: device.mqttPort || 1883,
       mqtt_topic: device.mqttTopic || '',
       power_profile: device.powerProfile,
+      max_grid_capacity_kw: device.maxGridCapacityKw ?? defaultGridCapacityKw(device.powerProfile),
       poll_interval: device.pollInterval,
       notification_channel: device.notificationChannel || 'email',
       notification_target: device.notificationTarget || '',
@@ -518,6 +534,7 @@ export function SettingsForm() {
         mqttPort: s.mqtt_port || null,
         mqttTopic: s.mqtt_topic || null,
         powerProfile: s.power_profile,
+        maxGridCapacityKw: s.max_grid_capacity_kw,
         pollInterval: s.poll_interval,
         isActive: selectedDevice?.isActive ?? true,
         notificationChannel: s.notifications_enabled ? s.notification_channel : 'none',
@@ -817,6 +834,19 @@ export function SettingsForm() {
               styles={inputStyles}
             />
           </SimpleGrid>
+
+          <NumberInput
+            label={t('settings.maxGridCapacityKw')}
+            description={t('settings.maxGridCapacityKwDescription')}
+            value={s.max_grid_capacity_kw ?? undefined}
+            onChange={(v) => setS({ ...s, max_grid_capacity_kw: toNullableNumber(v) })}
+            min={0}
+            step={0.1}
+            decimalScale={1}
+            styles={inputStyles}
+            allowDecimal={true}
+            clampBehavior="strict"
+          />
         </Stack>
       </Card>
 

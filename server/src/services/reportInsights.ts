@@ -66,6 +66,8 @@ const ANOMALY_TYPE_EXPLANATIONS: Record<string, string> = {
     'Power factor fell below the configured target, indicating inefficient use of apparent power and increased reactive demand.',
   POWER_SPIKE:
     'Active power rose above the configured limit, which may indicate unusually high load, startup surges, or misconfigured equipment.',
+  OVER_CAPACITY_WARNING:
+    'Active power remained above 95% of the grid capacity for more than three minutes, which can indicate a sustained overload risk before breaker trips or grid penalties.',
   REACTIVE_POWER_SPIKE:
     'Reactive power exceeded the configured threshold, suggesting elevated inductive or capacitive demand that should be reviewed.',
   PHASE_IMBALANCE:
@@ -274,6 +276,7 @@ export async function buildReportInsights(
 
   const powerAnomalyTypes = new Set([
     'POWER_SPIKE',
+    'OVER_CAPACITY_WARNING',
     'REACTIVE_POWER_SPIKE',
     'LOW_POWER_FACTOR',
     'PHASE_IMBALANCE',

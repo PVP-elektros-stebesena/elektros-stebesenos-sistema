@@ -170,6 +170,7 @@ export interface AppSettings {
   mqtt_port: number;
   mqtt_topic: string;
   power_profile: PowerProfilePreset;
+  max_grid_capacity_kw: number | null;
   poll_interval: number;
   timezone: string;
   dsmr_version: string;

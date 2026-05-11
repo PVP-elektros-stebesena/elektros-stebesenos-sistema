@@ -64,6 +64,7 @@ const deviceBodySchema = {
     mqttPort:            { type: ['integer', 'null'], minimum: 1, maximum: 65535 },
     mqttTopic:           { type: ['string', 'null'] },
     powerProfile:        { type: 'string', enum: [...POWER_PROFILE_PRESET_VALUES] },
+    maxGridCapacityKw:   { type: ['number', 'null'], minimum: 0 },
     pollInterval:        { type: 'integer', minimum: 1 },
     isActive:            { type: 'boolean' },
     notificationChannel: { type: ['string', 'null'], enum: ['email', 'sms', 'push', 'none', null] },
@@ -83,6 +84,7 @@ const patchBodySchema = {
     mqttPort:            { type: ['integer', 'null'], minimum: 1, maximum: 65535 },
     mqttTopic:           { type: ['string', 'null'] },
     powerProfile:        { type: 'string', enum: [...POWER_PROFILE_PRESET_VALUES] },
+    maxGridCapacityKw:   { type: ['number', 'null'], minimum: 0 },
     pollInterval:        { type: 'integer', minimum: 1 },
     isActive:            { type: 'boolean' },
     notificationChannel: { type: ['string', 'null'], enum: ['email', 'sms', 'push', 'none', null] },
@@ -251,6 +253,7 @@ interface DeviceBody {
   mqttPort?: number | null;
   mqttTopic?: string | null;
   powerProfile?: PowerProfilePreset;
+  maxGridCapacityKw?: number | null;
   pollInterval?: number;
   isActive?: boolean;
   notificationChannel?: 'email' | 'sms' | 'push' | 'none' | null;
@@ -379,6 +382,7 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
     mqttPort,
     mqttTopic,
     powerProfile,
+    maxGridCapacityKw,
     pollInterval,
     isActive,
     notificationChannel,
@@ -395,6 +399,7 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
         mqttPort: mqttPort ?? null,
         mqttTopic: mqttTopic ?? null,
         powerProfile: powerProfile ?? DEFAULT_POWER_PROFILE,
+        maxGridCapacityKw: maxGridCapacityKw ?? null,
         pollInterval: pollInterval ?? 10,
         isActive: isActive ?? true,
         notificationChannel: notificationChannel ?? 'email',
@@ -430,6 +435,7 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
       mqttPort,
       mqttTopic,
       powerProfile,
+      maxGridCapacityKw,
       pollInterval,
       isActive,
       notificationChannel,
@@ -444,6 +450,7 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
     if (mqttPort !== undefined) data.mqttPort = mqttPort;
     if (mqttTopic !== undefined) data.mqttTopic = mqttTopic;
     if (powerProfile !== undefined) data.powerProfile = powerProfile;
+    if (maxGridCapacityKw !== undefined) data.maxGridCapacityKw = maxGridCapacityKw;
     if (pollInterval !== undefined) data.pollInterval = pollInterval;
     if (isActive !== undefined) data.isActive = isActive;
     if (notificationChannel !== undefined) data.notificationChannel = notificationChannel;
@@ -456,6 +463,8 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
 
     if (powerProfile !== undefined) {
       await syncSelectedPowerProfile(updated.id, powerProfile);
+    } else {
+      clearPowerPolicyCache(updated.id);
     }
 
     // Trigger poller to reconcile changes immediately

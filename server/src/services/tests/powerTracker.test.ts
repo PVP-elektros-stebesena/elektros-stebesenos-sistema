@@ -32,6 +32,10 @@ describe('PowerTracker breaker curve handling', () => {
     return readingsAnomalies.filter((anomaly) => anomaly.type === 'POWER_SPIKE');
   }
 
+  function getOverCapacityWarnings(readingsAnomalies: ReturnType<PowerTracker['processReading']>) {
+    return readingsAnomalies.filter((anomaly) => anomaly.type === 'OVER_CAPACITY_WARNING');
+  }
+
   it('starts warning anomaly when active power exceeds warning threshold', () => {
     const t0 = new Date('2026-04-12T10:00:00Z');
     const t1 = new Date('2026-04-12T10:00:10Z');
@@ -113,5 +117,37 @@ describe('PowerTracker breaker curve handling', () => {
 
     tracker.processReading(makeReading(-3.2, new Date('2026-04-12T10:06:00Z')), policy);
     expect(tracker.drainExportOpportunities()).toHaveLength(0);
+  });
+
+  it('triggers an over-capacity warning only after sustained load above 95% of capacity', () => {
+    const t0 = new Date('2026-04-12T10:00:00Z');
+    const t1 = new Date('2026-04-12T10:01:00Z');
+    const t2 = new Date('2026-04-12T10:02:00Z');
+    const t3 = new Date('2026-04-12T10:03:01Z');
+    const t4 = new Date('2026-04-12T10:04:00Z');
+
+    expect(getOverCapacityWarnings(tracker.processReading(makeReading(10.6, t0), policy))).toHaveLength(0);
+    expect(getOverCapacityWarnings(tracker.processReading(makeReading(10.7, t1), policy))).toHaveLength(0);
+    expect(getOverCapacityWarnings(tracker.processReading(makeReading(10.8, t2), policy))).toHaveLength(0);
+
+    const started = getOverCapacityWarnings(tracker.processReading(makeReading(10.9, t3), policy));
+    expect(started).toHaveLength(1);
+    expect(started[0]).toEqual(expect.objectContaining({
+      type: 'OVER_CAPACITY_WARNING',
+      severity: 'WARNING',
+      metricName: 'ACTIVE_POWER_TOTAL',
+      startedAt: t0,
+      endedAt: null,
+    }));
+
+    const resolved = getOverCapacityWarnings(tracker.processReading(makeReading(8.8, t4), policy));
+    expect(resolved).toHaveLength(1);
+    expect(resolved[0]).toEqual(expect.objectContaining({
+      type: 'OVER_CAPACITY_WARNING',
+      severity: 'WARNING',
+      metricName: 'ACTIVE_POWER_TOTAL',
+      startedAt: t0,
+      endedAt: t4,
+    }));
   });
 });
