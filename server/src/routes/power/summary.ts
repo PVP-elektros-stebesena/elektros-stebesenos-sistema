@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import prisma from '../../lib/prisma.js';
+import { buildPhaseImbalanceRecommendations } from '../../services/powerAnalysis.js';
 import { resolveEffectivePowerPolicy } from '../../services/powerPolicy.js';
 import { parseOptionalDeviceId } from '../queryParsers.js';
 import { RAW_READING_SELECT, type DeviceQuery, toPowerPayload } from './shared.js';
@@ -14,8 +15,18 @@ export function registerPowerSummaryRoute(fastify: FastifyInstance): void {
     const deviceId = parsedDeviceId.value;
     const where = deviceId ? { deviceId } : {};
 
-    const [latest, readingCount, windowCount, breachWindowCount, anomalyCount, activeAnomalyCount] =
-      await Promise.all([
+    const now = new Date();
+    const weekStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    const [
+      latest,
+      readingCount,
+      windowCount,
+      breachWindowCount,
+      anomalyCount,
+      activeAnomalyCount,
+      weekWindows,
+    ] = await Promise.all([
         prisma.reading.findFirst({
           where,
           orderBy: { timestamp: 'desc' },
@@ -51,11 +62,25 @@ export function registerPowerSummaryRoute(fastify: FastifyInstance): void {
             endsAt: null,
           },
         }),
+        prisma.aggregatedData.findMany({
+          where: {
+            ...where,
+            startsAt: { gte: weekStart, lte: now },
+          },
+          select: {
+            powerImbalancePct: true,
+            activePowerAvgL1: true,
+            activePowerAvgL2: true,
+            activePowerAvgL3: true,
+          },
+        }),
       ]);
 
     const policy = latest
       ? await resolveEffectivePowerPolicy(latest.deviceId, latest.timestamp)
       : null;
+
+    const phaseRecommendations = buildPhaseImbalanceRecommendations(weekWindows);
 
     return {
       has_data: latest != null,
@@ -67,6 +92,9 @@ export function registerPowerSummaryRoute(fastify: FastifyInstance): void {
         policyBreachedWindows: breachWindowCount,
         totalPowerAnomalies: anomalyCount,
         activePowerAnomalies: activeAnomalyCount,
+      },
+      insights: {
+        phaseRecommendations,
       },
       policy,
     };
