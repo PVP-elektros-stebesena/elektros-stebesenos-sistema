@@ -108,6 +108,50 @@ describe('buildReportInsights', () => {
     ]);
     expect(insights.narrative).toContain('Power-related observations included 2 anomalies');
   });
+
+  it('classifies over-capacity warnings as power anomalies', async () => {
+    await prisma.reading.createMany({
+      data: [
+        {
+          deviceId: testDeviceId,
+          timestamp: new Date('2026-04-03T00:00:00.000Z'),
+          energyDelivered: 50,
+          energyReturned: 5,
+        },
+        {
+          deviceId: testDeviceId,
+          timestamp: new Date('2026-04-03T12:00:00.000Z'),
+          energyDelivered: 55,
+          energyReturned: 6,
+        },
+      ],
+    });
+
+    const insights = await buildReportInsights(
+      testDeviceId,
+      new Date('2026-04-03T00:00:00.000Z'),
+      new Date('2026-04-04T00:00:00.000Z'),
+      [
+        {
+          type: 'OVER_CAPACITY_WARNING',
+          phase: 'ALL',
+          durationSeconds: 181,
+          minVoltage: null,
+          maxVoltage: null,
+          startsAt: '2026-04-03T08:00:00.000Z',
+          endsAt: '2026-04-03T08:03:01.000Z',
+          severity: 'WARNING',
+          metricDomain: 'POWER',
+          metricName: 'ACTIVE_POWER_TOTAL',
+        },
+      ],
+    );
+
+    expect(insights.totalPowerAnomalies).toBe(1);
+    expect(insights.powerAnomalyTypeDistribution).toEqual([
+      { type: 'OVER_CAPACITY_WARNING', count: 1 },
+    ]);
+  });
 });
 
 describe('saveReport', () => {

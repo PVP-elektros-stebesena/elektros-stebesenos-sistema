@@ -15,6 +15,10 @@ type ContinuousMetricName =
 
 type AnomalySeverity = 'WARNING' | 'CRITICAL';
 
+const OVER_CAPACITY_WARNING_THRESHOLD_RATIO = 0.95;
+const OVER_CAPACITY_WARNING_DURATION_MS = 3 * 60 * 1000;
+const OVER_CAPACITY_WARNING_TYPE = 'OVER_CAPACITY_WARNING';
+
 interface OngoingState {
   ongoing: boolean;
   startedAt: Date | null;
@@ -24,6 +28,10 @@ interface OngoingState {
   observedMax: number;
   observedSum: number;
   sampleCount: number;
+}
+
+interface OverCapacityState extends OngoingState {
+  triggered: boolean;
 }
 
 export interface DetectedPowerAnomaly {
@@ -103,6 +111,8 @@ export class PowerTracker {
     PHASE_IMBALANCE: createInitialState(),
   };
 
+  private overCapacityState: OverCapacityState = this.createInitialOverCapacityState();
+
   private previous: { timestamp: Date; activePowerTotalKw: number | null } | null = null;
 
   processReading(reading: PowerReading, policy: EffectivePowerPolicy): DetectedPowerAnomaly[] {
@@ -115,6 +125,8 @@ export class PowerTracker {
     );
     const breachByMetric = new Map(breaches.map((breach) => [breach.metricName, breach]));
     const anomalies: DetectedPowerAnomaly[] = [];
+
+    anomalies.push(...this.processOverCapacityWarning(metrics.activePowerTotalKw, reading.timestamp, policy));
 
     for (const metricName of Object.keys(CONTINUOUS_METRICS) as ContinuousMetricName[]) {
       const cfg = CONTINUOUS_METRICS[metricName];
@@ -212,8 +224,88 @@ export class PowerTracker {
     for (const metricName of Object.keys(this.states) as ContinuousMetricName[]) {
       this.states[metricName] = createInitialState();
     }
+    this.overCapacityState = this.createInitialOverCapacityState();
     this.previous = null;
   }
+
+  private createInitialOverCapacityState(): OverCapacityState {
+    return {
+      ...createInitialState(),
+      triggered: false,
+    };
+  }
+
+  private processOverCapacityWarning(
+    activePowerTotalKw: number | null,
+    timestamp: Date,
+    policy: EffectivePowerPolicy,
+  ): DetectedPowerAnomaly[] {
+    const thresholdValue = policy.maxGridCapacityKw * OVER_CAPACITY_WARNING_THRESHOLD_RATIO;
+    const state = this.overCapacityState;
+
+    if (activePowerTotalKw == null || activePowerTotalKw <= thresholdValue) {
+      if (state.ongoing && state.startedAt && state.triggered) {
+        const resolved = this.createAnomaly({
+          metricName: 'ACTIVE_POWER_TOTAL',
+          startedAt: state.startedAt,
+          endedAt: timestamp,
+          cfg: {
+            type: OVER_CAPACITY_WARNING_TYPE,
+            defaultSeverity: 'WARNING',
+            unit: 'kW',
+          },
+          state,
+          description: 'Over-capacity warning resolved',
+        });
+
+        this.overCapacityState = this.createInitialOverCapacityState();
+        return [resolved];
+      }
+
+      if (state.ongoing) {
+        this.overCapacityState = this.createInitialOverCapacityState();
+      }
+
+      return [];
+    }
+
+    if (!state.ongoing) {
+      this.startState(state, timestamp, thresholdValue, 'WARNING', activePowerTotalKw);
+      this.overCapacityState = state;
+      return [];
+    }
+
+    state.observedMin = Math.min(state.observedMin, activePowerTotalKw);
+    state.observedMax = Math.max(state.observedMax, activePowerTotalKw);
+    state.observedSum += activePowerTotalKw;
+    state.sampleCount += 1;
+
+    if (
+      !state.triggered &&
+      state.startedAt &&
+      timestamp.getTime() - state.startedAt.getTime() > OVER_CAPACITY_WARNING_DURATION_MS
+    ) {
+      state.triggered = true;
+      this.overCapacityState = state;
+
+      return [this.createAnomaly({
+        metricName: 'ACTIVE_POWER_TOTAL',
+        startedAt: state.startedAt,
+        endedAt: null,
+        cfg: {
+          type: OVER_CAPACITY_WARNING_TYPE,
+          defaultSeverity: 'WARNING',
+          unit: 'kW',
+        },
+        state,
+        description: 'Over-capacity warning started',
+      })];
+    }
+
+    this.overCapacityState = state;
+    return [];
+  }
+
   private startState(
     state: OngoingState,
     timestamp: Date,

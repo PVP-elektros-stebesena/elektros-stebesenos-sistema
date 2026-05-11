@@ -31,6 +31,7 @@ import {
 } from 'recharts';
 import { usePolling } from '../hooks/usePolling';
 import { useI18n } from '../i18n/i18n';
+import { CapacityUtilizationGauge } from '../components/capacity-utilization-gauge';
 import type { EstimatedCost, GhostLoadOverview } from '../types/energy';
 import { resolveDeviceSelection, useDeviceOptions } from '../hooks/useDeviceOptions';
 
@@ -52,6 +53,7 @@ interface PowerLatest {
     label: string;
     profile: string;
     source: 'profile_preset' | 'device_override';
+    maxGridCapacityKw: number;
     targetPowerFactor: number;
     minPowerFactor: number;
     maxPhaseImbalancePct: number;
@@ -535,6 +537,37 @@ export function PowerPage() {
                 <Card p="md" radius="md">
                   <Text size="sm" c="dimmed">{t('power.apparentPower')}</Text>
                   <Text fw={700} fz={32}>{latest ? `${formatFixed(latest.apparentPowerTotalKva, 3)} kVA` : '—'}</Text>
+                </Card>
+              </SimpleGrid>
+
+              <SimpleGrid cols={{ base: 1, lg: 2 }}>
+                <CapacityUtilizationGauge
+                  title={t('power.capacityUtilization')}
+                  currentPowerKw={latest?.activePowerTotalKw ?? null}
+                  capacityKw={latest?.policy.maxGridCapacityKw ?? null}
+                />
+
+                <Card p="md" radius="md">
+                  <Text fw={700} mb="xs">{t('power.policySummary')}</Text>
+                  <Stack gap="xs">
+                    <Group justify="space-between">
+                      <Text size="sm" c="dimmed">{t('power.gridCapacity')}</Text>
+                      <Text size="sm" fw={600}>
+                        {latest?.policy.maxGridCapacityKw != null ? `${formatFixed(latest.policy.maxGridCapacityKw, 3)} kW` : '—'}
+                      </Text>
+                    </Group>
+                    <Group justify="space-between">
+                      <Text size="sm" c="dimmed">{t('power.utilizationCurrent')}</Text>
+                      <Text size="sm" fw={600}>
+                        {latest?.policy.maxGridCapacityKw && latest.activePowerTotalKw != null
+                          ? `${Math.round((latest.activePowerTotalKw / latest.policy.maxGridCapacityKw) * 100)}%`
+                          : '—'}
+                      </Text>
+                    </Group>
+                    <Text size="xs" c="dimmed">
+                      {t('power.capacityUtilizationDescription')}
+                    </Text>
+                  </Stack>
                 </Card>
               </SimpleGrid>
 

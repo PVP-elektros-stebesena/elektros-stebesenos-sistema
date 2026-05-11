@@ -92,6 +92,10 @@ describe('computePowerHealthScore', () => {
     expect(computePowerHealthScore([{ type: 'LOW_POWER_FACTOR', severity: 'WARNING' }])).toBe('YELLOW');
   });
 
+  it('returns YELLOW when an over-capacity warning is present', () => {
+    expect(computePowerHealthScore([{ type: 'OVER_CAPACITY_WARNING', severity: 'WARNING' }])).toBe('YELLOW');
+  });
+
   it('returns RED when a critical power anomaly is present', () => {
     expect(computePowerHealthScore([{ type: 'POWER_SPIKE', severity: 'CRITICAL' }])).toBe('RED');
   });

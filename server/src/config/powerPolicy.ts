@@ -17,6 +17,7 @@ export const POWER_PROFILE_PRESET_VALUES = [
 export interface PowerPolicyThresholds {
   warningThreshold: number;
   criticalThreshold: number;
+  maxGridCapacityKw: number;
   maxReactivePowerKvar: number;
   minPowerFactor: number;
   maxPhaseImbalancePct: number;
@@ -70,6 +71,7 @@ function definePreset(input: {
     ...input,
     warningThreshold: roundToSingleDecimal(input.contractPowerKw * 0.9),
     criticalThreshold: input.contractPowerKw,
+    maxGridCapacityKw: input.contractPowerKw,
     maxReactivePowerKvar: calculateReactiveLimitKvar(input.contractPowerKw),
     maxPhaseImbalancePct: PHASE_IMBALANCE_BASELINE_PCT,
     maxRampKwPerMinute: calculateRampLimitKwPerMinute(input.contractPowerKw),
