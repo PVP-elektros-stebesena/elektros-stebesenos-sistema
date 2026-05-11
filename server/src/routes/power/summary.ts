@@ -86,6 +86,7 @@ export function registerPowerSummaryRoute(fastify: FastifyInstance): void {
       has_data: latest != null,
       latest_timestamp: latest?.timestamp ?? null,
       latest_metrics: latest ? toPowerPayload(latest) : null,
+      maxGridCapacityKw: policy?.maxGridCapacityKw ?? null,
       stats: {
         totalReadings: readingCount,
         totalPowerWindows: windowCount,

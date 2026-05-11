@@ -52,6 +52,7 @@ export interface GeneratedReport {
 
 const POWER_ANOMALY_TYPES = new Set([
   'POWER_SPIKE',
+  'OVER_CAPACITY_WARNING',
   'REACTIVE_POWER_SPIKE',
   'LOW_POWER_FACTOR',
   'PHASE_IMBALANCE',

@@ -107,7 +107,7 @@ export async function resolveEffectivePowerPolicy(
   const [device, override] = await Promise.all([
     prisma.device.findUnique({
       where: { id: deviceId },
-      select: { powerProfile: true },
+      select: { powerProfile: true, maxGridCapacityKw: true },
     }),
     prisma.powerPolicyOverride.findFirst({
       where: {
@@ -130,17 +130,20 @@ export async function resolveEffectivePowerPolicy(
 
   const presetPolicy = buildPresetPowerPolicy(device?.powerProfile);
   const overrideCriticalThreshold = override?.maxActivePowerKw;
+  const deviceGridCapacityKw = device?.maxGridCapacityKw;
   const resolvedCriticalThreshold =
     overrideCriticalThreshold ?? presetPolicy.criticalThreshold;
   const resolvedWarningThreshold = overrideCriticalThreshold != null
     ? roundToSingleDecimal(resolvedCriticalThreshold * 0.9)
     : presetPolicy.warningThreshold;
+  const resolvedGridCapacityKw = deviceGridCapacityKw ?? presetPolicy.maxGridCapacityKw;
 
   const policy: EffectivePowerPolicy = override
     ? {
         ...presetPolicy,
         warningThreshold: resolvedWarningThreshold,
         criticalThreshold: resolvedCriticalThreshold,
+        maxGridCapacityKw: resolvedGridCapacityKw,
         maxReactivePowerKvar:
           override.maxReactivePowerKvar ?? presetPolicy.maxReactivePowerKvar,
         minPowerFactor: override.minPowerFactor ?? presetPolicy.minPowerFactor,
@@ -152,7 +155,10 @@ export async function resolveEffectivePowerPolicy(
         policyVersion: override.policyVersion,
         effectiveFrom: override.effectiveFrom,
       }
-    : presetPolicy;
+    : {
+        ...presetPolicy,
+        maxGridCapacityKw: resolvedGridCapacityKw,
+      };
 
   policyCache.set(deviceId, { expiresAt: now + CACHE_TTL_MS, policy });
   return policy;
