@@ -15,6 +15,8 @@ import {
   Title,
 } from '@mantine/core';
 import {
+  Area,
+  AreaChart,
   CartesianGrid,
   Cell,
   Legend,
@@ -82,6 +84,9 @@ interface PowerHistoryPoint {
   reactivePowerTotalKvar: number | null;
   apparentPowerTotalKva: number | null;
   powerFactor: number | null;
+  activePowerL1Kw: number | null;
+  activePowerL2Kw: number | null;
+  activePowerL3Kw: number | null;
 }
 
 interface PowerHistoryResponse {
@@ -140,6 +145,13 @@ interface PowerTrendPoint {
   reactive: number | null;
   apparent: number | null;
   pf: number | null;
+}
+
+interface PowerPhaseTrendPoint {
+  time: string;
+  l1: number | null;
+  l2: number | null;
+  l3: number | null;
 }
 
 function anomalyColor(index: number): string {
@@ -336,6 +348,15 @@ export function PowerPage() {
       reactive: point.reactivePowerTotalKvar,
       apparent: point.apparentPowerTotalKva,
       pf: point.powerFactor,
+    }));
+  }, [history]);
+
+  const phaseTrendData: PowerPhaseTrendPoint[] = useMemo(() => {
+    return (history?.data ?? []).map((point) => ({
+      time: new Date(point.timestamp).toLocaleTimeString(),
+      l1: point.activePowerL1Kw,
+      l2: point.activePowerL2Kw,
+      l3: point.activePowerL3Kw,
     }));
   }, [history]);
 
@@ -615,6 +636,60 @@ export function PowerPage() {
                   </SimpleGrid>
                 </Card>
               </SimpleGrid>
+
+              <Card p="md" radius="md">
+                <Text fw={700} mb="sm">{t('power.phaseLoadDistribution')}</Text>
+
+                {historyError ? (
+                  <Alert color="red" title={t('power.failedTrendTitle')}>{t('power.failedTrendDescription')}</Alert>
+                ) : historyLoading && phaseTrendData.length === 0 ? (
+                  <Group justify="center" py="md">
+                    <Loader size="sm" />
+                  </Group>
+                ) : phaseTrendData.length === 0 ? (
+                  <Text c="dimmed" ta="center">{t('power.noHistory')}</Text>
+                ) : (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <AreaChart data={phaseTrendData}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                      <XAxis dataKey="time" interval="preserveStartEnd" tick={{ fontSize: 11 }} />
+                      <YAxis tick={{ fontSize: 11 }} />
+                      <Tooltip />
+                      <Legend />
+                      <Area
+                        type="monotone"
+                        dataKey="l1"
+                        stackId="1"
+                        stroke="#FFCC59"
+                        fill="#FFCC59"
+                        fillOpacity={0.35}
+                        name={t('power.legendL1Kw')}
+                        isAnimationActive={false}
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="l2"
+                        stackId="1"
+                        stroke="#8ACDEA"
+                        fill="#8ACDEA"
+                        fillOpacity={0.35}
+                        name={t('power.legendL2Kw')}
+                        isAnimationActive={false}
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="l3"
+                        stackId="1"
+                        stroke="#A78BFA"
+                        fill="#A78BFA"
+                        fillOpacity={0.35}
+                        name={t('power.legendL3Kw')}
+                        isAnimationActive={false}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                )}
+              </Card>
 
               <Card p="md" radius="md">
                 <Group justify="space-between" mb="md">

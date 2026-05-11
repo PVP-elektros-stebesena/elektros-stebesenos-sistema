@@ -168,9 +168,13 @@ const translations = {
     'power.failedTrendTitle': 'Failed to load trend data',
     'power.failedTrendDescription': 'Could not load power history.',
     'power.noHistory': 'No history yet.',
+    'power.phaseLoadDistribution': 'Phase load distribution',
     'power.legendActiveKw': 'Active kW',
     'power.legendReactiveKvar': 'Reactive kvar',
     'power.legendApparentKva': 'Apparent kVA',
+    'power.legendL1Kw': 'L1 kW',
+    'power.legendL2Kw': 'L2 kW',
+    'power.legendL3Kw': 'L3 kW',
     'power.pfImbalance': 'Power factor and imbalance',
     'power.powerFactor': 'Power factor',
     'power.phaseImbalance': 'Phase imbalance',
@@ -462,9 +466,13 @@ const translations = {
     'power.failedTrendTitle': 'Nepavyko įkelti tendencijų duomenų',
     'power.failedTrendDescription': 'Nepavyko įkelti galios istorijos.',
     'power.noHistory': 'Istorijos dar nėra.',
+    'power.phaseLoadDistribution': 'Fazių apkrovos pasiskirstymas',
     'power.legendActiveKw': 'Aktyvioji kW',
     'power.legendReactiveKvar': 'Reaktyvioji kvar',
     'power.legendApparentKva': 'Pilnutinė kVA',
+    'power.legendL1Kw': 'L1 kW',
+    'power.legendL2Kw': 'L2 kW',
+    'power.legendL3Kw': 'L3 kW',
     'power.pfImbalance': 'Galios koeficientas ir disbalansas',
     'power.powerFactor': 'Galios koeficientas',
     'power.phaseImbalance': 'Fazių disbalansas',
@@ -597,7 +605,12 @@ const translations = {
   },
 } as const satisfies Record<Language, Record<string, string>>
 
-type TranslationKey = keyof typeof translations.en
+type TranslationKey =
+  | keyof typeof translations.en
+  | 'power.phaseLoadDistribution'
+  | 'power.legendL1Kw'
+  | 'power.legendL2Kw'
+  | 'power.legendL3Kw'
 
 interface I18nContextValue {
   language: Language
