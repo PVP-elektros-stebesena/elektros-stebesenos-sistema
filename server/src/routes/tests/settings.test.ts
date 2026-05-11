@@ -58,6 +58,7 @@ describe('POST /api/settings', () => {
       powerProfile: 'SOLAR_PROSUMER_3P_22KW',
       pollInterval: 5,
       isActive: false,
+      notifySolarExportOpportunity: false,
     };
 
     const res = await inject('POST', '/api/settings', body);
@@ -73,6 +74,7 @@ describe('POST /api/settings', () => {
     expect(json.powerProfile).toBe('SOLAR_PROSUMER_3P_22KW');
     expect(json.pollInterval).toBe(5);
     expect(json.isActive).toBe(false);
+    expect(json.notifySolarExportOpportunity).toBe(false);
     expect(json.createdAt).toBeDefined();
 
     const override = await prisma.powerPolicyOverride.findFirst({
@@ -81,6 +83,21 @@ describe('POST /api/settings', () => {
     });
     expect(override?.policyVersion).toContain('preset-sync:solar_prosumer_3p_22kw');
     expect(override?.maxActivePowerKw).toBe(22);
+  });
+
+  it('includes solar export opportunity in notification settings', async () => {
+    const device = await seedDevice({ name: 'Solar settings device' });
+
+    const settingsRes = await inject('GET', `/api/settings/${device.id}/notifications`);
+    expect(settingsRes.statusCode).toBe(200);
+    expect(settingsRes.json().availableEvents).toContain('EXPORT_OPPORTUNITY');
+
+    const saveRes = await inject('PATCH', `/api/settings/${device.id}/notifications`, {
+      notificationsEnabled: true,
+      selectedEvents: ['EXPORT_OPPORTUNITY'],
+    });
+    expect(saveRes.statusCode).toBe(200);
+    expect(saveRes.json().selectedEvents).toEqual(['EXPORT_OPPORTUNITY']);
   });
 
   it('creates a device with only required field (name)', async () => {

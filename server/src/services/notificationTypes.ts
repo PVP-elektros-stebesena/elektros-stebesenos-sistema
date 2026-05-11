@@ -3,6 +3,7 @@ export const NOTIFICATION_EVENT_TYPES = [
   'DEVICE_UNREACHABLE',
   'DEVICE_RECOVERED',
   'REPORT_GENERATED',
+  'EXPORT_OPPORTUNITY',
 ] as const;
 
 export type NotificationEventType = (typeof NOTIFICATION_EVENT_TYPES)[number];
@@ -59,5 +60,14 @@ export interface NotificationEventAdapter {
     endsAt: Date;
     healthScore: string;
     totalAnomalies: number;
+  }): Promise<void>;
+
+  notifyExportOpportunity(input: {
+    deviceId: number;
+    startedAt: Date;
+    detectedAt: Date;
+    exportPowerKw: number;
+    thresholdKw: number;
+    sustainedMinutes: number;
   }): Promise<void>;
 }

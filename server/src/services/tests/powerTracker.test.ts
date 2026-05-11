@@ -89,4 +89,29 @@ describe('PowerTracker breaker curve handling', () => {
       endedAt: t4,
     }));
   });
+
+  it('emits export opportunity after sustained negative active power', () => {
+    const t0 = new Date('2026-04-12T10:00:00Z');
+    const t1 = new Date('2026-04-12T10:04:59Z');
+    const t2 = new Date('2026-04-12T10:05:00Z');
+
+    tracker.processReading(makeReading(-2.8, t0), policy);
+    tracker.processReading(makeReading(-3.1, t1), policy);
+    expect(tracker.drainExportOpportunities()).toHaveLength(0);
+
+    tracker.processReading(makeReading(-3.4, t2), policy);
+    const opportunities = tracker.drainExportOpportunities();
+
+    expect(opportunities).toHaveLength(1);
+    expect(opportunities[0]).toEqual(expect.objectContaining({
+      startedAt: t0,
+      detectedAt: t2,
+      exportPowerKw: 3.4,
+      thresholdKw: 2.5,
+      sustainedMinutes: 5,
+    }));
+
+    tracker.processReading(makeReading(-3.2, new Date('2026-04-12T10:06:00Z')), policy);
+    expect(tracker.drainExportOpportunities()).toHaveLength(0);
+  });
 });

@@ -25,6 +25,7 @@ model Device {
 
   notificationChannel String?  @default("email")
   notificationTarget  String?
+  notifySolarExportOpportunity Boolean @default(true)
 
   user        User? @relation(fields: [userId], references: [id], onDelete: SetNull)
   readings    Reading[]

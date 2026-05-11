@@ -18,6 +18,7 @@ interface Device {
   isActive: boolean
   notificationChannel: 'email' | 'sms' | 'push' | 'none' | null
   notificationTarget: string | null
+  notifySolarExportOpportunity: boolean
   billingPlan?: BillingPlan | null
 }
 
@@ -28,6 +29,7 @@ type NotificationEventType =
   | 'DEVICE_UNREACHABLE'
   | 'DEVICE_RECOVERED'
   | 'REPORT_GENERATED'
+  | 'EXPORT_OPPORTUNITY'
 
 interface NotificationSettingsResponse {
   notificationsEnabled: boolean
@@ -58,6 +60,7 @@ const DEFAULT: AppSettings = {
   notifications_enabled: true,
   notification_channel: 'email',
   notification_target: '',
+  notify_solar_export_opportunity: true,
   pricing_mode: 'FIXED',
   rate_t1: null,
   rate_t2: null,
@@ -91,6 +94,7 @@ const DEFAULT_SELECTED_EVENTS: NotificationEventType[] = [
   'DEVICE_UNREACHABLE',
   'DEVICE_RECOVERED',
   'REPORT_GENERATED',
+  'EXPORT_OPPORTUNITY',
 ]
 
 const POWER_PROFILE_OPTIONS: { value: PowerProfilePreset; label: string }[] = [
@@ -112,6 +116,7 @@ const EMPTY_DEVICE_SETTINGS: AppSettings = {
   notifications_enabled: true,
   notification_channel: 'email',
   notification_target: '',
+  notify_solar_export_opportunity: true,
   pricing_mode: 'FIXED',
   rate_t1: null,
   rate_t2: null,
@@ -246,6 +251,7 @@ export function SettingsForm() {
       poll_interval: device.pollInterval,
       notification_channel: device.notificationChannel || 'email',
       notification_target: device.notificationTarget || '',
+      notify_solar_export_opportunity: device.notifySolarExportOpportunity,
       ...billingPlanToSettings(device.billingPlan ?? null),
     }))
     setActiveBillingPlan(device.billingPlan ?? null)
@@ -342,6 +348,19 @@ export function SettingsForm() {
   const handleCreateNewDevice = () => {
     setMessage(null)
     resetFormForNewDevice()
+  }
+
+  const handleSolarOptimizationToggle = (enabled: boolean) => {
+    setS((prev) => ({
+      ...prev,
+      notify_solar_export_opportunity: enabled,
+    }))
+    setSelectedEvents((prev) => {
+      const withoutExportOpportunity = prev.filter((eventType) => eventType !== 'EXPORT_OPPORTUNITY')
+      return enabled
+        ? [...withoutExportOpportunity, 'EXPORT_OPPORTUNITY']
+        : withoutExportOpportunity
+    })
   }
 
   const handleToggleConnection = async () => {
@@ -507,6 +526,7 @@ export function SettingsForm() {
           (s.notification_channel === 'email' || s.notification_channel === 'sms')
             ? s.notification_target.trim() || null
             : null,
+        notifySolarExportOpportunity: s.notify_solar_export_opportunity,
       }
 
       let savedDeviceId = deviceId
@@ -608,6 +628,7 @@ export function SettingsForm() {
     { value: 'DEVICE_UNREACHABLE', label: t('settings.eventDeviceUnreachable') },
     { value: 'DEVICE_RECOVERED', label: t('settings.eventDeviceRecovered') },
     { value: 'REPORT_GENERATED', label: t('settings.eventReportGenerated') },
+    { value: 'EXPORT_OPPORTUNITY', label: t('settings.eventExportOpportunity') },
   ]
 
   const pricingModeOptions: { value: PricingMode; label: string }[] = [
@@ -923,6 +944,22 @@ export function SettingsForm() {
                 clearable
                 searchable
                 styles={inputStyles}
+              />
+
+              <Switch
+                label={t('settings.solarOptimizationAlerts')}
+                checked={s.notify_solar_export_opportunity}
+                onChange={(e) => handleSolarOptimizationToggle(e.currentTarget.checked)}
+                size="md"
+                styles={{
+                  track: {
+                    backgroundColor: s.notify_solar_export_opportunity ? '#FFCC59' : '#404040',
+                    borderColor: s.notify_solar_export_opportunity ? '#FFCC59' : '#4A4A4A',
+                    cursor: 'pointer',
+                  },
+                  thumb: { backgroundColor: '#FFFFFF', borderColor: s.notify_solar_export_opportunity ? '#FFCC59' : '#4A4A4A' },
+                  label: { color: '#EBEBEB', fontSize: '14px', fontWeight: 400, cursor: 'pointer' },
+                }}
               />
             </>
           )}

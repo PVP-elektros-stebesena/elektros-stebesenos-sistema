@@ -78,6 +78,29 @@ interface PowerSummary {
   };
 }
 
+interface SolarSummary {
+  count: number;
+  data: {
+    date: string;
+    importedKwh: number | null;
+    exportedKwh: number | null;
+    selfConsumptionRatioPct: number | null;
+    sampleCount: number;
+  }[];
+  totals: {
+    importedKwh: number | null;
+    exportedKwh: number | null;
+    selfConsumptionRatioPct: number | null;
+  };
+  currentExport: {
+    exporting: boolean;
+    exportPowerKw: number | null;
+    thresholdKw: number;
+    opportunity: boolean;
+    latestTimestamp: string | null;
+  };
+}
+
 interface PowerHistoryPoint {
   timestamp: string;
   activePowerTotalKw: number | null;
@@ -341,6 +364,12 @@ export function PowerPage() {
     { intervalSeconds: 60, enabled: activeSelectedDeviceId != null },
   );
 
+  const { data: solarSummary, isLoading: solarLoading, error: solarError } = usePolling<SolarSummary>(
+    ['power', 'solar-summary', activeSelectedDeviceId ?? 'none'],
+    activeSelectedDeviceId ? `/api/power/solar-summary?days=7&deviceId=${activeSelectedDeviceId}` : '',
+    { intervalSeconds: 60, enabled: activeSelectedDeviceId != null },
+  );
+
   const trendData: PowerTrendPoint[] = useMemo(() => {
     return (history?.data ?? []).map((point) => ({
       time: new Date(point.timestamp).toLocaleTimeString(),
@@ -537,6 +566,62 @@ export function PowerPage() {
                   <Text fw={700} fz={32}>{latest ? `${formatFixed(latest.apparentPowerTotalKva, 3)} kVA` : '—'}</Text>
                 </Card>
               </SimpleGrid>
+
+              <Card p="md" radius="md">
+                <Group justify="space-between" mb="md" align="flex-start" wrap="wrap">
+                  <div>
+                    <Text fw={700}>{t('power.solarOptimizations')}</Text>
+                    <Text size="sm" c="dimmed">{t('power.currentExportStatus')}</Text>
+                  </div>
+                  {solarSummary && (
+                    <Badge color={solarSummary.currentExport.exporting ? 'green' : 'gray'} variant="light">
+                      {solarSummary.currentExport.exporting ? t('power.exportingNow') : t('power.notExporting')}
+                    </Badge>
+                  )}
+                </Group>
+
+                {solarError ? (
+                  <Alert color="red" title={t('power.failedSolarSummaryTitle')}>
+                    {t('power.failedLiveDescription')}
+                  </Alert>
+                ) : solarLoading && !solarSummary ? (
+                  <Group justify="center" py="md"><Loader size="sm" /></Group>
+                ) : !solarSummary || solarSummary.count === 0 ? (
+                  <Text c="dimmed">{t('power.noSolarSummary')}</Text>
+                ) : (
+                  <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }}>
+                    <Card p="sm" withBorder>
+                      <Text size="xs" c="dimmed">{t('power.selfConsumptionRatio')}</Text>
+                      <Text fw={700} fz="xl">
+                        {solarSummary.totals.selfConsumptionRatioPct != null
+                          ? `${solarSummary.totals.selfConsumptionRatioPct.toFixed(1)}%`
+                          : 'â€”'}
+                      </Text>
+                    </Card>
+                    <Card p="sm" withBorder>
+                      <Text size="xs" c="dimmed">{t('power.importedToday')}</Text>
+                      <Text fw={700} fz="xl">{formatFixed(solarSummary.totals.importedKwh, 2)} kWh</Text>
+                    </Card>
+                    <Card p="sm" withBorder>
+                      <Text size="xs" c="dimmed">{t('power.exportedToday')}</Text>
+                      <Text fw={700} fz="xl">{formatFixed(solarSummary.totals.exportedKwh, 2)} kWh</Text>
+                    </Card>
+                    <Card p="sm" withBorder>
+                      <Group justify="space-between" gap="xs" wrap="nowrap">
+                        <Text size="xs" c="dimmed">{t('power.exportOpportunity')}</Text>
+                        <Badge color={solarSummary.currentExport.opportunity ? 'green' : 'gray'} variant="light">
+                          {formatFixed(solarSummary.currentExport.exportPowerKw, 2)} kW
+                        </Badge>
+                      </Group>
+                      <Text fw={700} fz="sm" mt={8}>
+                        {solarSummary.currentExport.opportunity
+                          ? t('power.exportOpportunityActive')
+                          : t('power.exportOpportunityInactive', { threshold: solarSummary.currentExport.thresholdKw })}
+                      </Text>
+                    </Card>
+                  </SimpleGrid>
+                )}
+              </Card>
 
               <SimpleGrid cols={{ base: 1, lg: 2 }}>
                 <Card p="md" radius="md">

@@ -177,6 +177,7 @@ export interface AppSettings {
   notifications_enabled: boolean;
   notification_channel: 'email' | 'sms' | 'push' | 'none'
   notification_target: string
+  notify_solar_export_opportunity: boolean;
   pricing_mode: PricingMode;
   rate_t1: number | null;
   rate_t2: number | null;
