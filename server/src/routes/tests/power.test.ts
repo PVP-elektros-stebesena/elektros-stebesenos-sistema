@@ -238,6 +238,37 @@ describe('GET /api/power/history', () => {
   });
 });
 
+describe('GET /api/power/summary', () => {
+  it('returns phase imbalance recommendations for consistently heavy phase', async () => {
+    const now = new Date();
+    const windowStarts = [
+      new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000),
+      new Date(now.getTime() - 4 * 24 * 60 * 60 * 1000),
+      new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000),
+    ];
+
+    await prisma.aggregatedData.createMany({
+      data: windowStarts.map((startsAt) => ({
+        deviceId: testDeviceId,
+        startsAt,
+        endsAt: new Date(startsAt.getTime() + 10 * 60 * 1000),
+        sampleCount: 60,
+        powerImbalancePct: 42,
+        activePowerAvgL1: 7.0,
+        activePowerAvgL2: 2.1,
+        activePowerAvgL3: 1.4,
+      })),
+    });
+
+    const res = await injectGet(`/api/power/summary?deviceId=${testDeviceId}`);
+    const body = res.json();
+
+    expect(res.statusCode).toBe(200);
+    expect(body.insights.phaseRecommendations.length).toBe(1);
+    expect(body.insights.phaseRecommendations[0]).toContain('Phase L1 carries');
+  });
+});
+
 describe('GET /api/power/anomalies', () => {
   it('returns only power-domain anomalies', async () => {
     await prisma.anomaly.createMany({

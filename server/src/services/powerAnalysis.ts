@@ -66,7 +66,16 @@ export interface PowerWindowResult {
   powerPolicyBreached: boolean;
 }
 
+export interface PhaseImbalanceWindow {
+  powerImbalancePct: number | null;
+  activePowerAvgL1: number | null;
+  activePowerAvgL2: number | null;
+  activePowerAvgL3: number | null;
+}
+
 const EPS = 1e-6;
+const PHASE_IMBALANCE_THRESHOLD_PCT = 30;
+const MIN_PHASE_IMBALANCE_WINDOWS = 3;
 
 function sumNullable(values: Array<number | null>): number | null {
   const filtered = values.filter((v): v is number => v != null);
@@ -84,6 +93,36 @@ function maxNullable(values: Array<number | null>): number | null {
   const filtered = values.filter((v): v is number => v != null);
   if (filtered.length === 0) return null;
   return Math.max(...filtered);
+}
+
+function resolveHeaviestPhase(window: PhaseImbalanceWindow): {
+  phase: 'L1' | 'L2' | 'L3';
+  sharePct: number;
+} | null {
+  const l1 = window.activePowerAvgL1;
+  const l2 = window.activePowerAvgL2;
+  const l3 = window.activePowerAvgL3;
+
+  if (l1 == null || l2 == null || l3 == null) return null;
+
+  const absL1 = Math.abs(l1);
+  const absL2 = Math.abs(l2);
+  const absL3 = Math.abs(l3);
+  const total = absL1 + absL2 + absL3;
+
+  if (total <= EPS) return null;
+
+  const maxValue = Math.max(absL1, absL2, absL3);
+
+  const isTie = [absL1, absL2, absL3]
+    .filter((value) => Math.abs(value - maxValue) <= EPS).length > 1;
+
+  if (isTie) return null;
+
+  const phase = maxValue === absL1 ? 'L1' : maxValue === absL2 ? 'L2' : 'L3';
+  const sharePct = (maxValue / total) * 100;
+
+  return { phase, sharePct };
 }
 
 function round(value: number | null, decimals: number = 4): number | null {
@@ -351,4 +390,42 @@ export function aggregatePowerWindow(
     powerImbalancePct: round(avgNullable(metrics.map((m) => m.phaseImbalancePct))),
     powerPolicyBreached: hasPolicyBreach,
   };
+}
+
+export function buildPhaseImbalanceRecommendations(
+  windows: PhaseImbalanceWindow[],
+): string[] {
+  const withImbalance = windows.filter((window) => window.powerImbalancePct != null);
+  if (withImbalance.length < MIN_PHASE_IMBALANCE_WINDOWS) return [];
+
+  const consistentlyImbalanced = withImbalance.every((window) =>
+    (window.powerImbalancePct ?? 0) > PHASE_IMBALANCE_THRESHOLD_PCT,
+  );
+
+  if (!consistentlyImbalanced) return [];
+
+  const heaviest = withImbalance.map(resolveHeaviestPhase);
+  if (heaviest.some((value) => value == null)) return [];
+
+  const resolved = heaviest.filter((value): value is NonNullable<typeof value> => value != null);
+  if (resolved.length < MIN_PHASE_IMBALANCE_WINDOWS) return [];
+
+  const dominantPhase = resolved[0]?.phase;
+  if (!dominantPhase) return [];
+
+  const samePhase = resolved.every((value) => value.phase === dominantPhase);
+  if (!samePhase) return [];
+
+  const averageSharePct = resolved.reduce((sum, value) => sum + value.sharePct, 0) / resolved.length;
+  const roundedSharePct = Math.round(averageSharePct);
+
+  const alternatePhases = dominantPhase === 'L1'
+    ? 'L2 or L3'
+    : dominantPhase === 'L2'
+      ? 'L1 or L3'
+      : 'L1 or L2';
+
+  return [
+    `Phase ${dominantPhase} carries ${roundedSharePct}% of your load. Consider moving single-phase appliances to ${alternatePhases}.`,
+  ];
 }
