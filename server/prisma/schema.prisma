@@ -19,6 +19,7 @@ model Device {
   mqttPort    Int?
   mqttTopic   String?
   powerProfile String  @default("HOUSE_3P_11KW")
+  maxGridCapacityKw Float?
   pollInterval Int     @default(10)
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
