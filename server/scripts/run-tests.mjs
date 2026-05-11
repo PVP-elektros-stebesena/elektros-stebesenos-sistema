@@ -20,6 +20,7 @@ for (const target of cleanupTargets) {
 }
 
 fs.mkdirSync(path.dirname(testDbPath), { recursive: true });
+fs.closeSync(fs.openSync(testDbPath, 'a'));
 
 const mode = process.argv[2] === 'run' ? 'run' : 'watch';
 const vitestArgs = mode === 'run' ? ['run'] : [];
