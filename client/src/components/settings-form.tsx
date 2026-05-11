@@ -1,8 +1,8 @@
-import { Button, Card, Stack, TextInput, NumberInput, Switch, Text, Select, MultiSelect, Group, SimpleGrid, Badge } from '@mantine/core'
+import { Button, Card, Stack, TextInput, NumberInput, Switch, Text, Select, MultiSelect, Group, SimpleGrid, Badge, Tooltip } from '@mantine/core'
 import { useState, useEffect, useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import type { AppSettings, BillingPlan, PowerProfilePreset, PricingMode } from '../types/energy'
-import { apiDelete, apiFetch, apiPost, apiPatch, apiPut } from '../services/apiClient'
+import { apiDelete, apiFetch, apiPost, apiPatch, apiPut, getApiErrorMessage } from '../services/apiClient'
 import { useI18n } from '../i18n/i18n'
 import { SETTINGS_DEVICES_QUERY_KEY } from '../hooks/useDeviceOptions'
 
@@ -44,6 +44,14 @@ interface BillingPlanResponse {
 interface SaveBillingPlanResponse {
   billingPlan: BillingPlan
   activePlan: BillingPlan | null
+}
+
+interface UsageAnomalySettings {
+  enabled: boolean
+  baselineWeeks: number
+  thresholdPct: number
+  sustainedIntervals: number
+  scope: 'PER_DEVICE'
 }
 
 const DEFAULT: AppSettings = {
@@ -95,6 +103,14 @@ const DEFAULT_SELECTED_EVENTS: NotificationEventType[] = [
   'REPORT_GENERATED',
 ]
 
+const DEFAULT_USAGE_ANOMALY_SETTINGS: UsageAnomalySettings = {
+  enabled: true,
+  baselineWeeks: 4,
+  thresholdPct: 25,
+  sustainedIntervals: 3,
+  scope: 'PER_DEVICE',
+}
+
 const POWER_PROFILE_OPTIONS: { value: PowerProfilePreset; label: string }[] = [
   { value: 'APARTMENT_1P_5KW', label: '5 kW 1-Phase Apartment (25 A)' },
   { value: 'APARTMENT_1P_7KW', label: '7 kW 1-Phase Apartment Plus (32 A)' },
@@ -113,6 +129,16 @@ function defaultGridCapacityKw(profile: PowerProfilePreset): number {
   }
 
   return defaults[profile]
+}
+
+function helpLabel(label: string, help: string) {
+  return (
+    <Tooltip label={help} multiline w={260} withArrow>
+      <Text component="span" size="sm" c="#999999" style={{ cursor: 'help' }}>
+        {label}
+      </Text>
+    </Tooltip>
+  )
 }
 
 const EMPTY_DEVICE_SETTINGS: AppSettings = {
@@ -237,6 +263,9 @@ export function SettingsForm() {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [selectedEvents, setSelectedEvents] = useState<NotificationEventType[]>(DEFAULT_SELECTED_EVENTS)
   const [activeBillingPlan, setActiveBillingPlan] = useState<BillingPlan | null>(null)
+  const [usageAnomalySettings, setUsageAnomalySettings] = useState<UsageAnomalySettings>(DEFAULT_USAGE_ANOMALY_SETTINGS)
+  const [usageAnomalyLoading, setUsageAnomalyLoading] = useState(false)
+  const [usageAnomalyMessage, setUsageAnomalyMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   const selectedDevice = deviceId ? devices.find((device) => device.id === deviceId) ?? null : null
 
@@ -308,6 +337,20 @@ export function SettingsForm() {
     }
   }, [applyBillingPlanToForm])
 
+  const loadUsageAnomalySettings = useCallback(async () => {
+    try {
+      const loaded = await apiFetch<UsageAnomalySettings>('/api/usage-insights/settings')
+      setUsageAnomalySettings(loaded)
+      setUsageAnomalyMessage(null)
+    } catch (err) {
+      console.error('Failed to load usage anomaly settings:', err)
+      setUsageAnomalyMessage({
+        type: 'error',
+        text: t('settings.usageAnomaliesLoadError'),
+      })
+    }
+  }, [t])
+
   useEffect(() => {
     // Initial settings load only; avoid overwriting edits on language change.
     const loadSettings = async () => {
@@ -332,6 +375,7 @@ export function SettingsForm() {
     }
 
     void loadSettings()
+    void loadUsageAnomalySettings()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -620,6 +664,58 @@ export function SettingsForm() {
     }
   }
 
+  const validateUsageAnomalySettings = (): string | null => {
+    if (!Number.isInteger(usageAnomalySettings.baselineWeeks) || usageAnomalySettings.baselineWeeks < 1 || usageAnomalySettings.baselineWeeks > 8) {
+      return t('settings.usageAnomaliesBaselineWeeksError')
+    }
+
+    if (usageAnomalySettings.thresholdPct < 5 || usageAnomalySettings.thresholdPct > 200) {
+      return t('settings.usageAnomaliesThresholdError')
+    }
+
+    if (!Number.isInteger(usageAnomalySettings.sustainedIntervals) || usageAnomalySettings.sustainedIntervals < 1 || usageAnomalySettings.sustainedIntervals > 6) {
+      return t('settings.usageAnomaliesIntervalsError')
+    }
+
+    return null
+  }
+
+  const handleSaveUsageAnomalySettings = async () => {
+    setUsageAnomalyMessage(null)
+
+    const validationMessage = validateUsageAnomalySettings()
+    if (validationMessage) {
+      setUsageAnomalyMessage({ type: 'error', text: validationMessage })
+      return
+    }
+
+    setUsageAnomalyLoading(true)
+
+    try {
+      const saved = await apiPut<UsageAnomalySettings, UsageAnomalySettings>(
+        '/api/usage-insights/settings',
+        usageAnomalySettings,
+      )
+      setUsageAnomalySettings(saved)
+      await queryClient.invalidateQueries({ queryKey: ['usage-insights', 'settings'] })
+      setUsageAnomalyMessage({
+        type: 'success',
+        text: t('settings.usageAnomaliesSaveSuccess'),
+      })
+    } catch (err) {
+      console.error('Failed to save usage anomaly settings:', err)
+      setUsageAnomalyMessage({
+        type: 'error',
+        text: getApiErrorMessage(
+          err,
+          t('settings.usageAnomaliesSaveError'),
+        ),
+      })
+    } finally {
+      setUsageAnomalyLoading(false)
+    }
+  }
+
   const eventOptions: { value: NotificationEventType; label: string }[] = [
     { value: 'ANOMALY_DETECTED', label: t('settings.eventAnomalyDetected') },
     { value: 'DEVICE_UNREACHABLE', label: t('settings.eventDeviceUnreachable') },
@@ -901,7 +997,145 @@ export function SettingsForm() {
         </Stack>
       </Card>
 
-      {/* ── 4. Alerts ────────────────────────────────────────────────── */}
+      {/* ── 4. Usage anomaly detection ───────────────────────────────── */}
+      <Card p="md" radius="lg" style={cardStyle}>
+        <Group justify="space-between" align="flex-start" mb="sm" wrap="wrap">
+          <Text fw={400} c="#EBEBEB">
+            {t('settings.usageAnomaliesTitle')}
+          </Text>
+          <Badge variant="light" color={usageAnomalySettings.enabled ? 'green' : 'gray'} size="sm">
+            {t(usageAnomalySettings.enabled ? 'common.enabled' : 'common.disabled')}
+          </Badge>
+        </Group>
+
+        <Stack gap="sm">
+          <Switch
+            label={t('settings.usageAnomaliesToggle')}
+            checked={usageAnomalySettings.enabled}
+            onChange={(e) => {
+              const checked = e.currentTarget.checked
+              setUsageAnomalySettings((prev) => ({
+                ...prev,
+                enabled: checked,
+              }))
+            }}
+            size="md"
+            styles={{
+              track: { backgroundColor: usageAnomalySettings.enabled ? '#FFCC59' : '#404040', borderColor: usageAnomalySettings.enabled ? '#FFCC59' : '#4A4A4A', cursor: 'pointer' },
+              thumb: { backgroundColor: '#FFFFFF', borderColor: usageAnomalySettings.enabled ? '#FFCC59' : '#4A4A4A' },
+              label: { color: '#EBEBEB', fontSize: '14px', fontWeight: 400, cursor: 'pointer' },
+            }}
+          />
+
+          <SimpleGrid cols={{ base: 1, sm: 3 }}>
+            <NumberInput
+              label={helpLabel(
+                t('settings.usageAnomaliesBaselineWeeksLabel'),
+                t('settings.usageAnomaliesBaselineWeeksHelp'),
+              )}
+              value={usageAnomalySettings.baselineWeeks}
+              onChange={(value) => setUsageAnomalySettings((prev) => ({
+                ...prev,
+                baselineWeeks: Number(value),
+              }))}
+              min={1}
+              max={8}
+              step={1}
+              disabled={!usageAnomalySettings.enabled}
+              styles={inputStyles}
+            />
+            <NumberInput
+              label={helpLabel(
+                t('settings.usageAnomaliesThresholdLabel'),
+                t('settings.usageAnomaliesThresholdHelp'),
+              )}
+              value={usageAnomalySettings.thresholdPct}
+              onChange={(value) => setUsageAnomalySettings((prev) => ({
+                ...prev,
+                thresholdPct: Number(value),
+              }))}
+              min={5}
+              max={200}
+              step={5}
+              disabled={!usageAnomalySettings.enabled}
+              styles={inputStyles}
+            />
+            <NumberInput
+              label={helpLabel(
+                t('settings.usageAnomaliesIntervalsLabel'),
+                t('settings.usageAnomaliesIntervalsHelp'),
+              )}
+              value={usageAnomalySettings.sustainedIntervals}
+              onChange={(value) => setUsageAnomalySettings((prev) => ({
+                ...prev,
+                sustainedIntervals: Number(value),
+              }))}
+              min={1}
+              max={6}
+              step={1}
+              disabled={!usageAnomalySettings.enabled}
+              styles={inputStyles}
+            />
+          </SimpleGrid>
+
+          <Select
+            label={helpLabel(
+              t('settings.usageAnomaliesScopeLabel'),
+              t('settings.usageAnomaliesScopeHelp'),
+            )}
+            value={usageAnomalySettings.scope}
+            onChange={(value) => setUsageAnomalySettings((prev) => ({
+              ...prev,
+              scope: value === 'PER_DEVICE' ? 'PER_DEVICE' : prev.scope,
+            }))}
+            data={[
+              {
+                value: 'PER_DEVICE',
+                label: t('settings.usageAnomaliesScopePerDevice'),
+              },
+            ]}
+            disabled={!usageAnomalySettings.enabled}
+            styles={inputStyles}
+          />
+
+          <Group justify="flex-end">
+            <Button
+              radius="xl"
+              size="xs"
+              onClick={() => { void handleSaveUsageAnomalySettings() }}
+              loading={usageAnomalyLoading}
+              styles={{
+                root: {
+                  backgroundColor: '#404040',
+                  color: '#EBEBEB',
+                  border: '1px solid #4A4A4A',
+                  fontWeight: 400,
+                  height: '32px',
+                  paddingInline: '12px',
+                },
+              }}
+            >
+              {t('settings.usageAnomaliesSaveButton')}
+            </Button>
+          </Group>
+
+          {usageAnomalyMessage && (
+            <Card
+              p="sm" radius="lg"
+              style={{
+                backgroundColor: usageAnomalyMessage.type === 'success' ? '#2d4a2b' : '#4a2b2b',
+                border: `1px solid ${usageAnomalyMessage.type === 'success' ? '#4a7c47' : '#7c4747'}`,
+              }}
+            >
+              <Text c={usageAnomalyMessage.type === 'success' ? '#9ddb9a' : '#db9a9a'} size="sm">
+                {usageAnomalyMessage.text}
+              </Text>
+            </Card>
+          )}
+        </Stack>
+      </Card>
+
+      {/* ── 5. Alerts ────────────────────────────────────────────────── */}
       <Card p="md" radius="lg" style={cardStyle}>
         <Text fw={400} mb="sm" c="#EBEBEB">{t('settings.alerts')}</Text>
 
