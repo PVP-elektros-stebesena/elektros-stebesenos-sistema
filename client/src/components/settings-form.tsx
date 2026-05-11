@@ -817,7 +817,7 @@ export function SettingsForm() {
           <NumberInput
             label={t('settings.maxGridCapacityKw')}
             description={t('settings.maxGridCapacityKwDescription')}
-            value={s.max_grid_capacity_kw}
+            value={s.max_grid_capacity_kw ?? undefined}
             onChange={(v) => setS({ ...s, max_grid_capacity_kw: toNullableNumber(v) })}
             min={0}
             step={0.1}
