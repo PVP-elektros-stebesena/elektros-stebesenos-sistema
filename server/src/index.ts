@@ -15,6 +15,8 @@ import { createBrevoEmailNotificationSender } from './services/emailNotification
 import { startSpotPriceScheduler, stopSpotPriceScheduler } from './services/spotPriceScheduler.js';
 import { startStandbyPowerScheduler, stopStandbyPowerScheduler } from './services/standbyPowerScheduler.js';
 import { billingReportRoutes } from './routes/billingReports.js';
+import { usageInsightsRoutes } from './routes/usageInsights.js';
+import { startUsageInsightsScheduler, stopUsageInsightsScheduler } from './services/usageInsightsScheduler.js';
 
 const fastify = Fastify({ logger: true });
 
@@ -33,6 +35,7 @@ fastify.register(authRoutes);
 fastify.addHook('onRequest', requireAuthentication);
 fastify.register(voltageRoutes);
 fastify.register(powerRoutes);
+fastify.register(usageInsightsRoutes);
 
 // Device settings CRUD endpoints
 fastify.register(settingsRoutes);
@@ -76,6 +79,7 @@ const start = async () => {
         startReportScheduler();
         await startSpotPriceScheduler(parseInt(process.env.SPOT_PRICE_BACKFILL_DAYS || '7', 10));
         await startStandbyPowerScheduler();
+        startUsageInsightsScheduler();
     } catch (err) {
         fastify.log.error(err);
         process.exit(1);
@@ -85,6 +89,7 @@ const start = async () => {
 // Graceful shutdown
 async function shutdown() {
     console.log('Shutting down…');
+    stopUsageInsightsScheduler();
     stopStandbyPowerScheduler();
     stopSpotPriceScheduler();
     stopReportScheduler();
