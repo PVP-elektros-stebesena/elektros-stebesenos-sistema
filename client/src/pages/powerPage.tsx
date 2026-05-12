@@ -5,6 +5,7 @@ import {
   Card,
   Group,
   Loader,
+  Modal,
   Progress,
   RingProgress,
   Select,
@@ -114,6 +115,35 @@ interface PowerAnomaly {
 interface PowerAnomalyResponse {
   count: number;
   data: PowerAnomaly[];
+}
+
+interface UsageAnomaly {
+  id: number;
+  deviceId: number | null;
+  startsAt: string;
+  endsAt: string;
+  observedKwh: number;
+  baselineKwh: number;
+  deltaPct: number;
+  explanation: string;
+  scope: 'PER_DEVICE';
+  device: {
+    id: number;
+    name: string;
+  } | null;
+}
+
+interface UsageAnomalyResponse {
+  count: number;
+  data: UsageAnomaly[];
+}
+
+interface UsageAnomalySettings {
+  enabled: boolean;
+  baselineWeeks: number;
+  thresholdPct: number;
+  sustainedIntervals: number;
+  scope: 'PER_DEVICE';
 }
 
 interface ReportListResponse {
@@ -235,6 +265,14 @@ function formatCurrency(value: number, language: 'en' | 'lt'): string {
   }).format(value);
 }
 
+function formatKwh(value: number): string {
+  return `${value.toFixed(3)} kWh`;
+}
+
+function formatDeltaPct(value: number): string {
+  return `${value >= 0 ? '+' : ''}${value.toFixed(1)}%`;
+}
+
 function estimatedCostStatusLabel(status: EstimatedCost['status'], language: 'en' | 'lt'): string {
   if (status === 'complete') return tr(language, 'Complete estimate', 'Pilnas įvertis');
   if (status === 'partial') return tr(language, 'Partial estimate', 'Dalinis įvertis');
@@ -287,6 +325,7 @@ function formatPfBand(latest: PowerLatest | undefined): string {
 export function PowerPage() {
   const { t, language } = useI18n();
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
+  const [selectedUsageAnomaly, setSelectedUsageAnomaly] = useState<UsageAnomaly | null>(null);
   const {
     devices,
     isLoading: devicesLoading,
@@ -321,6 +360,22 @@ export function PowerPage() {
     ['power', 'anomalies', activeSelectedDeviceId ?? 'none'],
     activeSelectedDeviceId ? `/api/power/anomalies?limit=10&deviceId=${activeSelectedDeviceId}` : '',
     { intervalSeconds: 10, enabled: activeSelectedDeviceId != null },
+  );
+
+  const {
+    data: usageAnomalies,
+    isLoading: usageAnomaliesLoading,
+    error: usageAnomaliesError,
+  } = usePolling<UsageAnomalyResponse>(
+    ['usage-insights', 'anomalies', activeSelectedDeviceId ?? 'none'],
+    activeSelectedDeviceId ? `/api/usage-insights/anomalies?limit=5&deviceId=${activeSelectedDeviceId}` : '',
+    { intervalSeconds: 60, enabled: activeSelectedDeviceId != null },
+  );
+
+  const { data: usageAnomalySettings } = usePolling<UsageAnomalySettings>(
+    ['usage-insights', 'settings'],
+    '/api/usage-insights/settings',
+    { intervalSeconds: 60 },
   );
 
   const { data: reportsList, isLoading: reportsLoading, error: reportsError } = usePolling<ReportListResponse>(
@@ -361,6 +416,8 @@ export function PowerPage() {
       l3: point.activePowerL3Kw,
     }));
   }, [history]);
+
+  const usageAnomalyDetectionDisabled = usageAnomalySettings?.enabled === false;
 
   const anomalyDistribution = useMemo(() => {
     if (reportDetail?.insights.powerAnomalyTypeDistribution?.length) {
@@ -448,6 +505,47 @@ export function PowerPage() {
 
   return (
     <Stack p="lg" gap="md" style={{ width: '100%' }}>
+      <Modal
+        opened={selectedUsageAnomaly != null}
+        onClose={() => setSelectedUsageAnomaly(null)}
+        title={t('power.usageInsightsDetailTitle')}
+        centered
+      >
+        {selectedUsageAnomaly && (
+          <Stack gap="sm">
+            <Group justify="space-between">
+              <Text size="sm" c="dimmed">{t('power.usageInsightsDeviceLabel')}</Text>
+              <Text fw={600}>{selectedUsageAnomaly.device?.name ?? `#${selectedUsageAnomaly.deviceId ?? '-'}`}</Text>
+            </Group>
+            <Group justify="space-between">
+              <Text size="sm" c="dimmed">{t('power.usageInsightsStartedLabel')}</Text>
+              <Text>{new Date(selectedUsageAnomaly.startsAt).toLocaleString()}</Text>
+            </Group>
+            <Group justify="space-between">
+              <Text size="sm" c="dimmed">{t('power.usageInsightsEndedLabel')}</Text>
+              <Text>{new Date(selectedUsageAnomaly.endsAt).toLocaleString()}</Text>
+            </Group>
+            <SimpleGrid cols={{ base: 1, sm: 3 }}>
+              <Card p="sm" withBorder>
+                <Text size="xs" c="dimmed">{t('power.usageInsightsObservedLabel')}</Text>
+                <Text fw={700}>{formatKwh(selectedUsageAnomaly.observedKwh)}</Text>
+              </Card>
+              <Card p="sm" withBorder>
+                <Text size="xs" c="dimmed">{t('power.usageInsightsBaselineLabel')}</Text>
+                <Text fw={700}>{formatKwh(selectedUsageAnomaly.baselineKwh)}</Text>
+              </Card>
+              <Card p="sm" withBorder>
+                <Text size="xs" c="dimmed">{t('power.usageInsightsDeltaLabel')}</Text>
+                <Text fw={700} c={selectedUsageAnomaly.deltaPct >= 0 ? 'red' : 'blue'}>
+                  {formatDeltaPct(selectedUsageAnomaly.deltaPct)}
+                </Text>
+              </Card>
+            </SimpleGrid>
+            <Text size="sm">{selectedUsageAnomaly.explanation}</Text>
+          </Stack>
+        )}
+      </Modal>
+
       <Title order={2}>{t('power.title')}</Title>
 
       <Card p="md" radius="md">
@@ -791,6 +889,70 @@ export function PowerPage() {
                       </Text>
                     )}
                   </Stack>
+                )}
+              </Card>
+
+              <Card p="md" radius="md">
+                <Group justify="space-between" mb="md">
+                  <Text fw={700}>{t('power.usageInsightsTitle')}</Text>
+                  <Group gap="xs">
+                    {usageAnomalyDetectionDisabled ? (
+                      <Badge variant="light" color="gray">
+                        {t('common.disabled')}
+                      </Badge>
+                    ) : null}
+                  </Group>
+                </Group>
+
+                {usageAnomaliesError ? (
+                  <Alert color="red" title={t('power.usageInsightsLoadErrorTitle')}>
+                    {t('power.failedAnomalyDataDescription')}
+                  </Alert>
+                ) : usageAnomaliesLoading ? (
+                  <Group justify="center" py="md"><Loader size="sm" /></Group>
+                ) : usageAnomalyDetectionDisabled && (!usageAnomalies || usageAnomalies.count === 0) ? (
+                  <Text c="dimmed" ta="center">
+                    {t('power.usageInsightsDisabledMessage')}
+                  </Text>
+                ) : !usageAnomalies || usageAnomalies.count === 0 ? (
+                  <Text c="dimmed" ta="center">
+                    {t('power.usageInsightsEmptyMessage')}
+                  </Text>
+                ) : (
+                  <Table.ScrollContainer minWidth={720}>
+                    <Table striped highlightOnHover>
+                      <Table.Thead>
+                        <Table.Tr>
+                          <Table.Th>{t('power.usageInsightsDeltaLabel')}</Table.Th>
+                          <Table.Th>{t('power.usageInsightsStartedLabel')}</Table.Th>
+                          <Table.Th>{t('power.usageInsightsObservedLabel')}</Table.Th>
+                          <Table.Th>{t('power.usageInsightsBaselineLabel')}</Table.Th>
+                          <Table.Th>{t('power.usageInsightsExplanationLabel')}</Table.Th>
+                        </Table.Tr>
+                      </Table.Thead>
+                      <Table.Tbody>
+                        {usageAnomalies.data.slice(0, 5).map((item) => (
+                          <Table.Tr
+                            key={item.id}
+                            onClick={() => setSelectedUsageAnomaly(item)}
+                            style={{ cursor: 'pointer' }}
+                          >
+                            <Table.Td>
+                              <Badge color={item.deltaPct >= 0 ? 'red' : 'blue'} variant="light">
+                                {formatDeltaPct(item.deltaPct)}
+                              </Badge>
+                            </Table.Td>
+                            <Table.Td>{new Date(item.startsAt).toLocaleString()}</Table.Td>
+                            <Table.Td>{formatKwh(item.observedKwh)}</Table.Td>
+                            <Table.Td>{formatKwh(item.baselineKwh)}</Table.Td>
+                            <Table.Td>
+                              <Text size="sm" lineClamp={2}>{item.explanation}</Text>
+                            </Table.Td>
+                          </Table.Tr>
+                        ))}
+                      </Table.Tbody>
+                    </Table>
+                  </Table.ScrollContainer>
                 )}
               </Card>
 

@@ -86,6 +86,8 @@ SQLite via Prisma. The schema lives in `server/prisma/schema.prisma`, generated 
 - **WeeklyReport** – ESO weekly 95% compliance summaries
 - **Anomaly** – voltage and power anomaly events with severity, thresholds, and duration
 
+- **UsageAnomalySetting** - per-user baseline anomaly detection settings
+- **UsageAnomalyEvent** - persisted usage-vs-baseline anomaly history
 - **StandbyBaseline** - one stored standby baseline per device per completed billing-local night
 
 All child models cascade-delete when a device is removed.
@@ -183,6 +185,18 @@ Power endpoints provide live power metrics, summaries, anomaly history, and stan
 | `GET` | `/api/power/history` | Time-series power data |
 | `GET` | `/api/power/anomalies` | Power anomaly history |
 | `GET` | `/api/power/standby` | Latest nightly standby baseline and ghost-load cost projection |
+
+## API - Usage insights
+
+Usage insights compare recent per-device consumption against same-weekday historical baselines and persist notable deviations as history.
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/usage-insights/settings` | Get or create the authenticated user's detection settings |
+| `PUT` | `/api/usage-insights/settings` | Partially update detection settings |
+| `GET` | `/api/usage-insights/anomalies` | List persisted usage baseline anomalies |
+
+Disabling usage anomaly detection stops future event generation only. Existing `UsageAnomalyEvent` rows remain visible in the Power page history.
 
 ### Standby baseline behavior
 

@@ -40,6 +40,7 @@ model Device {
   renterAllocations RenterAllocation[]
   billingPeriods BillingPeriod[]
   billingReports BillingReport[]
+  usageAnomalyEvents UsageAnomalyEvent[]
 
   @@index([userId])
   @@map("devices")
@@ -58,6 +59,8 @@ model User {
   sessions AuthSession[]
   devices  Device[]
   renters  Renter[]
+  usageAnomalySetting UsageAnomalySetting?
+  usageAnomalyEvents  UsageAnomalyEvent[]
 
   @@map("users")
 }
@@ -433,6 +436,46 @@ model NotificationEventToggle {
   @@unique([eventType, deviceId])
   @@index([deviceId])
   @@map("notification_event_toggles")
+}
+
+model UsageAnomalySetting {
+  id                 Int      @id @default(autoincrement())
+  userId             Int      @unique
+  enabled            Boolean  @default(true)
+  baselineWeeks      Int      @default(4)
+  thresholdPct       Float    @default(25)
+  sustainedIntervals Int      @default(3)
+  scope              String   @default("PER_DEVICE")
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([enabled])
+  @@map("usage_anomaly_settings")
+}
+
+model UsageAnomalyEvent {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  deviceId    Int?
+  startsAt    DateTime
+  endsAt      DateTime
+  observedKwh Float
+  baselineKwh Float
+  deltaPct    Float
+  explanation String
+  scope       String   @default("PER_DEVICE")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  device Device? @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, deviceId, startsAt, endsAt, scope])
+  @@index([userId, startsAt])
+  @@index([deviceId, startsAt])
+  @@map("usage_anomaly_events")
 }
 
 model StandbyBaseline {
