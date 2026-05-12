@@ -5,6 +5,7 @@ import {
   type NotificationSeverity,
 } from './notificationTypes.js';
 import { isNotificationEventEnabled } from './notificationSettingsRepository.js';
+import prisma from '../lib/prisma.js';
 
 const SEVERITY_LABEL: Record<number, NotificationSeverity> = {
   1: 'WARNING',
@@ -27,6 +28,15 @@ export class NotificationService implements NotificationEventAdapter {
   }
 
   private async dispatchIfEnabled(message: NotificationMessage): Promise<void> {
+    if (message.eventType === 'EXPORT_OPPORTUNITY' && message.deviceId != null) {
+      const device = await prisma.device.findUnique({
+        where: { id: message.deviceId },
+        select: { notifySolarExportOpportunity: true },
+      });
+
+      if (!device?.notifySolarExportOpportunity) return;
+    }
+
     const enabled = await isNotificationEventEnabled(message.eventType, message.deviceId);
     if (!enabled) return;
 
@@ -134,6 +144,31 @@ export class NotificationService implements NotificationEventAdapter {
         endsAt: input.endsAt.toISOString(),
         healthScore: input.healthScore,
         totalAnomalies: input.totalAnomalies,
+      },
+    });
+  }
+
+  async notifyExportOpportunity(input: {
+    deviceId: number;
+    startedAt: Date;
+    detectedAt: Date;
+    exportPowerKw: number;
+    thresholdKw: number;
+    sustainedMinutes: number;
+  }): Promise<void> {
+    await this.dispatchIfEnabled({
+      eventType: 'EXPORT_OPPORTUNITY',
+      severity: 'INFO',
+      occurredAt: input.detectedAt,
+      deviceId: input.deviceId,
+      title: 'Solar export opportunity',
+      body: `Device ${input.deviceId} is exporting ${input.exportPowerKw.toFixed(2)} kW, enough to run heavy appliances.`,
+      metadata: {
+        startedAt: input.startedAt.toISOString(),
+        detectedAt: input.detectedAt.toISOString(),
+        exportPowerKw: input.exportPowerKw,
+        thresholdKw: input.thresholdKw,
+        sustainedMinutes: input.sustainedMinutes,
       },
     });
   }

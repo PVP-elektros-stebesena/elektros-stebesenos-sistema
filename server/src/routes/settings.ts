@@ -69,6 +69,7 @@ const deviceBodySchema = {
     isActive:            { type: 'boolean' },
     notificationChannel: { type: ['string', 'null'], enum: ['email', 'sms', 'push', 'none', null] },
     notificationTarget:  { type: ['string', 'null'] },
+    notifySolarExportOpportunity: { type: 'boolean' },
   },
 } as const;
 
@@ -88,6 +89,7 @@ const patchBodySchema = {
     isActive:            { type: 'boolean' },
     notificationChannel: { type: ['string', 'null'], enum: ['email', 'sms', 'push', 'none', null] },
     notificationTarget:  { type: ['string', 'null'] },
+    notifySolarExportOpportunity: { type: 'boolean' },
   },
 } as const;
 
@@ -256,6 +258,7 @@ interface DeviceBody {
   isActive?: boolean;
   notificationChannel?: 'email' | 'sms' | 'push' | 'none' | null;
   notificationTarget?: string | null;
+  notifySolarExportOpportunity?: boolean;
 }
 
 interface IdParam {
@@ -384,6 +387,7 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
     isActive,
     notificationChannel,
     notificationTarget,
+    notifySolarExportOpportunity,
   } = req.body;
 
     const device = await prisma.device.create({
@@ -400,6 +404,7 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
         isActive: isActive ?? true,
         notificationChannel: notificationChannel ?? 'email',
         notificationTarget: notificationTarget ?? null,
+        notifySolarExportOpportunity: notifySolarExportOpportunity ?? true,
       },
     });
 
@@ -435,6 +440,7 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
       isActive,
       notificationChannel,
       notificationTarget,
+      notifySolarExportOpportunity,
     } = req.body;
 
     const data: Record<string, unknown> = {};
@@ -449,6 +455,9 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
     if (isActive !== undefined) data.isActive = isActive;
     if (notificationChannel !== undefined) data.notificationChannel = notificationChannel;
     if (notificationTarget !== undefined) data.notificationTarget = notificationTarget;
+    if (notifySolarExportOpportunity !== undefined) {
+      data.notifySolarExportOpportunity = notifySolarExportOpportunity;
+    }
 
     const updated = await prisma.device.update({ where: { id }, data });
 

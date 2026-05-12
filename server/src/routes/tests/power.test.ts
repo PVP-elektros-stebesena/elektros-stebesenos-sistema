@@ -269,6 +269,46 @@ describe('GET /api/power/summary', () => {
   });
 });
 
+describe('GET /api/power/solar-summary', () => {
+  it('returns daily import/export totals and current export status', async () => {
+    const now = new Date();
+    const t0 = new Date(now.getTime() - 30 * 60 * 1000);
+    const t1 = new Date(now.getTime() - 10 * 60 * 1000);
+
+    await prisma.reading.createMany({
+      data: [
+        {
+          deviceId: testDeviceId,
+          timestamp: t0,
+          energyDelivered: 100,
+          energyReturned: 20,
+          powerDeliveredTotal: 0,
+          powerReturnedTotal: 3.1,
+        },
+        {
+          deviceId: testDeviceId,
+          timestamp: t1,
+          energyDelivered: 104,
+          energyReturned: 26,
+          powerDeliveredTotal: 0,
+          powerReturnedTotal: 3.3,
+        },
+      ],
+    });
+
+    const res = await injectGet(`/api/power/solar-summary?deviceId=${testDeviceId}&days=1`);
+    const body = res.json();
+
+    expect(res.statusCode).toBe(200);
+    expect(body.count).toBe(1);
+    expect(body.totals.importedKwh).toBe(4);
+    expect(body.totals.exportedKwh).toBe(6);
+    expect(body.totals.selfConsumptionRatioPct).toBe(40);
+    expect(body.currentExport.exporting).toBe(true);
+    expect(body.currentExport.opportunity).toBe(true);
+  });
+});
+
 describe('GET /api/power/anomalies', () => {
   it('returns only power-domain anomalies', async () => {
     await prisma.anomaly.createMany({

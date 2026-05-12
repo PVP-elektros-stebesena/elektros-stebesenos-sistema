@@ -27,6 +27,7 @@ export class ReadingPipeline {
 
     const voltageAnomalies = processors.tracker.processReading(voltageReading);
     const powerAnomalies = processors.powerTracker.processReading(powerReading, policy);
+    const exportOpportunities = processors.powerTracker.drainExportOpportunities();
     const completedVoltageWindow = processors.windowMgr.addReading(voltageReading);
     const completedPowerWindow = processors.powerWindowMgr.addReading(powerReading, policy);
 
@@ -35,6 +36,12 @@ export class ReadingPipeline {
     await Promise.all([
       this.anomalyRepository.persistVoltageAnomalies(deviceId, voltageAnomalies),
       this.anomalyRepository.persistPowerAnomalies(deviceId, powerAnomalies),
+      ...exportOpportunities.map((opportunity) =>
+        this.anomalyRepository.notifyExportOpportunity({
+          deviceId,
+          ...opportunity,
+        }),
+      ),
     ]);
   }
 

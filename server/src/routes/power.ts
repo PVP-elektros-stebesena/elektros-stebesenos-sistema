@@ -5,6 +5,7 @@ import { registerPowerLatestRoute } from './power/latest.js';
 import { registerPowerPolicyRoute } from './power/policy.js';
 import { registerPowerStandbyRoute } from './power/standby.js';
 import { registerPowerSummaryRoute } from './power/summary.js';
+import { registerPowerSolarSummaryRoute } from './power/solarSummary.js';
 
 export async function powerRoutes(fastify: FastifyInstance): Promise<void> {
   registerPowerLatestRoute(fastify);
@@ -13,4 +14,5 @@ export async function powerRoutes(fastify: FastifyInstance): Promise<void> {
   registerPowerSummaryRoute(fastify);
   registerPowerStandbyRoute(fastify);
   registerPowerPolicyRoute(fastify);
+  registerPowerSolarSummaryRoute(fastify);
 }

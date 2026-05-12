@@ -10,6 +10,7 @@ const NOOP_NOTIFICATION_ADAPTER: NotificationEventAdapter = {
   async notifyDeviceUnreachable() {},
   async notifyDeviceRecovered() {},
   async notifyReportGenerated() {},
+  async notifyExportOpportunity() {},
 };
 
 // ── DevicePoller class ─────────────────────────────────────────────

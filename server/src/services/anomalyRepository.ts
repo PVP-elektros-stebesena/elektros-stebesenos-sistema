@@ -8,6 +8,7 @@ const NOOP_NOTIFICATION_ADAPTER: NotificationEventAdapter = {
   async notifyDeviceUnreachable() {},
   async notifyDeviceRecovered() {},
   async notifyReportGenerated() {},
+  async notifyExportOpportunity() {},
 };
 
 const SEVERITY_MAP: Record<string, number> = {
@@ -123,6 +124,17 @@ export class AnomalyRepository {
         },
       });
     }
+  }
+
+  async notifyExportOpportunity(input: {
+    deviceId: number;
+    startedAt: Date;
+    detectedAt: Date;
+    exportPowerKw: number;
+    thresholdKw: number;
+    sustainedMinutes: number;
+  }): Promise<void> {
+    await this.notificationAdapter.notifyExportOpportunity(input);
   }
 
   private async executeBatch<T>(operations: Array<Promise<T>>): Promise<T[]> {

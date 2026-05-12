@@ -49,6 +49,14 @@ export interface DetectedPowerAnomaly {
   description: string;
 }
 
+export interface DetectedExportOpportunity {
+  startedAt: Date;
+  detectedAt: Date;
+  exportPowerKw: number;
+  thresholdKw: number;
+  sustainedMinutes: number;
+}
+
 const CONTINUOUS_METRICS: Record<
   ContinuousMetricName,
   { type: string; defaultSeverity: AnomalySeverity; unit: string }
@@ -74,6 +82,9 @@ const CONTINUOUS_METRICS: Record<
     unit: '%',
   },
 };
+
+const EXPORT_OPPORTUNITY_THRESHOLD_KW = 2.5;
+const EXPORT_OPPORTUNITY_SUSTAINED_MS = 5 * 60 * 1000;
 
 function metricValue(metrics: PowerMetrics, metricName: ContinuousMetricName): number | null {
   if (metricName === 'ACTIVE_POWER_TOTAL') return metrics.activePowerTotalKw;
@@ -115,8 +126,21 @@ export class PowerTracker {
 
   private previous: { timestamp: Date; activePowerTotalKw: number | null } | null = null;
 
+  private exportOpportunity: {
+    startedAt: Date | null;
+    notified: boolean;
+    peakExportKw: number;
+  } = {
+    startedAt: null,
+    notified: false,
+    peakExportKw: 0,
+  };
+
+  private pendingExportOpportunities: DetectedExportOpportunity[] = [];
+
   processReading(reading: PowerReading, policy: EffectivePowerPolicy): DetectedPowerAnomaly[] {
     const metrics = analysePowerReading(reading);
+    this.trackExportOpportunity(reading.timestamp, metrics.activePowerTotalKw);
     const breaches = evaluatePowerPolicyBreaches(
       metrics,
       policy,
@@ -220,12 +244,64 @@ export class PowerTracker {
     return anomalies;
   }
 
+  drainExportOpportunities(): DetectedExportOpportunity[] {
+    const opportunities = this.pendingExportOpportunities;
+    this.pendingExportOpportunities = [];
+    return opportunities;
+  }
+
   reset(): void {
     for (const metricName of Object.keys(this.states) as ContinuousMetricName[]) {
       this.states[metricName] = createInitialState();
     }
     this.overCapacityState = this.createInitialOverCapacityState();
     this.previous = null;
+    this.exportOpportunity = {
+      startedAt: null,
+      notified: false,
+      peakExportKw: 0,
+    };
+    this.pendingExportOpportunities = [];
+  }
+
+  private trackExportOpportunity(timestamp: Date, activePowerTotalKw: number | null): void {
+    const exportPowerKw = activePowerTotalKw != null && activePowerTotalKw < 0
+      ? Math.abs(activePowerTotalKw)
+      : 0;
+
+    if (exportPowerKw <= EXPORT_OPPORTUNITY_THRESHOLD_KW) {
+      this.exportOpportunity = {
+        startedAt: null,
+        notified: false,
+        peakExportKw: 0,
+      };
+      return;
+    }
+
+    if (!this.exportOpportunity.startedAt) {
+      this.exportOpportunity = {
+        startedAt: timestamp,
+        notified: false,
+        peakExportKw: exportPowerKw,
+      };
+      return;
+    }
+
+    this.exportOpportunity.peakExportKw = Math.max(this.exportOpportunity.peakExportKw, exportPowerKw);
+    const sustainedMs = timestamp.getTime() - this.exportOpportunity.startedAt.getTime();
+
+    if (this.exportOpportunity.notified || sustainedMs < EXPORT_OPPORTUNITY_SUSTAINED_MS) {
+      return;
+    }
+
+    this.exportOpportunity.notified = true;
+    this.pendingExportOpportunities.push({
+      startedAt: this.exportOpportunity.startedAt,
+      detectedAt: timestamp,
+      exportPowerKw: round(this.exportOpportunity.peakExportKw, 3) ?? exportPowerKw,
+      thresholdKw: EXPORT_OPPORTUNITY_THRESHOLD_KW,
+      sustainedMinutes: EXPORT_OPPORTUNITY_SUSTAINED_MS / 60_000,
+    });
   }
 
   private createInitialOverCapacityState(): OverCapacityState {
