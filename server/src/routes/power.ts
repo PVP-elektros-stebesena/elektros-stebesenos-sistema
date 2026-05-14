@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { registerPowerAnomaliesRoute } from './power/anomalies.js';
+import { registerPowerGridComplianceRoute } from './power/gridCompliance.js';
 import { registerPowerHistoryRoute } from './power/history.js';
 import { registerPowerLatestRoute } from './power/latest.js';
 import { registerPowerPolicyRoute } from './power/policy.js';
@@ -9,6 +10,7 @@ import { registerPowerSolarSummaryRoute } from './power/solarSummary.js';
 
 export async function powerRoutes(fastify: FastifyInstance): Promise<void> {
   registerPowerLatestRoute(fastify);
+  registerPowerGridComplianceRoute(fastify);
   registerPowerHistoryRoute(fastify);
   registerPowerAnomaliesRoute(fastify);
   registerPowerSummaryRoute(fastify);
