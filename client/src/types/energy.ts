@@ -146,6 +146,29 @@ export interface EstimatedCost {
   missingCoveragePct: number;
 }
 
+export interface ReactivePenaltyEstimate {
+  status: 'complete' | 'partial' | 'unavailable' | 'not_applicable';
+  currency: 'EUR';
+  totalEur: number | null;
+  activeImportedKwh: number | null;
+  reactiveConsumedKvarh: number | null;
+  reactiveReturnedKvarh: number | null;
+  allowedReactiveConsumedKvarh: number | null;
+  chargeableReactiveConsumedKvarh: number | null;
+  chargeableReactiveReturnedKvarh: number | null;
+  rates: {
+    allowedTanPhiRatio: number;
+    targetPowerFactor: number;
+    eligibleMinGridCapacityKw: number;
+    consumedReactiveEurPerKvarh: number;
+    returnedReactiveEurPerKvarh: number;
+    effectiveFrom: string;
+    sourceUrls: readonly string[];
+  };
+  formula: string;
+  message: string;
+}
+
 export interface GhostLoadOverview {
   status: 'complete' | 'partial' | 'unavailable';
   currency: 'EUR';

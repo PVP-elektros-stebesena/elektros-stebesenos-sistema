@@ -25,7 +25,7 @@ import {
 import { usePolling } from '../hooks/usePolling';
 import { apiFetch, apiPost } from '../services/apiClient';
 import { useI18n, type Language } from '../i18n/i18n';
-import type { EstimatedCost } from '../types/energy';
+import type { EstimatedCost, ReactivePenaltyEstimate } from '../types/energy';
 import { resolveDeviceSelection, useDeviceOptions } from '../hooks/useDeviceOptions';
 
 /* ── API response types ─────────────────────────────────────────── */
@@ -130,6 +130,7 @@ interface ReportDetail {
   warningCount: number;
   createdAt: string;
   estimatedCost: EstimatedCost;
+  reactivePenalty: ReactivePenaltyEstimate;
 }
 
 interface ReportListResponse {
@@ -341,6 +342,10 @@ function formatCurrency(value: number, language: Language): string {
   }).format(value);
 }
 
+function formatNullable(value: number | null | undefined, decimals: number): string {
+  return value == null ? '—' : value.toFixed(decimals);
+}
+
 function estimatedCostStatusLabel(
   status: EstimatedCost['status'],
   language: Language,
@@ -358,6 +363,23 @@ function estimatedCostStatusColor(status: EstimatedCost['status']): string {
   if (status === 'complete') return 'green';
   if (status === 'partial') return 'yellow';
   return 'gray';
+}
+
+function reactivePenaltyStatusLabel(
+  status: ReactivePenaltyEstimate['status'],
+  language: Language,
+): string {
+  if (status === 'complete') return tr(language, 'Complete estimate', 'Pilnas įvertis');
+  if (status === 'partial') return tr(language, 'Partial estimate', 'Dalinis įvertis');
+  if (status === 'not_applicable') return tr(language, 'Not applicable', 'Netaikoma');
+  return tr(language, 'Estimate unavailable', 'Įvertis nepasiekiamas');
+}
+
+function reactivePenaltyStatusColor(status: ReactivePenaltyEstimate['status']): string {
+  if (status === 'complete') return 'green';
+  if (status === 'partial') return 'yellow';
+  if (status === 'not_applicable') return 'gray';
+  return 'red';
 }
 
 function pricingModeLabel(
@@ -1104,6 +1126,53 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
                 </Table.ScrollContainer>
               )}
             </Card>
+
+            {isTechnicalReport && (
+              <Card p="md" radius="md" withBorder>
+                <Group justify="space-between" align="flex-start" wrap="wrap" mb="md">
+                  <div>
+                    <Text fw={700}>{tr(language, 'Reactive energy penalty estimate', 'Reaktyviosios energijos baudos įvertis')}</Text>
+                    <Text size="sm" c="dimmed" mt={4}>{report.reactivePenalty.message}</Text>
+                  </div>
+                  <Badge color={reactivePenaltyStatusColor(report.reactivePenalty.status)} variant="light">
+                    {reactivePenaltyStatusLabel(report.reactivePenalty.status, language)}
+                  </Badge>
+                </Group>
+
+                <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} mb="md">
+                  <Card p="sm" withBorder>
+                    <Text size="xs" c="dimmed">{tr(language, 'Estimated penalty', 'Numatoma bauda')}</Text>
+                    <Text fw={700} fz="xl">
+                      {report.reactivePenalty.totalEur != null
+                        ? formatCurrency(report.reactivePenalty.totalEur, language)
+                        : '—'}
+                    </Text>
+                  </Card>
+                  <Card p="sm" withBorder>
+                    <Text size="xs" c="dimmed">{tr(language, 'Allowed consumed', 'Leistina suvartota')}</Text>
+                    <Text fw={700} fz="xl">{formatNullable(report.reactivePenalty.allowedReactiveConsumedKvarh, 3)} kVArh</Text>
+                  </Card>
+                  <Card p="sm" withBorder>
+                    <Text size="xs" c="dimmed">{tr(language, 'Chargeable consumed', 'Apmokestinama suvartota')}</Text>
+                    <Text fw={700} fz="xl">{formatNullable(report.reactivePenalty.chargeableReactiveConsumedKvarh, 3)} kVArh</Text>
+                  </Card>
+                  <Card p="sm" withBorder>
+                    <Text size="xs" c="dimmed">{tr(language, 'Chargeable returned', 'Apmokestinama grąžinta')}</Text>
+                    <Text fw={700} fz="xl">{formatNullable(report.reactivePenalty.chargeableReactiveReturnedKvarh, 3)} kVArh</Text>
+                  </Card>
+                </SimpleGrid>
+
+                {report.reactivePenalty.totalEur != null && report.reactivePenalty.totalEur > 0 && (
+                  <Alert color="yellow" title={tr(language, 'Reactive compensation recommended', 'Rekomenduojama reaktyviosios galios kompensacija')}>
+                    {tr(
+                      language,
+                      'The estimated penalty provides a financial justification to review capacitor banks or automatic reactive compensation.',
+                      'Numatoma bauda finansiškai pagrindžia kondensatorių baterijų arba automatinės reaktyviosios galios kompensavimo peržiūrą.',
+                    )}
+                  </Alert>
+                )}
+              </Card>
+            )}
 
             {shouldShowCharts && (
               isHomeReport ? (
