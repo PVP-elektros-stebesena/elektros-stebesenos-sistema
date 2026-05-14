@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import Fastify, { type FastifyInstance } from 'fastify';
 import prisma from '../../lib/prisma.js';
 import { powerRoutes } from '../power.js';
+import { clearPowerPolicyCache } from '../../services/powerPolicy.js';
 
 let app: FastifyInstance;
 let testDeviceId: number;
@@ -39,6 +40,7 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
+  clearPowerPolicyCache();
   const [owner, other] = await Promise.all([
     prisma.user.create({
       data: {
@@ -235,6 +237,89 @@ describe('GET /api/power/history', () => {
     expect(res.statusCode).toBe(200);
     expect(body.interval).toBe('raw');
     expect(body.count).toBe(5);
+  });
+});
+
+describe('GET /api/power/grid-compliance', () => {
+  it('returns 400 when deviceId is missing', async () => {
+    const res = await injectGet('/api/power/grid-compliance');
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe('MISSING_DEVICE_ID');
+  });
+
+  it('rejects ranges longer than 62 days', async () => {
+    const res = await injectGet(
+      `/api/power/grid-compliance?deviceId=${testDeviceId}&from=2026-01-01T00:00:00Z&to=2026-04-01T00:00:00Z`,
+    );
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe('RANGE_TOO_LONG');
+  });
+
+  it('returns penalty estimate and flags low power factor windows for a commercial device', async () => {
+    await prisma.device.update({
+      where: { id: testDeviceId },
+      data: { maxGridCapacityKw: 50 },
+    });
+
+    await prisma.aggregatedData.createMany({
+      data: [
+        {
+          deviceId: testDeviceId,
+          startsAt: new Date('2026-04-01T09:00:00.000Z'),
+          endsAt: new Date('2026-04-01T09:10:00.000Z'),
+          sampleCount: 60,
+          reactivePowerAvgTotal: 1.2,
+          powerFactorAvg: 0.94,
+        },
+        {
+          deviceId: testDeviceId,
+          startsAt: new Date('2026-04-01T09:10:00.000Z'),
+          endsAt: new Date('2026-04-01T09:20:00.000Z'),
+          sampleCount: 60,
+          reactivePowerAvgTotal: 0.7,
+          powerFactorAvg: 0.98,
+        },
+      ],
+    });
+
+    await prisma.reading.createMany({
+      data: [
+        {
+          deviceId: testDeviceId,
+          timestamp: new Date('2026-04-01T09:00:00.000Z'),
+          energyDelivered: 100,
+          reactiveEnergyDelivered: 20,
+          reactiveEnergyReturned: 5,
+        },
+        {
+          deviceId: testDeviceId,
+          timestamp: new Date('2026-04-01T09:09:00.000Z'),
+          energyDelivered: 110,
+          reactiveEnergyDelivered: 30,
+          reactiveEnergyReturned: 8,
+        },
+      ],
+    });
+
+    const res = await injectGet(
+      `/api/power/grid-compliance?deviceId=${testDeviceId}&from=2026-04-01T09:00:00Z&to=2026-04-01T09:20:00Z`,
+    );
+    const body = res.json();
+
+    expect(res.statusCode).toBe(200);
+    expect(body.penaltyEstimate.status).toBe('complete');
+    expect(body.penaltyEstimate.reactiveReturnedKvarh).toBe(3);
+    expect(body.summary.lowPowerFactorWindowCount).toBe(1);
+    expect(body.data).toHaveLength(2);
+    expect(body.data[0]).toMatchObject({
+      reactivePowerTotalKvar: 1.2,
+      reactiveEnergyReturnedKvarh: 3,
+      powerFactor: 0.94,
+      lowPowerFactor: true,
+    });
+    expect(body.data[1].lowPowerFactor).toBe(false);
   });
 });
 

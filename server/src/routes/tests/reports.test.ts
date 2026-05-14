@@ -3,6 +3,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import prisma from '../../lib/prisma.js';
 import { reportRoutes } from '../reports.js';
 import { costCalculatorService } from '../../services/costCalculator.js';
+import { clearPowerPolicyCache } from '../../services/powerPolicy.js';
 
 let app: FastifyInstance;
 
@@ -13,6 +14,7 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
+  clearPowerPolicyCache();
   await prisma.report.deleteMany();
   await prisma.anomaly.deleteMany();
   await prisma.aggregatedData.deleteMany();
@@ -41,7 +43,12 @@ afterEach(() => {
 describe('report routes estimatedCost', () => {
   it('includes estimatedCost on report list and detail responses', async () => {
     const device = await prisma.device.create({
-      data: { name: 'Report billing device', pollInterval: 10, isActive: true },
+      data: {
+        name: 'Report billing device',
+        pollInterval: 10,
+        isActive: true,
+        maxGridCapacityKw: 50,
+      },
     });
 
     await prisma.billingPlan.create({
@@ -64,12 +71,16 @@ describe('report routes estimatedCost', () => {
           timestamp: new Date('2026-04-01T00:00:00.000Z'),
           energyDelivered: 100,
           energyDeliveredTariff1: 50,
+          reactiveEnergyDelivered: 5,
+          reactiveEnergyReturned: 1,
         },
         {
           deviceId: device.id,
           timestamp: new Date('2026-04-02T00:00:00.000Z'),
           energyDelivered: 101.5,
           energyDeliveredTariff1: 51.5,
+          reactiveEnergyDelivered: 7,
+          reactiveEnergyReturned: 3,
         },
       ],
     });
@@ -114,6 +125,9 @@ describe('report routes estimatedCost', () => {
     expect(detailRes.statusCode).toBe(200);
     expect(detailRes.json().estimatedCost.totalEur).toBeCloseTo(0.3, 6);
     expect(detailRes.json().estimatedCost.breakdown[0].pricingMode).toBe('FIXED');
+    expect(detailRes.json().reactivePenalty.status).toBe('complete');
+    expect(detailRes.json().reactivePenalty.totalEur).toBeCloseTo(0.11, 6);
+    expect(detailRes.json().reactivePenalty.chargeableReactiveReturnedKvarh).toBe(2);
   });
 
   it('returns unavailable estimatedCost in list and detail when calculation fails', async () => {
