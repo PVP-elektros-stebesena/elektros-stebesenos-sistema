@@ -11,6 +11,7 @@ import {
   Select,
   SimpleGrid,
   Stack,
+  Tabs,
   Table,
   Text,
   Title,
@@ -25,6 +26,7 @@ import {
   LineChart,
   Pie,
   PieChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -33,7 +35,7 @@ import {
 import { usePolling } from '../hooks/usePolling';
 import { useI18n } from '../i18n/i18n';
 import { CapacityUtilizationGauge } from '../components/capacity-utilization-gauge';
-import type { EstimatedCost, GhostLoadOverview } from '../types/energy';
+import type { EstimatedCost, GhostLoadOverview, ReactivePenaltyEstimate } from '../types/energy';
 import { resolveDeviceSelection, useDeviceOptions } from '../hooks/useDeviceOptions';
 
 interface PowerLatest {
@@ -178,6 +180,8 @@ interface ReportListResponse {
 
 interface ReportDetail {
   reportUse: 'home' | 'technical' | 'solar';
+  startsAt: string;
+  endsAt: string;
   healthScore: string;
   powerHealthScore: string;
   combinedHealthScore: string;
@@ -192,6 +196,7 @@ interface ReportDetail {
     narrative: string;
   };
   estimatedCost: EstimatedCost;
+  reactivePenalty: ReactivePenaltyEstimate;
 }
 
 interface PowerTrendPoint {
@@ -200,6 +205,43 @@ interface PowerTrendPoint {
   reactive: number | null;
   apparent: number | null;
   pf: number | null;
+}
+
+interface GridCompliancePoint {
+  timestamp: string;
+  windowEnd: string;
+  sampleCount: number;
+  reactivePowerTotalKvar: number | null;
+  reactiveEnergyReturnedKvarh: number;
+  powerFactor: number | null;
+  tanPhi: number | null;
+  lowPowerFactor: boolean;
+}
+
+interface GridComplianceResponse {
+  deviceId: number;
+  from: string;
+  to: string;
+  targetPowerFactor: number;
+  allowedTanPhiRatio: number;
+  penaltyEstimate: ReactivePenaltyEstimate;
+  summary: {
+    totalWindows: number;
+    lowPowerFactorWindowCount: number;
+    lowPowerFactorWindowPct: number | null;
+    averagePowerFactor: number | null;
+    minPowerFactor: number | null;
+    reactiveEnergyReturnedKvarh: number;
+  };
+  data: GridCompliancePoint[];
+}
+
+interface GridComplianceChartPoint {
+  time: string;
+  reactivePowerTotalKvar: number | null;
+  reactiveEnergyReturnedKvarh: number;
+  powerFactor: number | null;
+  lowPowerFactorValue: number | null;
 }
 
 interface PowerPhaseTrendPoint {
@@ -225,6 +267,16 @@ function tr(language: 'en' | 'lt', en: string, lt: string): string {
 }
 
 function anomalyTypeLabel(type: string, language: 'en' | 'lt'): string {
+  const powerLabels: Record<string, string> = {
+    LOW_POWER_FACTOR: tr(language, 'Low power factor', 'Žemas galios koeficientas'),
+    POWER_SPIKE: tr(language, 'Power spike', 'Galios šuolis'),
+    OVER_CAPACITY_WARNING: tr(language, 'Over capacity warning', 'Galios ribos įspėjimas'),
+    REACTIVE_POWER_SPIKE: tr(language, 'Reactive power spike', 'Reaktyviosios galios šuolis'),
+    PHASE_IMBALANCE: tr(language, 'Phase imbalance', 'Fazių disbalansas'),
+    POWER_RAMP_RATE: tr(language, 'Power ramp rate', 'Galios kitimo šuolis'),
+  };
+  if (powerLabels[type]) return powerLabels[type];
+
   const labels: Record<string, string> = {
     LONG_INTERRUPTION: tr(language, 'Long interruption', 'Ilgas nutrūkimas'),
     SHORT_INTERRUPTION: tr(language, 'Short interruption', 'Trumpas nutrūkimas'),
@@ -308,6 +360,23 @@ function estimatedCostStatusColor(status: EstimatedCost['status']): string {
   return 'gray';
 }
 
+function reactivePenaltyStatusLabel(
+  status: ReactivePenaltyEstimate['status'],
+  language: 'en' | 'lt',
+): string {
+  if (status === 'complete') return tr(language, 'Complete estimate', 'Pilnas įvertis');
+  if (status === 'partial') return tr(language, 'Partial estimate', 'Dalinis įvertis');
+  if (status === 'not_applicable') return tr(language, 'Not applicable', 'Netaikoma');
+  return tr(language, 'Estimate unavailable', 'Įvertis nepasiekiamas');
+}
+
+function reactivePenaltyStatusColor(status: ReactivePenaltyEstimate['status']): string {
+  if (status === 'complete') return 'green';
+  if (status === 'partial') return 'yellow';
+  if (status === 'not_applicable') return 'gray';
+  return 'red';
+}
+
 function standbyStatusColor(status: GhostLoadOverview['status']): string {
   if (status === 'complete') return 'green';
   if (status === 'partial') return 'yellow';
@@ -343,6 +412,24 @@ function formatPfBand(latest: PowerLatest | undefined): string {
   }
 
   return `Target ${targetPowerFactor.toFixed(2)} / Min ${minPowerFactor.toFixed(2)}`;
+}
+
+function formatShortDateTime(value: string, language: 'en' | 'lt'): string {
+  return new Date(value).toLocaleString(language === 'lt' ? 'lt-LT' : 'en-GB', {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function formatReportPeriod(startsAt: string, endsAt: string, language: 'en' | 'lt'): string {
+  return `${formatShortDateTime(startsAt, language)} - ${formatShortDateTime(endsAt, language)}`;
+}
+
+function categoryTickInterval(dataLength: number, maxTicks = 20): number | 'preserveStartEnd' {
+  if (dataLength <= maxTicks) return 'preserveStartEnd';
+  return Math.max(0, Math.ceil(dataLength / maxTicks));
 }
 
 export function PowerPage() {
@@ -427,6 +514,32 @@ export function PowerPage() {
     { intervalSeconds: 60, enabled: activeSelectedDeviceId != null },
   );
 
+  const gridComplianceQuery = useMemo(() => {
+    if (!activeSelectedDeviceId) return '';
+
+    const params = new URLSearchParams({ deviceId: String(activeSelectedDeviceId) });
+    if (reportDetail?.startsAt) params.set('from', reportDetail.startsAt);
+    if (reportDetail?.endsAt) params.set('to', reportDetail.endsAt);
+
+    return `/api/power/grid-compliance?${params.toString()}`;
+  }, [activeSelectedDeviceId, reportDetail?.startsAt, reportDetail?.endsAt]);
+
+  const {
+    data: gridCompliance,
+    isLoading: gridComplianceLoading,
+    error: gridComplianceError,
+  } = usePolling<GridComplianceResponse>(
+    [
+      'power',
+      'grid-compliance',
+      activeSelectedDeviceId ?? 'none',
+      reportDetail?.startsAt ?? 'none',
+      reportDetail?.endsAt ?? 'none',
+    ],
+    gridComplianceQuery,
+    { intervalSeconds: 60, enabled: activeSelectedDeviceId != null },
+  );
+
   const trendData: PowerTrendPoint[] = useMemo(() => {
     return (history?.data ?? []).map((point) => ({
       time: new Date(point.timestamp).toLocaleTimeString(),
@@ -445,6 +558,31 @@ export function PowerPage() {
       l3: point.activePowerL3Kw,
     }));
   }, [history]);
+
+  const gridComplianceChartData: GridComplianceChartPoint[] = useMemo(() => {
+    return (gridCompliance?.data ?? []).map((point) => ({
+      time: new Date(point.timestamp).toLocaleString(language === 'lt' ? 'lt-LT' : 'en-GB', {
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      }),
+      reactivePowerTotalKvar: point.reactivePowerTotalKvar,
+      reactiveEnergyReturnedKvarh: point.reactiveEnergyReturnedKvarh,
+      powerFactor: point.powerFactor,
+      lowPowerFactorValue: point.lowPowerFactor ? point.powerFactor : null,
+    }));
+  }, [gridCompliance, language]);
+
+  const lowPowerFactorWindows = useMemo(
+    () => (gridCompliance?.data ?? []).filter((point) => point.lowPowerFactor).slice(-10).reverse(),
+    [gridCompliance],
+  );
+
+  const gridComplianceXAxisInterval = categoryTickInterval(gridComplianceChartData.length);
+  const gridComplianceEstimateAvailable =
+    gridCompliance?.penaltyEstimate.status === 'complete' ||
+    gridCompliance?.penaltyEstimate.status === 'partial';
 
   const usageAnomalyDetectionDisabled = usageAnomalySettings?.enabled === false;
 
@@ -465,6 +603,8 @@ export function PowerPage() {
     () => anomalyDistribution.map((item) => ({ ...item, label: anomalyTypeLabel(item.type, language) })),
     [anomalyDistribution, language],
   );
+
+  const topPowerAnomaly = reportDetail?.insights.powerAnomalyTypeDistribution?.[0] ?? null;
 
   const localizedNarrative = reportDetail?.insights
     ? (() => {
@@ -494,24 +634,24 @@ export function PowerPage() {
         );
       }
 
-      const topAnomaly = reportDetail.insights.anomalyTypeDistribution.length > 0
-        ? reportDetail.insights.anomalyTypeDistribution.reduce((acc, cur) => (cur.count > acc.count ? cur : acc))
+      const topAnomaly = reportDetail.insights.powerAnomalyTypeDistribution.length > 0
+        ? reportDetail.insights.powerAnomalyTypeDistribution.reduce((acc, cur) => (cur.count > acc.count ? cur : acc))
         : null;
 
       if (topAnomaly) {
         parts.push(
           tr(
             language,
-            `The most frequently observed anomaly category was ${anomalyTypeLabel(topAnomaly.type, language)} (${topAnomaly.count} occurrences).`,
-            `Dažniausiai stebėta anomalijų kategorija buvo ${anomalyTypeLabel(topAnomaly.type, language)} (${topAnomaly.count} atvejai).`,
+            `The most frequently observed power anomaly was ${anomalyTypeLabel(topAnomaly.type, language)} (${topAnomaly.count} occurrences).`,
+            `Dažniausiai aptikta galios anomalijų kategorija buvo ${anomalyTypeLabel(topAnomaly.type, language)} (${topAnomaly.count} atvejai).`,
           ),
         );
       } else {
         parts.push(
           tr(
             language,
-            'No transmission anomalies were detected within the selected reporting interval.',
-            'Pasirinktame ataskaitos intervale perdavimo anomalijų neaptikta.',
+            'No power anomalies were detected within the selected reporting interval.',
+            'Pasirinktame ataskaitos intervale galios anomalijų neaptikta.',
           ),
         );
       }
@@ -632,7 +772,18 @@ export function PowerPage() {
           )}
 
           {summary && summary.has_data && (
-            <>
+            <Tabs defaultValue="overview" keepMounted={false}>
+              <Tabs.List>
+                <Tabs.Tab value="overview">
+                  {t('power.tabOverview')}
+                </Tabs.Tab>
+                <Tabs.Tab value="grid-compliance">
+                  {t('power.tabGridCompliance')}
+                </Tabs.Tab>
+              </Tabs.List>
+
+              <Tabs.Panel value="overview" pt="md">
+                <Stack gap="md">
               <SimpleGrid cols={{ base: 2, sm: 4 }}>
                 <BigStat
                   label={t('power.totalReadings')}
@@ -1043,7 +1194,7 @@ export function PowerPage() {
 
               <SimpleGrid cols={{ base: 1, lg: 2 }}>
                 <Card p="md" radius="md">
-                  <Text fw={700} mb="md">Latest report: power status</Text>
+                  <Text fw={700} mb="md">{t('power.latestReportPowerStatus')}</Text>
 
                   {reportsError || reportDetailError ? (
                     <Alert color="red" title={t('power.failedReportSectionsTitle')}>
@@ -1061,52 +1212,40 @@ export function PowerPage() {
                           variant="light"
                           size="lg"
                         >
-                          Power {reportDetail.powerHealthScore}
+                          {t('power.latestReportPowerBadge', { score: reportDetail.powerHealthScore })}
                         </Badge>
                         <Text size="sm" c="dimmed">{reportUseLabel(reportDetail.reportUse, language)} {t('power.report')}</Text>
                       </Group>
 
-                      <SimpleGrid cols={{ base: 2, sm: 4 }}>
+                      <SimpleGrid cols={{ base: 1, sm: 2 }}>
                         <Card p="sm" withBorder>
-                          <Text size="xs" c="dimmed">Power score</Text>
+                          <Text size="xs" c="dimmed">{t('power.powerScore')}</Text>
                           <Text fw={700}>{reportDetail.powerHealthScore}</Text>
                         </Card>
                         <Card p="sm" withBorder>
-                          <Text size="xs" c="dimmed">Power anomalies</Text>
+                          <Text size="xs" c="dimmed">{t('power.powerAnomalies')}</Text>
                           <Text fw={700}>{reportDetail.insights?.totalPowerAnomalies ?? 0}</Text>
                         </Card>
                         <Card p="sm" withBorder>
-                          <Text size="xs" c="dimmed">Top power anomaly</Text>
-                          <Text fw={700}>
-                            {reportDetail.insights.powerAnomalyTypeDistribution?.[0]?.type ?? 'None'}
+                          <Text size="xs" c="dimmed">{t('power.topPowerAnomaly')}</Text>
+                          <Text fw={700} lineClamp={2} style={{ wordBreak: 'break-word' }}>
+                            {topPowerAnomaly
+                              ? `${anomalyTypeLabel(topPowerAnomaly.type, language)} (${topPowerAnomaly.count})`
+                              : t('power.none')}
                           </Text>
                         </Card>
                         <Card p="sm" withBorder>
-                          <Text size="xs" c="dimmed">Report period</Text>
-                          <Text fw={700}>{reportDetail.reportUse.toUpperCase()}</Text>
+                          <Text size="xs" c="dimmed">{t('power.reportPeriod')}</Text>
+                          <Text fw={700} size="sm" lineClamp={2}>
+                            {formatReportPeriod(reportDetail.startsAt, reportDetail.endsAt, language)}
+                          </Text>
                         </Card>
                       </SimpleGrid>
-
-                      <Group justify="space-between" align="flex-start" wrap="wrap">
-                        <div>
-                          <Text size="sm" fw={600}>
-                            {tr(language, 'Estimated electricity cost', 'Numatoma elektros kaina')}: {formatCurrency(reportDetail.estimatedCost.totalEur, language)}
-                          </Text>
-                          <Text size="xs" c="dimmed">
-                            {tr(language, 'Coverage gap', 'Trūkstama aprėptis')}: {reportDetail.estimatedCost.missingCoveragePct.toFixed(1)}%
-                          </Text>
-                        </div>
-                        <Badge color={estimatedCostStatusColor(reportDetail.estimatedCost.status)} variant="light">
-                          {estimatedCostStatusLabel(reportDetail.estimatedCost.status, language)}
-                        </Badge>
-                      </Group>
-
                       <Text size="sm">
-                        Latest technical report power score is {reportDetail.powerHealthScore} with{' '}
-                        {reportDetail.insights?.totalPowerAnomalies ?? 0} power-related anomalies in the selected report interval.
-                      </Text>
-                      <Text size="sm" c="dimmed">
-                        This card is power-only. Voltage compliance remains available on the reports and voltage pages.
+                        {t('power.latestTechnicalReportSummary', {
+                          score: reportDetail.powerHealthScore,
+                          count: reportDetail.insights?.totalPowerAnomalies ?? 0,
+                        })}
                       </Text>
                     </Stack>
                   )}
@@ -1187,7 +1326,7 @@ export function PowerPage() {
                   <Text fw={700} mb="xs">{t('power.reportEnergySummary')}</Text>
                   <Text size="sm" c="dimmed">{localizedNarrative ?? reportDetail.insights?.narrative ?? '—'}</Text>
 
-                  <SimpleGrid cols={{ base: 1, sm: 2, lg: 5 }} mt="md">
+                  <SimpleGrid cols={{ base: 1, sm: 2, lg: 6 }} mt="md">
                     <Card p="sm" withBorder>
                       <Text size="xs" c="dimmed">{t('power.totalConsumed')}</Text>
                       <Text fw={700} fz="xl">{formatFixed(reportDetail.insights?.totalEnergyConsumedKwh, 2)} kWh</Text>
@@ -1213,16 +1352,265 @@ export function PowerPage() {
                       </Text>
                     </Card>
                     <Card p="sm" withBorder>
-                      <Text size="xs" c="dimmed">{tr(language, 'Estimated cost', 'Numatoma kaina')}</Text>
+                      <Text size="xs" c="dimmed">{t('power.estimatedCost')}</Text>
                       <Text fw={700} fz="xl">{formatCurrency(reportDetail.estimatedCost.totalEur, language)}</Text>
                       <Badge color={estimatedCostStatusColor(reportDetail.estimatedCost.status)} variant="light" mt={8}>
                         {estimatedCostStatusLabel(reportDetail.estimatedCost.status, language)}
                       </Badge>
                     </Card>
+                    <Card p="sm" withBorder>
+                      <Text size="xs" c="dimmed">
+                        {t('power.reactivePenalty')}
+                      </Text>
+                      <Text fw={700} fz="xl">
+                        {reportDetail.reactivePenalty.totalEur != null
+                          ? formatCurrency(reportDetail.reactivePenalty.totalEur, language)
+                          : '-'}
+                      </Text>
+                      <Badge color={reactivePenaltyStatusColor(reportDetail.reactivePenalty.status)} variant="light" mt={8}>
+                        {reactivePenaltyStatusLabel(reportDetail.reactivePenalty.status, language)}
+                      </Badge>
+                    </Card>
                   </SimpleGrid>
                 </Card>
               )}
-            </>
+                </Stack>
+              </Tabs.Panel>
+
+              <Tabs.Panel value="grid-compliance" pt="md">
+                <Stack gap="md">
+                  {gridComplianceError ? (
+                    <Alert color="red" title={t('power.gridComplianceFailedLoadTitle')}>
+                      {t('power.failedTrendDescription')}
+                    </Alert>
+                  ) : gridComplianceLoading && !gridCompliance ? (
+                    <Group justify="center" py="md">
+                      <Loader size="sm" />
+                    </Group>
+                  ) : !gridCompliance ? (
+                    <Text c="dimmed" ta="center">{t('power.noHistory')}</Text>
+                  ) : (
+                    <>
+                      <Group justify="space-between" align="flex-start" wrap="wrap">
+                        <div>
+                          <Text fw={700}>
+                            {t('power.esoReactivePenaltyEstimate')}
+                          </Text>
+                          <Text size="sm" c="dimmed">
+                            {gridCompliance.penaltyEstimate.message}
+                          </Text>
+                        </div>
+                        <Badge
+                          color={reactivePenaltyStatusColor(gridCompliance.penaltyEstimate.status)}
+                          variant="light"
+                          size="lg"
+                        >
+                          {reactivePenaltyStatusLabel(gridCompliance.penaltyEstimate.status, language)}
+                        </Badge>
+                      </Group>
+
+                      {!gridComplianceEstimateAvailable ? (
+                        <Alert color="gray" title={t('power.gridComplianceEstimateUnavailableTitle')}>
+                          {t('power.gridComplianceEstimateUnavailableDescription')}
+                        </Alert>
+                      ) : (
+                        <>
+                          <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }}>
+                            <Card p="md" radius="md">
+                              <Text size="xs" c="dimmed">{t('power.estimatedPenalty')}</Text>
+                              <Text fw={700} fz={32}>
+                                {gridCompliance.penaltyEstimate.totalEur != null
+                                  ? formatCurrency(gridCompliance.penaltyEstimate.totalEur, language)
+                                  : '—'}
+                              </Text>
+                            </Card>
+                            <Card p="md" radius="md">
+                              <Text size="xs" c="dimmed">{t('power.activeImportedEnergy')}</Text>
+                              <Text fw={700} fz="xl">
+                                {formatFixed(gridCompliance.penaltyEstimate.activeImportedKwh, 3)} kWh
+                              </Text>
+                            </Card>
+                            <Card p="md" radius="md">
+                              <Text size="xs" c="dimmed">{t('power.reactiveConsumed')}</Text>
+                              <Text fw={700} fz="xl">
+                                {formatFixed(gridCompliance.penaltyEstimate.reactiveConsumedKvarh, 3)} kVArh
+                              </Text>
+                            </Card>
+                            <Card p="md" radius="md">
+                              <Text size="xs" c="dimmed">{t('power.reactiveReturned')}</Text>
+                              <Text fw={700} fz="xl">
+                                {formatFixed(gridCompliance.penaltyEstimate.reactiveReturnedKvarh, 3)} kVArh
+                              </Text>
+                            </Card>
+                          </SimpleGrid>
+
+                          <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }}>
+                            <Card p="md" radius="md">
+                              <Text size="xs" c="dimmed">{t('power.allowedReactiveConsumed')}</Text>
+                              <Text fw={700}>
+                                {formatFixed(gridCompliance.penaltyEstimate.allowedReactiveConsumedKvarh, 3)} kVArh
+                              </Text>
+                            </Card>
+                            <Card p="md" radius="md">
+                              <Text size="xs" c="dimmed">{t('power.chargeableConsumed')}</Text>
+                              <Text fw={700}>
+                                {formatFixed(gridCompliance.penaltyEstimate.chargeableReactiveConsumedKvarh, 3)} kVArh
+                              </Text>
+                            </Card>
+                            <Card p="md" radius="md">
+                              <Text size="xs" c="dimmed">{t('power.chargeableReturned')}</Text>
+                              <Text fw={700}>
+                                {formatFixed(gridCompliance.penaltyEstimate.chargeableReactiveReturnedKvarh, 3)} kVArh
+                              </Text>
+                            </Card>
+                            <Card p="md" radius="md">
+                              <Text size="xs" c="dimmed">{t('power.lowPowerFactorWindows')}</Text>
+                              <Text fw={700}>
+                                {gridCompliance.summary.lowPowerFactorWindowCount}
+                                {gridCompliance.summary.lowPowerFactorWindowPct != null
+                                  ? ` (${gridCompliance.summary.lowPowerFactorWindowPct.toFixed(1)}%)`
+                                  : ''}
+                              </Text>
+                            </Card>
+                          </SimpleGrid>
+
+                          {gridCompliance.penaltyEstimate.totalEur != null && gridCompliance.penaltyEstimate.totalEur > 0 && (
+                            <Alert color="yellow" title={t('power.reactiveCompensationRecommended')}>
+                              {t('power.reactiveCompensationRecommendedDescription')}
+                            </Alert>
+                          )}
+
+                          <Stack gap="md">
+                            <Card p="md" radius="md">
+                              <Text fw={700} mb="sm">{t('power.reactivePower')}</Text>
+                              {gridComplianceChartData.length === 0 ? (
+                                <Text c="dimmed" ta="center">{t('power.noHistory')}</Text>
+                              ) : (
+                                <ResponsiveContainer width="100%" height={300}>
+                                  <LineChart data={gridComplianceChartData}>
+                                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                    <XAxis dataKey="time" interval={gridComplianceXAxisInterval} tick={{ fontSize: 11 }} />
+                                    <YAxis tick={{ fontSize: 11 }} />
+                                    <Tooltip />
+                                    <Legend />
+                                    <Line
+                                      dataKey="reactivePowerTotalKvar"
+                                      stroke="#8ACDEA"
+                                      strokeWidth={2}
+                                      dot={false}
+                                      name={t('power.reactiveKvar')}
+                                      isAnimationActive={false}
+                                    />
+                                    <Line
+                                      dataKey="reactiveEnergyReturnedKvarh"
+                                      stroke="#A78BFA"
+                                      strokeWidth={2}
+                                      dot={false}
+                                      name={t('power.returnedKvarh')}
+                                      isAnimationActive={false}
+                                    />
+                                  </LineChart>
+                                </ResponsiveContainer>
+                              )}
+                            </Card>
+
+                            <Card p="md" radius="md">
+                              <Text fw={700} mb="sm">{t('power.powerFactor')}</Text>
+                              {gridComplianceChartData.length === 0 ? (
+                                <Text c="dimmed" ta="center">{t('power.noHistory')}</Text>
+                              ) : (
+                                <ResponsiveContainer width="100%" height={300}>
+                                  <LineChart data={gridComplianceChartData}>
+                                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                    <XAxis dataKey="time" interval={gridComplianceXAxisInterval} tick={{ fontSize: 11 }} />
+                                    <YAxis domain={[0, 1]} tick={{ fontSize: 11 }} />
+                                    <Tooltip />
+                                    <Legend />
+                                    <ReferenceLine
+                                      y={gridCompliance.targetPowerFactor}
+                                      stroke="#FFCC59"
+                                      strokeDasharray="4 4"
+                                      label="0.95"
+                                    />
+                                    <Line
+                                      dataKey="powerFactor"
+                                      stroke="#8ACDEA"
+                                      strokeWidth={2}
+                                      dot={false}
+                                      name={tr(language, 'Power factor', 'Galios koeficientas')}
+                                      isAnimationActive={false}
+                                    />
+                                    <Line
+                                      dataKey="lowPowerFactorValue"
+                                      stroke="#DB3C3C"
+                                      strokeWidth={3}
+                                      dot={{ r: 3 }}
+                                      name={t('power.below095')}
+                                      connectNulls={false}
+                                      isAnimationActive={false}
+                                    />
+                                  </LineChart>
+                                </ResponsiveContainer>
+                              )}
+                            </Card>
+                          </Stack>
+
+                          <Card p="md" radius="md">
+                            <Group justify="space-between" mb="md" align="flex-start" wrap="wrap">
+                              <div>
+                                <Text fw={700}>{t('power.recentLowPowerFactorPeriods')}</Text>
+                                <Text size="sm" c="dimmed">
+                                  {t('power.threshold')}: {gridCompliance.targetPowerFactor.toFixed(2)}
+                                </Text>
+                              </div>
+                              <Group gap="xs">
+                                <Badge variant="light">
+                                  {t('power.avgPfShort')}: {formatFixed(gridCompliance.summary.averagePowerFactor, 3)}
+                                </Badge>
+                                <Badge variant="light" color="yellow">
+                                  {t('power.minPfShort')}: {formatFixed(gridCompliance.summary.minPowerFactor, 3)}
+                                </Badge>
+                              </Group>
+                            </Group>
+
+                            {lowPowerFactorWindows.length === 0 ? (
+                              <Text c="dimmed" ta="center">{t('power.noLowPowerFactorWindowsInRange')}</Text>
+                            ) : (
+                              <Table.ScrollContainer minWidth={680}>
+                                <Table striped highlightOnHover>
+                                  <Table.Thead>
+                                    <Table.Tr>
+                                      <Table.Th>{t('power.started')}</Table.Th>
+                                      <Table.Th>{t('power.powerFactor')}</Table.Th>
+                                      <Table.Th>{t('power.tanPhi')}</Table.Th>
+                                      <Table.Th>{t('power.reactiveKvar')}</Table.Th>
+                                    </Table.Tr>
+                                  </Table.Thead>
+                                  <Table.Tbody>
+                                    {lowPowerFactorWindows.map((item) => (
+                                      <Table.Tr key={item.timestamp}>
+                                        <Table.Td>{new Date(item.timestamp).toLocaleString()}</Table.Td>
+                                        <Table.Td>
+                                          <Badge color="red" variant="light">
+                                            {formatFixed(item.powerFactor, 3)}
+                                          </Badge>
+                                        </Table.Td>
+                                        <Table.Td>{formatFixed(item.tanPhi, 3)}</Table.Td>
+                                        <Table.Td>{formatFixed(item.reactivePowerTotalKvar, 3)} kVAr</Table.Td>
+                                      </Table.Tr>
+                                    ))}
+                                  </Table.Tbody>
+                                </Table>
+                              </Table.ScrollContainer>
+                            )}
+                          </Card>
+                        </>
+                      )}
+                    </>
+                  )}
+                </Stack>
+              </Tabs.Panel>
+            </Tabs>
           )}
         </>
       )}
