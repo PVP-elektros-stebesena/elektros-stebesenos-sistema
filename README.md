@@ -185,6 +185,13 @@ Power endpoints provide live power metrics, summaries, anomaly history, and stan
 | `GET` | `/api/power/history` | Time-series power data |
 | `GET` | `/api/power/anomalies` | Power anomaly history |
 | `GET` | `/api/power/standby` | Latest nightly standby baseline and ghost-load cost projection |
+| `GET` | `/api/power/grid-compliance` | Reactive power compliance view + ESO penalty estimate for selected period |
+
+### Reactive penalty
+
+- Backend computes reactive penalty estimates on demand using rules from `server/src/config/eso.ts`.
+- Eligibility is commercial-grade capacity only: reactive penalty status is `not_applicable` when resolved `maxGridCapacityKw < 30`.
+- UI surfaces this in the Power page `Grid Compliance` tab and technical report detail view, including `complete/partial/unavailable/not_applicable` statuses.
 
 ## API - Usage insights
 

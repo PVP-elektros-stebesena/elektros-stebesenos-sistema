@@ -55,6 +55,21 @@ export const ESO = {
 
   /** Voltage below this is considered "zero" / supply lost */
   VOLTAGE_ZERO_THRESHOLD: 10,
+
+  /** Reactive energy settlement defaults for commercial estimates. */
+  REACTIVE_PENALTY: {
+    ALLOWED_TAN_PHI_RATIO: 0.4,
+    TARGET_POWER_FACTOR: 0.95,
+    ELIGIBLE_MIN_GRID_CAPACITY_KW: 30,
+    CONSUMED_REACTIVE_EUR_PER_KVARH: 0.02,
+    RETURNED_REACTIVE_EUR_PER_KVARH: 0.04,
+    CURRENCY: 'EUR',
+    EFFECTIVE_FROM: '2026-01-01',
+    SOURCE_URLS: [
+      'https://www.e-tar.lt/rs/actualedition/TAR.77180231C700/YEWCFVSZCJ/',
+      'https://www.eso.lt/namams/elektra/tarifu-planai-kainos-atsiskaitymas/tarifu-planai-ir-kainos-2026-metais/4801',
+    ],
+  },
 } as const;
 
 export type Phase = 'L1' | 'L2' | 'L3';

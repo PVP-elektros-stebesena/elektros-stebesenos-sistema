@@ -8,6 +8,11 @@ import {
 } from '../../services/reportGenerator.js';
 import { costCalculatorService } from '../../services/costCalculator.js';
 import type { EstimatedCostResult } from '../../services/costCalculator.js';
+import {
+  reactivePenaltyEstimatorService,
+  unavailableReactivePenaltyEstimate,
+} from '../../services/reactivePenaltyEstimator.js';
+import type { ReactivePenaltyEstimate } from '../../services/reactivePenaltyEstimator.js';
 import type { HealthScore, PeriodType, ReportUse } from '../../services/reportGenerator.js';
 import { parseOptionalDeviceId } from '../queryParsers.js';
 import {
@@ -205,6 +210,7 @@ export function registerReportCrudRoutes(fastify: FastifyInstance): void {
     const powerHealthScore = computePowerHealthScore(enrichedAnomalySummary);
     const combinedHealthScore = computeCombinedHealthScore(report.healthScore as HealthScore, powerHealthScore);
     let estimatedCost: EstimatedCostResult;
+    let reactivePenalty: ReactivePenaltyEstimate;
     try {
       estimatedCost = await costCalculatorService.calculateEstimatedCost(
         report.deviceId,
@@ -227,6 +233,26 @@ export function registerReportCrudRoutes(fastify: FastifyInstance): void {
         report.endsAt,
         'Estimated cost calculation failed.',
       );
+    }
+
+    try {
+      reactivePenalty = await reactivePenaltyEstimatorService.estimateForDevice(
+        report.deviceId,
+        report.startsAt,
+        report.endsAt,
+      );
+    } catch (error) {
+      req.log.error(
+        {
+          err: error,
+          reportId: report.id,
+          deviceId: report.deviceId,
+          startsAt: report.startsAt.toISOString(),
+          endsAt: report.endsAt.toISOString(),
+        },
+        'Failed to calculate reactive penalty estimate for detail view',
+      );
+      reactivePenalty = unavailableReactivePenaltyEstimate('Reactive penalty estimate calculation failed.');
     }
 
     return {
@@ -258,6 +284,7 @@ export function registerReportCrudRoutes(fastify: FastifyInstance): void {
       warningCount: report.warningCount,
       createdAt: report.createdAt,
       estimatedCost,
+      reactivePenalty,
     };
   });
 }

@@ -7,16 +7,86 @@ interface SeedOptions {
   useMqtt: boolean;
 }
 
-function parseArgs(): SeedOptions {
+function collectArgs(): string[] {
   const args = process.argv.slice(2);
+  const raw = process.env.npm_config_argv;
+  if (!raw) return args;
+
+  try {
+    const parsed = JSON.parse(raw) as { original?: string[]; cooked?: string[] };
+    const original = Array.isArray(parsed.original) ? parsed.original : [];
+    const cooked = Array.isArray(parsed.cooked) ? parsed.cooked : [];
+    const originalSep = original.indexOf('--');
+    const cookedSep = cooked.indexOf('--');
+    const originalArgs = originalSep >= 0 ? original.slice(originalSep + 1) : [];
+    const cookedArgs = cookedSep >= 0 ? cooked.slice(cookedSep + 1) : [];
+    const npmArgs = originalArgs.length > 0 ? originalArgs : cookedArgs;
+
+    if (npmArgs.length === 0) return args;
+
+    const merged = [...args];
+    for (const arg of npmArgs) {
+      if (!merged.includes(arg)) merged.push(arg);
+    }
+    return merged;
+  } catch {
+    return args;
+  }
+}
+
+function normalizeArgs(args: string[]): string[] {
+  const normalized = [...args];
+  const hasDaysFlag = normalized.some((arg) => arg === '--days' || arg.startsWith('--days='));
+
+  if (!hasDaysFlag) {
+    const numericIndex = normalized.findIndex((arg) => /^\d+$/.test(arg));
+    if (numericIndex >= 0) {
+      normalized[numericIndex] = `--days=${normalized[numericIndex]}`;
+    }
+  }
+
+  return normalized;
+}
+
+function parseArgs(): SeedOptions {
+  const args = normalizeArgs(collectArgs());
+
+  const readEnvArg = (name: string): string | undefined => {
+    const npmValue = process.env[`npm_config_${name}`];
+    if (npmValue) return npmValue;
+    return process.env[`SEED_${name.toUpperCase()}`];
+  };
+
+  const hasArg = (name: string): boolean =>
+    args.some((arg) => arg === `--${name}` || arg.startsWith(`--${name}=`));
 
   const getArg = (name: string, fallback: string): string => {
+    const prefix = `--${name}=`;
+    const inlineArg = args.find((a) => a.startsWith(prefix));
+    if (inlineArg) {
+      const value = inlineArg.slice(prefix.length);
+      return value.length > 0 ? value : fallback;
+    }
+
     const idx = args.findIndex((a) => a === `--${name}`);
     if (idx === -1 || idx + 1 >= args.length) return fallback;
     return args[idx + 1] ?? fallback;
   };
 
+  const getArgWithEnv = (name: string, fallback: string): string => {
+    if (hasArg(name)) return getArg(name, fallback);
+    return readEnvArg(name) ?? fallback;
+  };
+
   const getBoolArg = (name: string, fallback: boolean): boolean => {
+    const prefix = `--${name}=`;
+    const inlineArg = args.find((a) => a.startsWith(prefix));
+    if (inlineArg) {
+      const value = inlineArg.slice(prefix.length).toLowerCase();
+      if (!value) return true;
+      return ['1', 'true', 'yes', 'on'].includes(value);
+    }
+
     const idx = args.findIndex((a) => a === `--${name}`);
     if (idx === -1) return fallback;
 
@@ -26,10 +96,18 @@ function parseArgs(): SeedOptions {
     return ['1', 'true', 'yes', 'on'].includes(raw.toLowerCase());
   };
 
-  const days = Math.max(2, parseInt(getArg('days', '30'), 10) || 30);
-  const deviceName = getArg('name', 'Mock Report Device');
-  const pollIntervalSeconds = Math.max(1, parseInt(getArg('interval', '10'), 10) || 10);
-  const useMqtt = getBoolArg('mqtt', false);
+  const getBoolArgWithEnv = (name: string, fallback: boolean): boolean => {
+    if (hasArg(name)) return getBoolArg(name, fallback);
+
+    const envValue = readEnvArg(name);
+    if (!envValue) return fallback;
+    return ['1', 'true', 'yes', 'on'].includes(envValue.toLowerCase());
+  };
+
+  const days = Math.max(2, parseInt(getArgWithEnv('days', '30'), 10) || 30);
+  const deviceName = getArgWithEnv('name', 'Mock Report Device');
+  const pollIntervalSeconds = Math.max(1, parseInt(getArgWithEnv('interval', '10'), 10) || 10);
+  const useMqtt = getBoolArgWithEnv('mqtt', false);
 
   return { days, deviceName, pollIntervalSeconds, useMqtt };
 }
