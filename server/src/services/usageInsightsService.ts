@@ -19,6 +19,7 @@ const MAX_SUSTAINED_INTERVALS = 6;
 const WEEK_MS = 7 * 24 * 3600_000;
 const DETECTION_LOOKBACK_MS = 24 * 3600_000;
 const EPSILON_KWH = 0.000001;
+const BASELINE_AVG_KW_FLOOR = 0.8;
 
 export interface UsageAnomalySettingsPayload {
   enabled: boolean;
@@ -153,11 +154,18 @@ function toSettingsPayload(row: {
   };
 }
 
+function windowDurationHours(window: CompletedUsageWindow): number | null {
+  const durationHours = (window.endsAt.getTime() - window.startsAt.getTime()) / 3600_000;
+  if (durationHours <= 0) return null;
+
+  return durationHours;
+}
+
 function windowUsageKwh(window: CompletedUsageWindow): number | null {
   if (window.activePowerAvgTotal == null) return null;
 
-  const durationHours = (window.endsAt.getTime() - window.startsAt.getTime()) / 3600_000;
-  if (durationHours <= 0) return null;
+  const durationHours = windowDurationHours(window);
+  if (durationHours == null) return null;
 
   return Math.max(0, window.activePowerAvgTotal) * durationHours;
 }
@@ -461,7 +469,11 @@ export class UsageInsightsService {
     if (baselineValues.length === 0) return null;
 
     const baselineKwh = baselineValues.reduce((sum, value) => sum + value, 0) / baselineValues.length;
-    if (baselineKwh <= EPSILON_KWH) return null;
+    const durationHours = windowDurationHours(window);
+    if (durationHours == null) return null;
+
+    const baselineAvgKw = baselineKwh / durationHours;
+    if (baselineKwh <= EPSILON_KWH || baselineAvgKw < BASELINE_AVG_KW_FLOOR) return null;
 
     const deltaPct = ((observedKwh - baselineKwh) / baselineKwh) * 100;
 
