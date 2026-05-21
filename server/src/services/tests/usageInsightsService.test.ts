@@ -138,6 +138,32 @@ describe('UsageInsightsService detection', () => {
     expect(count).toBe(0);
   });
 
+  it('skips high percentage deltas when the baseline load is too low', async () => {
+    const startsAt = new Date('2026-05-11T10:00:00.000Z');
+
+    for (let index = 0; index < 3; index += 1) {
+      const intervalStartsAt = new Date(startsAt.getTime() + index * 10 * 60_000);
+      await seedBaselineFor(intervalStartsAt, 0.5);
+      await seedWindow(intervalStartsAt, 3);
+    }
+
+    const persisted = await usageInsightsService.detectForDevice({
+      userId,
+      deviceId,
+      settings: settings({
+        baselineWeeks: 1,
+        thresholdPct: 50,
+        sustainedIntervals: 3,
+      }),
+      reference: new Date('2026-05-11T11:00:00.000Z'),
+    });
+
+    const count = await prisma.usageAnomalyEvent.count({ where: { userId, deviceId } });
+
+    expect(persisted).toBe(0);
+    expect(count).toBe(0);
+  });
+
   it('does not break a sustained streak when an intermediate window has no baseline', async () => {
     const startsAt = new Date('2026-05-11T10:00:00.000Z');
     const missingBaselineStartsAt = new Date(startsAt.getTime() + 10 * 60_000);
