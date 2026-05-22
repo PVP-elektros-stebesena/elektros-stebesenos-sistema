@@ -138,6 +138,7 @@ function round(value: number | null, decimals: number = 4): number | null {
 }
 
 const MIN_PHASE_IMBALANCE_TOTAL_ACTIVE_POWER_KW = 1.0;
+const HOME_PHASE_IMBALANCE_MIN_LOAD_SHARE = 1 / 3;
 
 function computePhaseImbalancePct(
   activePowerL1Kw: number | null,
@@ -164,6 +165,35 @@ function computePhaseImbalancePct(
 
   const imbalancePct = (totalDeviation / 2 / avg) * 100;
   return imbalancePct;
+}
+
+function phaseActivePowerTotalKw(metrics: PowerMetrics): number | null {
+  const phaseValues = [
+    metrics.activePowerL1Kw,
+    metrics.activePowerL2Kw,
+    metrics.activePowerL3Kw,
+  ].filter((value): value is number => value != null);
+
+  if (phaseValues.length < 2) return null;
+  return phaseValues.reduce((sum, value) => sum + Math.abs(value), 0);
+}
+
+function phaseImbalanceAlertLoadKw(metrics: PowerMetrics, policy: EffectivePowerPolicy): number | null {
+  if (policy.category === 'HOME' && metrics.activePowerTotalKw != null) {
+    return Math.abs(metrics.activePowerTotalKw);
+  }
+
+  return phaseActivePowerTotalKw(metrics) ??
+    (metrics.activePowerTotalKw == null ? null : Math.abs(metrics.activePowerTotalKw));
+}
+
+function phaseImbalanceMinAlertLoadKw(policy: EffectivePowerPolicy): number {
+  if (policy.category !== 'HOME') return MIN_PHASE_IMBALANCE_TOTAL_ACTIVE_POWER_KW;
+
+  return Math.max(
+    MIN_PHASE_IMBALANCE_TOTAL_ACTIVE_POWER_KW,
+    policy.maxGridCapacityKw * HOME_PHASE_IMBALANCE_MIN_LOAD_SHARE,
+  );
 }
 
 export function analysePowerReading(reading: PowerReading): PowerMetrics {
@@ -291,7 +321,8 @@ export function evaluatePowerPolicyBreaches(
   if (
     policy.phaseCount === 3 &&
     metrics.phaseImbalancePct != null &&
-    metrics.phaseImbalancePct > policy.maxPhaseImbalancePct
+    metrics.phaseImbalancePct > policy.maxPhaseImbalancePct &&
+    (phaseImbalanceAlertLoadKw(metrics, policy) ?? 0) >= phaseImbalanceMinAlertLoadKw(policy)
   ) {
     breaches.push({
       metricName: 'PHASE_IMBALANCE',

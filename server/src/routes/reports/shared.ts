@@ -73,7 +73,7 @@ export function pickTotalPowerKw(row: {
   activeInstantaneousPowerDeliveredL3: number | null;
 }): number | null {
   const directTotal = row.activeInstantaneousPowerDelivered ?? row.powerDeliveredTotal;
-  if (directTotal != null) return +(directTotal / 1000).toFixed(4);
+  if (directTotal != null) return +directTotal.toFixed(4);
 
   const phaseValues = [
     row.activeInstantaneousPowerDeliveredL1,
@@ -82,7 +82,7 @@ export function pickTotalPowerKw(row: {
   ].filter((val): val is number => val != null);
 
   if (phaseValues.length === 0) return null;
-  return +(phaseValues.reduce((sum, value) => sum + value, 0) / 1000).toFixed(4);
+  return +phaseValues.reduce((sum, value) => sum + value, 0).toFixed(4);
 }
 
 export function downsampleContextPoints(
