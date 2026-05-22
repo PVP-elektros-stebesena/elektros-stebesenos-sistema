@@ -8,25 +8,41 @@ import {
 
 describe('power profile presets', () => {
   it('defines the expected research-backed preset library', () => {
-    expect(Object.keys(POWER_PROFILE_PRESETS)).toHaveLength(5);
+    expect(Object.keys(POWER_PROFILE_PRESETS)).toHaveLength(6);
 
     expect(POWER_PROFILE_PRESETS[PowerProfilePreset.APARTMENT_1P_5KW]).toMatchObject({
+      category: 'HOME',
       contractPowerKw: 5,
+      phaseCount: 1,
       perPhaseCurrentLimitAmps: 25,
       targetPowerFactor: 0.95,
     });
 
     expect(POWER_PROFILE_PRESETS[PowerProfilePreset.HOUSE_3P_11KW]).toMatchObject({
+      category: 'HOME',
       contractPowerKw: 11,
+      phaseCount: 3,
+      maxPhaseImbalancePct: 30,
       perPhaseCurrentLimitAmps: 16,
       targetPowerFactor: 0.95,
     });
 
     expect(POWER_PROFILE_PRESETS[PowerProfilePreset.SOLAR_PROSUMER_3P_22KW]).toMatchObject({
+      category: 'SOLAR',
       contractPowerKw: 22,
+      maxPhaseImbalancePct: 35,
       perPhaseCurrentLimitAmps: 32,
       targetPowerFactor: 0.9,
       minPowerFactor: 0.8,
+    });
+
+    expect(POWER_PROFILE_PRESETS[PowerProfilePreset.COMMERCIAL_3P_30KW]).toMatchObject({
+      category: 'COMMERCIAL',
+      contractPowerKw: 30,
+      maxPhaseImbalancePct: 25,
+      perPhaseCurrentLimitAmps: 50,
+      targetPowerFactor: 0.95,
+      minPowerFactor: 0.9,
     });
   });
 

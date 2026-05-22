@@ -97,7 +97,8 @@ export type PowerProfilePreset =
   | 'APARTMENT_1P_7KW'
   | 'HOUSE_3P_11KW'
   | 'HOUSE_3P_18KW'
-  | 'SOLAR_PROSUMER_3P_22KW';
+  | 'SOLAR_PROSUMER_3P_22KW'
+  | 'COMMERCIAL_3P_30KW';
 
 export type PricingMode = 'FIXED' | 'DYNAMIC';
 export type GhostLoadMessageCode =

@@ -80,7 +80,7 @@ export function registerPowerSummaryRoute(fastify: FastifyInstance): void {
       ? await resolveEffectivePowerPolicy(latest.deviceId, latest.timestamp)
       : null;
 
-    const phaseRecommendations = buildPhaseImbalanceRecommendations(weekWindows);
+    const phaseRecommendations = buildPhaseImbalanceRecommendations(weekWindows, policy);
 
     return {
       has_data: latest != null,
