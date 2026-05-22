@@ -48,7 +48,7 @@ interface VoltageLatest {
   deviceId: number;
   timestamp: string;
   phases: PhaseResult[];
-  bounds: { nominal: number; tolerance: number; min: number; max: number };
+  bounds: { nominal: number; tolerance: number; tolerancePct?: number; min: number; max: number };
 }
 
 interface VoltageSummary {
@@ -450,7 +450,7 @@ export function VoltagePage() {
               <LineChart data={voltageHistory}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="time" interval="preserveStartEnd" tick={{ fontSize: 11 }} />
-                <YAxis domain={[210, 250]} unit=" V" tick={{ fontSize: 11 }} />
+                <YAxis domain={[200, 260]} unit=" V" tick={{ fontSize: 11 }} />
                 <Tooltip />
                 <Legend />
 

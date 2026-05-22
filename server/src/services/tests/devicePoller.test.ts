@@ -18,7 +18,9 @@ vi.mock('../../lib/prisma.js', () => {
         create: vi.fn(),
       },
       anomaly: {
+        findFirst: vi.fn(),
         create: vi.fn(),
+        update: vi.fn(),
       },
       aggregatedData: {
         upsert: vi.fn(),
@@ -37,7 +39,11 @@ const mockPrisma = prisma as unknown as {
   };
   powerPolicyOverride: { findFirst: ReturnType<typeof vi.fn> };
   reading: { create: ReturnType<typeof vi.fn> };
-  anomaly: { create: ReturnType<typeof vi.fn> };
+  anomaly: {
+    findFirst: ReturnType<typeof vi.fn>;
+    create: ReturnType<typeof vi.fn>;
+    update: ReturnType<typeof vi.fn>;
+  };
   aggregatedData: { upsert: ReturnType<typeof vi.fn> };
 };
 
@@ -139,6 +145,7 @@ describe('DevicePoller', () => {
     clearPowerPolicyCache();
     mockPrisma.device.findUnique.mockResolvedValue({ powerProfile: 'HOUSE_3P_11KW' });
     mockPrisma.powerPolicyOverride.findFirst.mockResolvedValue(null);
+    mockPrisma.anomaly.findFirst.mockResolvedValue(null);
   });
 
   afterEach(async () => {

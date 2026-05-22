@@ -64,7 +64,7 @@ export interface WeeklyComplianceResult {
 
 // Pure helper functions
 
-/** Check if a single voltage value is within ESO bounds [220V, 240V] */
+/** Check if a single voltage value is within ESO bounds [207V, 253V] */
 export function isVoltageInBounds(voltage: number): boolean {
   return voltage >= ESO.VOLTAGE_MIN_1PH && voltage <= ESO.VOLTAGE_MAX_1PH;
 }
@@ -280,7 +280,7 @@ export function createDeviationAnomaly(
 /**
  * Calculate weekly compliance from an array of 10-minute window results.
  *
- * Per ESO: >= 95% of windows must have RMS voltage within [220V, 240V].
+ * Per ESO: >= 95% of windows must have RMS voltage within [207V, 253V].
  */
 export function calculateWeeklyCompliance(
   windows: RmsWindowResult[],

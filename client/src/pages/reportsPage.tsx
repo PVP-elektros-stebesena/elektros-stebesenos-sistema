@@ -1445,7 +1445,7 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
                                 </Group>
                                 {context.anomaly.metricDomain === 'VOLTAGE' && (
                                   <Text size="xs" c="dimmed" mb="xs">
-                                    {tr(language, 'Dashed gray lines are compliance limits: 220V and 240V.', 'Pilkos punktyrinės linijos rodo atitikties ribas: 220V ir 240V.')}
+                                    {tr(language, 'Dashed gray lines are compliance limits: 207V and 253V.', 'Pilkos punktyrinės linijos rodo atitikties ribas: 207V ir 253V.')}
                                   </Text>
                                 )}
 
@@ -1461,8 +1461,8 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
                                       <>
                                         <YAxis yAxisId="voltage" unit=" V" />
                                         <YAxis yAxisId="power" orientation="right" unit=" kW" />
-                                        <ReferenceLine yAxisId="voltage" y={220} stroke="#868e96" strokeDasharray="4 4" />
-                                        <ReferenceLine yAxisId="voltage" y={240} stroke="#868e96" strokeDasharray="4 4" />
+                                        <ReferenceLine yAxisId="voltage" y={207} stroke="#868e96" strokeDasharray="4 4" />
+                                        <ReferenceLine yAxisId="voltage" y={253} stroke="#868e96" strokeDasharray="4 4" />
                                       </>
                                     ) : (
                                       <YAxis yAxisId="power" unit=" kW" />

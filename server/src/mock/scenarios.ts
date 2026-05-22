@@ -89,16 +89,16 @@ const normal: ScenarioConfig = {
 
 const voltageSag: ScenarioConfig = {
   name: 'voltage-sag',
-  description: 'All phases drop to ~210-215V (below ESO 220V min).',
+  description: 'All phases drop to ~200-205V (below ESO 207V min).',
   durationHint: 120,
-  generate: () => fromVoltages(noise(212, 3), noise(213, 3), noise(211, 3)),
+  generate: () => fromVoltages(noise(202, 3), noise(203, 3), noise(201, 3)),
 };
 
 const voltageSwell: ScenarioConfig = {
   name: 'voltage-swell',
-  description: 'All phases rise to ~245-250V (above ESO 240V max).',
+  description: 'All phases rise to ~256-260V (above ESO 253V max).',
   durationHint: 120,
-  generate: () => fromVoltages(noise(247, 3), noise(246, 3), noise(248, 3)),
+  generate: () => fromVoltages(noise(258, 2), noise(257, 2), noise(259, 2)),
 };
 
 const shortInterruption: ScenarioConfig = {
@@ -140,9 +140,9 @@ const phaseL1Drop: ScenarioConfig = {
 
 const phaseL2Swell: ScenarioConfig = {
   name: 'phase-l2-swell',
-  description: 'Only L2 rises to ~250V. L1 and L3 remain normal.',
+  description: 'Only L2 rises to ~257V. L1 and L3 remain normal.',
   durationHint: 180,
-  generate: () => fromVoltages(noise(230, 2), noise(250, 3), noise(229, 2)),
+  generate: () => fromVoltages(noise(230, 2), noise(257, 2), noise(229, 2)),
 };
 
 const brownout: ScenarioConfig = {
@@ -158,10 +158,10 @@ const brownout: ScenarioConfig = {
 
 const fluctuating: ScenarioConfig = {
   name: 'fluctuating',
-  description: 'Voltage oscillates between 215V and 245V with a sine pattern.',
+  description: 'Voltage oscillates between 202V and 258V with a sine pattern.',
   durationHint: 600,
   generate: (tick) => {
-    const wave = Math.sin(tick * 0.3) * 15; // +-15V oscillation
+    const wave = Math.sin(tick * 0.3) * 28; // +-28V oscillation
     const base = 230 + wave;
     return fromVoltages(
       noise(base, 1),
@@ -173,12 +173,12 @@ const fluctuating: ScenarioConfig = {
 
 const borderline: ScenarioConfig = {
   name: 'borderline',
-  description: 'Voltage hovers right at ESO bounds (219-221V), crossing in and out.',
+  description: 'Voltage hovers right at ESO bounds (206-208V), crossing in and out.',
   durationHint: 600,
   generate: (tick) => {
-    // Slowly oscillates around the 220V lower bound
+    // Slowly oscillates around the 207V lower bound
     const wave = Math.sin(tick * 0.2) * 2;
-    const base = 220 + wave;
+    const base = 207 + wave;
     return fromVoltages(noise(base, 0.5), noise(230, 2), noise(230, 2));
   },
 };

@@ -66,11 +66,11 @@ describe('normal scenario', () => {
 describe('voltage-sag scenario', () => {
   const scenario = SCENARIOS['voltage-sag'];
 
-  it('generates voltages below ESO minimum (220V)', () => {
+  it('generates voltages below ESO minimum (207V)', () => {
     for (let i = 0; i < 10; i++) {
       const output = scenario.generate(i);
       validateOutput(output);
-      // All phases should be below 220V (with some noise tolerance)
+      // All phases should be below 207V (with some noise tolerance)
       expect(output.l1.voltage).toBeLessThan(ESO.VOLTAGE_MIN_1PH);
       expect(output.l2.voltage).toBeLessThan(ESO.VOLTAGE_MIN_1PH);
     }
@@ -80,7 +80,7 @@ describe('voltage-sag scenario', () => {
 describe('voltage-swell scenario', () => {
   const scenario = SCENARIOS['voltage-swell'];
 
-  it('generates voltages above ESO maximum (240V)', () => {
+  it('generates voltages above ESO maximum (253V)', () => {
     for (let i = 0; i < 10; i++) {
       const output = scenario.generate(i);
       validateOutput(output);
