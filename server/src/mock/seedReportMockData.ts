@@ -431,8 +431,8 @@ async function seedAggregatesAndAnomalies(deviceId: number, start: Date, now: Da
         phase: 'L1',
         type: 'UNDER_VOLTAGE',
         severity: 1,
-        minVoltage: 214,
-        maxVoltage: 219,
+        minVoltage: 200,
+        maxVoltage: 206,
         duration: 1200,
         description: 'Simulated under-voltage event for report testing',
       });
@@ -446,8 +446,8 @@ async function seedAggregatesAndAnomalies(deviceId: number, start: Date, now: Da
         phase: 'L2',
         type: 'OVER_VOLTAGE',
         severity: 1,
-        minVoltage: 241,
-        maxVoltage: 247,
+        minVoltage: 254,
+        maxVoltage: 260,
         duration: 7200,
         description: 'Simulated over-voltage evening event for report testing',
       });
@@ -461,8 +461,8 @@ async function seedAggregatesAndAnomalies(deviceId: number, start: Date, now: Da
         phase: 'L3',
         type: 'VOLTAGE_DEVIATION',
         severity: 1,
-        minVoltage: 219,
-        maxVoltage: 241,
+        minVoltage: 206,
+        maxVoltage: 254,
         duration: 7200,
         description: 'Simulated voltage deviation event for report testing',
       });
