@@ -149,7 +149,13 @@ describe('GET /api/power/latest', () => {
     expect(body.phaseImbalancePct).toBeCloseTo(7.2685, 4);
   });
 
-  it('includes ramp-rate breaches when a previous reading exists', async () => {
+  it('includes ramp-rate breaches for commercial-scale devices when a previous reading exists', async () => {
+    await prisma.device.update({
+      where: { id: testDeviceId },
+      data: { powerProfile: 'COMMERCIAL_3P_30KW' },
+    });
+    clearPowerPolicyCache(testDeviceId);
+
     await prisma.reading.createMany({
       data: [
         {
@@ -351,6 +357,88 @@ describe('GET /api/power/summary', () => {
     expect(res.statusCode).toBe(200);
     expect(body.insights.phaseRecommendations.length).toBe(1);
     expect(body.insights.phaseRecommendations[0]).toContain('Phase L1 carries');
+  });
+
+  it('skips phase imbalance recommendations for single-phase profiles', async () => {
+    await prisma.device.update({
+      where: { id: testDeviceId },
+      data: { powerProfile: 'APARTMENT_1P_5KW' },
+    });
+    await prisma.reading.create({
+      data: {
+        deviceId: testDeviceId,
+        timestamp: new Date(),
+        powerDeliveredTotal: 4,
+      },
+    });
+
+    const now = new Date();
+    const windowStarts = [
+      new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000),
+      new Date(now.getTime() - 4 * 24 * 60 * 60 * 1000),
+      new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000),
+    ];
+
+    await prisma.aggregatedData.createMany({
+      data: windowStarts.map((startsAt) => ({
+        deviceId: testDeviceId,
+        startsAt,
+        endsAt: new Date(startsAt.getTime() + 10 * 60 * 1000),
+        sampleCount: 60,
+        powerImbalancePct: 60,
+        activePowerAvgL1: 4.0,
+        activePowerAvgL2: 0,
+        activePowerAvgL3: 0,
+      })),
+    });
+
+    const res = await injectGet(`/api/power/summary?deviceId=${testDeviceId}`);
+    const body = res.json();
+
+    expect(res.statusCode).toBe(200);
+    expect(body.policy.phaseCount).toBe(1);
+    expect(body.insights.phaseRecommendations).toEqual([]);
+  });
+
+  it('uses the selected profile threshold for phase imbalance recommendations', async () => {
+    await prisma.device.update({
+      where: { id: testDeviceId },
+      data: { powerProfile: 'SOLAR_PROSUMER_3P_22KW' },
+    });
+    await prisma.reading.create({
+      data: {
+        deviceId: testDeviceId,
+        timestamp: new Date(),
+        powerDeliveredTotal: 6,
+      },
+    });
+
+    const now = new Date();
+    const windowStarts = [
+      new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000),
+      new Date(now.getTime() - 4 * 24 * 60 * 60 * 1000),
+      new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000),
+    ];
+
+    await prisma.aggregatedData.createMany({
+      data: windowStarts.map((startsAt) => ({
+        deviceId: testDeviceId,
+        startsAt,
+        endsAt: new Date(startsAt.getTime() + 10 * 60 * 1000),
+        sampleCount: 60,
+        powerImbalancePct: 32,
+        activePowerAvgL1: 4.0,
+        activePowerAvgL2: 1.2,
+        activePowerAvgL3: 0.8,
+      })),
+    });
+
+    const res = await injectGet(`/api/power/summary?deviceId=${testDeviceId}`);
+    const body = res.json();
+
+    expect(res.statusCode).toBe(200);
+    expect(body.policy.maxPhaseImbalancePct).toBe(35);
+    expect(body.insights.phaseRecommendations).toEqual([]);
   });
 });
 

@@ -55,7 +55,7 @@ describe('POST /api/settings', () => {
       mqttBroker: '192.168.1.10',
       mqttPort: 1883,
       mqttTopic: 'energy/p1',
-      powerProfile: 'SOLAR_PROSUMER_3P_22KW',
+      powerProfile: 'COMMERCIAL_3P_30KW',
       pollInterval: 5,
       isActive: false,
       notifySolarExportOpportunity: false,
@@ -71,7 +71,7 @@ describe('POST /api/settings', () => {
     expect(json.mqttBroker).toBe('192.168.1.10');
     expect(json.mqttPort).toBe(1883);
     expect(json.mqttTopic).toBe('energy/p1');
-    expect(json.powerProfile).toBe('SOLAR_PROSUMER_3P_22KW');
+    expect(json.powerProfile).toBe('COMMERCIAL_3P_30KW');
     expect(json.pollInterval).toBe(5);
     expect(json.isActive).toBe(false);
     expect(json.notifySolarExportOpportunity).toBe(false);
@@ -81,8 +81,8 @@ describe('POST /api/settings', () => {
       where: { deviceId: json.id, enabled: true },
       orderBy: { effectiveFrom: 'desc' },
     });
-    expect(override?.policyVersion).toContain('preset-sync:solar_prosumer_3p_22kw');
-    expect(override?.maxActivePowerKw).toBe(22);
+    expect(override?.policyVersion).toContain('preset-sync:commercial_3p_30kw');
+    expect(override?.maxActivePowerKw).toBe(30);
   });
 
   it('includes solar export opportunity in notification settings', async () => {
@@ -148,6 +148,17 @@ describe('POST /api/settings', () => {
     });
     expect(res.statusCode).toBe(400);
     expect(res.json().error).toBe('VALIDATION');
+  });
+
+  it('rejects commercial profiles below the minimum grid capacity', async () => {
+    const res = await inject('POST', '/api/settings', {
+      name: 'Commercial too low',
+      powerProfile: 'COMMERCIAL_3P_30KW',
+      maxGridCapacityKw: 20,
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe('INVALID_GRID_CAPACITY');
   });
 });
 
@@ -261,6 +272,54 @@ describe('PATCH /api/settings/:id', () => {
     expect(overrides[1]?.enabled).toBe(true);
     expect(overrides[1]?.policyVersion).toContain('preset-sync:solar_prosumer_3p_22kw');
     expect(overrides[1]?.maxActivePowerKw).toBe(22);
+  });
+
+  it('raises an existing custom capacity when switching to commercial profile', async () => {
+    const device = await seedDevice({
+      name: 'Small custom capacity',
+      powerProfile: 'HOUSE_3P_11KW',
+      maxGridCapacityKw: 18,
+    });
+
+    const res = await inject('PATCH', `/api/settings/${device.id}`, {
+      powerProfile: 'COMMERCIAL_3P_30KW',
+    });
+    const json = res.json();
+
+    expect(res.statusCode).toBe(200);
+    expect(json.powerProfile).toBe('COMMERCIAL_3P_30KW');
+    expect(json.maxGridCapacityKw).toBe(30);
+  });
+
+  it('preserves valid custom capacity when switching profiles', async () => {
+    const device = await seedDevice({
+      name: 'Large custom capacity',
+      powerProfile: 'COMMERCIAL_3P_30KW',
+      maxGridCapacityKw: 35,
+    });
+
+    const res = await inject('PATCH', `/api/settings/${device.id}`, {
+      powerProfile: 'HOUSE_3P_18KW',
+    });
+    const json = res.json();
+
+    expect(res.statusCode).toBe(200);
+    expect(json.powerProfile).toBe('HOUSE_3P_18KW');
+    expect(json.maxGridCapacityKw).toBe(35);
+  });
+
+  it('rejects commercial capacity updates below the minimum', async () => {
+    const device = await seedDevice({
+      name: 'Commercial update too low',
+      powerProfile: 'COMMERCIAL_3P_30KW',
+    });
+
+    const res = await inject('PATCH', `/api/settings/${device.id}`, {
+      maxGridCapacityKw: 20,
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe('INVALID_GRID_CAPACITY');
   });
 
   it('returns 404 for non-existent device', async () => {

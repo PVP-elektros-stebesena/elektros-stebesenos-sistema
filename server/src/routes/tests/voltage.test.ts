@@ -52,7 +52,7 @@ describe('GET /api/voltage/latest', () => {
         timestamp: new Date('2025-06-01T12:00:00Z'),
         voltageL1: 232.5,
         voltageL2: 228.0,
-        voltageL3: 241.0,
+        voltageL3: 255.0,
       },
     });
 
@@ -71,8 +71,8 @@ describe('GET /api/voltage/latest', () => {
     expect(body.phases[2].inBounds).toBe(false);
 
     expect(body.bounds.nominal).toBe(230);
-    expect(body.bounds.min).toBe(220);
-    expect(body.bounds.max).toBe(240);
+    expect(body.bounds.min).toBe(207);
+    expect(body.bounds.max).toBe(253);
   });
 });
 

@@ -41,7 +41,7 @@ export function CapacityUtilizationGauge({
   const status = getStatusLabel(displayPercent);
 
   return (
-    <Card p="md" radius="md" withBorder>
+    <Card p="md" radius="md">
       <Stack align="center" gap="xs">
         <Text fw={700}>{title}</Text>
 

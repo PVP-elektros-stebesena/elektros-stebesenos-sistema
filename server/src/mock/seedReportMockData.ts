@@ -1,3 +1,4 @@
+import { ESO } from '../config/eso.js';
 import prisma from '../lib/prisma.js';
 
 interface SeedOptions {
@@ -250,19 +251,19 @@ async function seedReadings(deviceId: number, days: number, now: Date, intervalS
       let l3 = 231 + 0.9 * Math.sin(hourProgress / 5);
 
       if (underVoltageWindow) {
-        l1 -= 13;
-        l2 -= 12;
-        l3 -= 11;
+        l1 -= 25;
+        l2 -= 24;
+        l3 -= 23;
       }
 
       if (overVoltageWindow) {
-        l1 += 11;
-        l2 += 14;
-        l3 += 12;
+        l1 += 27;
+        l2 += 29;
+        l3 += 28;
       }
 
       if (deviationL3Window) {
-        l3 += 10;
+        l3 += 25;
       }
 
       if (interrupted) {
@@ -376,21 +377,21 @@ async function seedAggregatesAndAnomalies(deviceId: number, start: Date, now: Da
     let v3 = 231 + 1.1 * Math.sin(hour / 3);
 
     if (underVoltageWindow) {
-      v1 = 216;
-      v2 = 217;
-      v3 = 218;
+      v1 = 202;
+      v2 = 203;
+      v3 = 204;
       activePowerAvgTotal *= 1.35;
     }
 
     if (overVoltageWindow) {
-      v1 = 242;
-      v2 = 246;
-      v3 = 244;
+      v1 = 256;
+      v2 = 258;
+      v3 = 257;
       activePowerAvgTotal *= 0.8;
     }
 
     if (deviationL3Window) {
-      v3 = 241;
+      v3 = 256;
       activePowerAvgTotal *= 1.05;
     }
 
@@ -401,9 +402,9 @@ async function seedAggregatesAndAnomalies(deviceId: number, start: Date, now: Da
       activePowerAvgTotal = 0;
     }
 
-    const c1 = v1 >= 220 && v1 <= 240;
-    const c2 = v2 >= 220 && v2 <= 240;
-    const c3 = v3 >= 220 && v3 <= 240;
+    const c1 = v1 >= ESO.VOLTAGE_MIN_1PH && v1 <= ESO.VOLTAGE_MAX_1PH;
+    const c2 = v2 >= ESO.VOLTAGE_MIN_1PH && v2 <= ESO.VOLTAGE_MAX_1PH;
+    const c3 = v3 >= ESO.VOLTAGE_MIN_1PH && v3 <= ESO.VOLTAGE_MAX_1PH;
 
     windows.push({
       deviceId,
@@ -430,8 +431,8 @@ async function seedAggregatesAndAnomalies(deviceId: number, start: Date, now: Da
         phase: 'L1',
         type: 'UNDER_VOLTAGE',
         severity: 1,
-        minVoltage: 214,
-        maxVoltage: 219,
+        minVoltage: 200,
+        maxVoltage: 206,
         duration: 1200,
         description: 'Simulated under-voltage event for report testing',
       });
@@ -445,8 +446,8 @@ async function seedAggregatesAndAnomalies(deviceId: number, start: Date, now: Da
         phase: 'L2',
         type: 'OVER_VOLTAGE',
         severity: 1,
-        minVoltage: 241,
-        maxVoltage: 247,
+        minVoltage: 254,
+        maxVoltage: 260,
         duration: 7200,
         description: 'Simulated over-voltage evening event for report testing',
       });
@@ -460,8 +461,8 @@ async function seedAggregatesAndAnomalies(deviceId: number, start: Date, now: Da
         phase: 'L3',
         type: 'VOLTAGE_DEVIATION',
         severity: 1,
-        minVoltage: 219,
-        maxVoltage: 241,
+        minVoltage: 206,
+        maxVoltage: 254,
         duration: 7200,
         description: 'Simulated voltage deviation event for report testing',
       });

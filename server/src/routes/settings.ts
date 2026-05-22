@@ -3,7 +3,7 @@ import prisma from '../lib/prisma.js';
 import {
   DEFAULT_POWER_PROFILE,
   POWER_PROFILE_PRESET_VALUES,
-  type PowerProfilePreset,
+  PowerProfilePreset,
 } from '../config/powerPolicy.js';
 import { devicePoller } from '../services/devicePoller.js';
 import {
@@ -265,6 +265,25 @@ interface IdParam {
   id: number;
 }
 
+function minimumGridCapacityKw(profile: PowerProfilePreset): number {
+  return profile === PowerProfilePreset.COMMERCIAL_3P_30KW ? 30 : 0;
+}
+
+function isGridCapacityValidForProfile(
+  profile: PowerProfilePreset,
+  maxGridCapacityKw: number | null | undefined,
+): boolean {
+  return maxGridCapacityKw == null ||
+    maxGridCapacityKw >= minimumGridCapacityKw(profile);
+}
+
+function invalidGridCapacityResponse(profile: PowerProfilePreset) {
+  return {
+    error: 'INVALID_GRID_CAPACITY',
+    message: `${profile} requires maxGridCapacityKw to be at least ${minimumGridCapacityKw(profile)} kW.`,
+  };
+}
+
 export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
   async function syncSelectedPowerProfile(deviceId: number, profile: PowerProfilePreset): Promise<void> {
     await syncPowerProfileOverride(deviceId, profile);
@@ -390,6 +409,12 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
     notifySolarExportOpportunity,
   } = req.body;
 
+    const resolvedPowerProfile = powerProfile ?? DEFAULT_POWER_PROFILE;
+
+    if (!isGridCapacityValidForProfile(resolvedPowerProfile, maxGridCapacityKw)) {
+      return reply.code(400).send(invalidGridCapacityResponse(resolvedPowerProfile));
+    }
+
     const device = await prisma.device.create({
       data: {
         userId: req.authUser?.id ?? null,
@@ -398,7 +423,7 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
         mqttBroker: mqttBroker ?? null,
         mqttPort: mqttPort ?? null,
         mqttTopic: mqttTopic ?? null,
-        powerProfile: powerProfile ?? DEFAULT_POWER_PROFILE,
+        powerProfile: resolvedPowerProfile,
         maxGridCapacityKw: maxGridCapacityKw ?? null,
         pollInterval: pollInterval ?? 10,
         isActive: isActive ?? true,
@@ -408,7 +433,7 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
       },
     });
 
-    await syncSelectedPowerProfile(device.id, powerProfile ?? DEFAULT_POWER_PROFILE);
+    await syncSelectedPowerProfile(device.id, resolvedPowerProfile);
 
     // Trigger poller to pick up the new device immediately
     devicePoller.syncDevices().catch((err) =>
@@ -457,6 +482,21 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
     if (notificationTarget !== undefined) data.notificationTarget = notificationTarget;
     if (notifySolarExportOpportunity !== undefined) {
       data.notifySolarExportOpportunity = notifySolarExportOpportunity;
+    }
+
+    const resolvedPowerProfile = powerProfile ?? existing.powerProfile as PowerProfilePreset;
+
+    if (!isGridCapacityValidForProfile(resolvedPowerProfile, maxGridCapacityKw)) {
+      return reply.code(400).send(invalidGridCapacityResponse(resolvedPowerProfile));
+    }
+
+    if (
+      powerProfile !== undefined &&
+      maxGridCapacityKw === undefined &&
+      existing.maxGridCapacityKw != null &&
+      existing.maxGridCapacityKw < minimumGridCapacityKw(powerProfile)
+    ) {
+      data.maxGridCapacityKw = minimumGridCapacityKw(powerProfile);
     }
 
     const updated = await prisma.device.update({ where: { id }, data });

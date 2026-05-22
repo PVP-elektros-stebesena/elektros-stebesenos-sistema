@@ -17,12 +17,12 @@ import {
 // isVoltageInBounds
 
 describe('isVoltageInBounds', () => {
-  it('returns true for voltage exactly at lower bound (220V)', () => {
-    expect(isVoltageInBounds(220)).toBe(true);
+  it('returns true for voltage exactly at lower bound (207V)', () => {
+    expect(isVoltageInBounds(207)).toBe(true);
   });
 
-  it('returns true for voltage exactly at upper bound (240V)', () => {
-    expect(isVoltageInBounds(240)).toBe(true);
+  it('returns true for voltage exactly at upper bound (253V)', () => {
+    expect(isVoltageInBounds(253)).toBe(true);
   });
 
   it('returns true for nominal voltage (230V)', () => {
@@ -30,11 +30,11 @@ describe('isVoltageInBounds', () => {
   });
 
   it('returns false for voltage below lower bound', () => {
-    expect(isVoltageInBounds(219.9)).toBe(false);
+    expect(isVoltageInBounds(206.9)).toBe(false);
   });
 
   it('returns false for voltage above upper bound', () => {
-    expect(isVoltageInBounds(240.1)).toBe(false);
+    expect(isVoltageInBounds(253.1)).toBe(false);
   });
 
   it('returns false for zero voltage', () => {
@@ -81,10 +81,10 @@ describe('analyseVoltage', () => {
   });
 
   it('correctly analyses out-of-bounds voltage', () => {
-    const result = analyseVoltage(245, 'L3');
+    const result = analyseVoltage(256, 'L3');
     expect(result.inBounds).toBe(false);
     expect(result.isZero).toBe(false);
-    expect(result.deviation).toBeCloseTo(15);
+    expect(result.deviation).toBeCloseTo(26);
   });
 });
 
@@ -96,7 +96,7 @@ describe('analyseReading', () => {
       timestamp: new Date(),
       voltage_l1: 230,
       voltage_l2: 0,
-      voltage_l3: 250,
+      voltage_l3: 256,
     };
     const results = analyseReading(reading);
     expect(results).toHaveLength(3);
@@ -201,7 +201,7 @@ describe('aggregateWindow', () => {
     // 4 readings out of bounds = 40s > 30s threshold -> non-compliant
     const readings: VoltageReading[] = Array.from({ length: 60 }, (_, i) => ({
       timestamp: new Date(ws.getTime() + i * 10_000),
-      voltage_l1: i < 4 ? 250 : 230,  // first 4 readings OOB
+      voltage_l1: i < 4 ? 256 : 230,  // first 4 readings OOB
       voltage_l2: 230,
       voltage_l3: 230,
     }));
@@ -217,7 +217,7 @@ describe('aggregateWindow', () => {
     // 3 readings OOB x 10s = 30s = exactly 5% -> should be compliant (<= 30s)
     const readings: VoltageReading[] = Array.from({ length: 60 }, (_, i) => ({
       timestamp: new Date(ws.getTime() + i * 10_000),
-      voltage_l1: i < 3 ? 250 : 230,
+      voltage_l1: i < 3 ? 256 : 230,
       voltage_l2: 230,
       voltage_l3: 230,
     }));

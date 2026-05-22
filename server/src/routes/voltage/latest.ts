@@ -41,7 +41,8 @@ export function registerVoltageLatestRoute(fastify: FastifyInstance): void {
       phases,
       bounds: {
         nominal: ESO.NOMINAL_VOLTAGE_1PH,
-        tolerance: ESO.VOLTAGE_TOLERANCE,
+        tolerance: ESO.NOMINAL_VOLTAGE_1PH * ESO.VOLTAGE_TOLERANCE_PCT,
+        tolerancePct: ESO.VOLTAGE_TOLERANCE_PCT,
         min: ESO.VOLTAGE_MIN_1PH,
         max: ESO.VOLTAGE_MAX_1PH,
       },

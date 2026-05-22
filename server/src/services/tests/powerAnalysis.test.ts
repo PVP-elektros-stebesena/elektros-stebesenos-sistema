@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_POWER_POLICY } from '../../config/powerPolicy.js';
+import {
+  DEFAULT_POWER_POLICY,
+  PowerProfilePreset,
+  buildPresetPowerPolicy,
+} from '../../config/powerPolicy.js';
 import {
   aggregatePowerWindow,
   analysePowerReading,
@@ -84,7 +88,7 @@ describe('analysePowerReading', () => {
 });
 
 describe('evaluatePowerPolicyBreaches', () => {
-  it('detects active, reactive, power-factor, phase-imbalance, and ramp breaches', () => {
+  it('detects active, reactive, and phase-imbalance breaches for home-scale policies', () => {
     const current = analysePowerReading(makeReading({
       activePowerTotalKw: 15,
       activePowerL1Kw: 8,
@@ -114,11 +118,119 @@ describe('evaluatePowerPolicyBreaches', () => {
         thresholdValue: DEFAULT_POWER_POLICY.criticalThreshold,
       }),
       expect.objectContaining({ metricName: 'REACTIVE_POWER_TOTAL', observedValue: 9, severity: 'WARNING' }),
-      expect.objectContaining({ metricName: 'POWER_FACTOR', observedValue: 0.75, severity: 'WARNING' }),
       expect.objectContaining({ metricName: 'PHASE_IMBALANCE', severity: 'WARNING' }),
-      expect.objectContaining({ metricName: 'ACTIVE_POWER_RAMP', observedValue: 12, severity: 'WARNING' }),
     ]));
-    expect(breaches).toHaveLength(5);
+    expect(breaches).toHaveLength(3);
+    expect(breaches.some((breach) => breach.metricName === 'POWER_FACTOR')).toBe(false);
+    expect(breaches.some((breach) => breach.metricName === 'ACTIVE_POWER_RAMP')).toBe(false);
+  });
+
+  it('detects low power factor only for commercial-scale policies', () => {
+    const commercialPolicy = buildPresetPowerPolicy(PowerProfilePreset.COMMERCIAL_3P_30KW);
+    const current = analysePowerReading(makeReading({
+      activePowerTotalKw: 6,
+      activePowerL1Kw: 2,
+      activePowerL2Kw: 2,
+      activePowerL3Kw: 2,
+      reactivePowerL1Kvar: 0,
+      reactivePowerL2Kvar: 0,
+      reactivePowerL3Kvar: 0,
+      apparentPowerTotalKva: 8,
+    }, '2026-03-27T10:01:00.000Z'));
+
+    const breaches = evaluatePowerPolicyBreaches(
+      current,
+      commercialPolicy,
+      new Date('2026-03-27T10:01:00.000Z'),
+    );
+
+    expect(breaches).toEqual([
+      expect.objectContaining({
+        metricName: 'POWER_FACTOR',
+        observedValue: 0.75,
+        severity: 'WARNING',
+      }),
+    ]);
+  });
+
+  it('ignores low power factor and ramp rate for home-scale policies', () => {
+    const current = analysePowerReading(makeReading({
+      activePowerTotalKw: 8,
+      activePowerL1Kw: 3,
+      activePowerL2Kw: 3,
+      activePowerL3Kw: 2,
+      reactivePowerL1Kvar: 0,
+      reactivePowerL2Kvar: 0,
+      reactivePowerL3Kvar: 0,
+      apparentPowerTotalKva: 11,
+    }, '2026-03-27T10:01:00.000Z'));
+
+    const breaches = evaluatePowerPolicyBreaches(
+      current,
+      DEFAULT_POWER_POLICY,
+      new Date('2026-03-27T10:01:00.000Z'),
+      {
+        timestamp: new Date('2026-03-27T10:00:00.000Z'),
+        activePowerTotalKw: 1,
+      },
+    );
+
+    expect(breaches).toEqual([]);
+  });
+
+  it('detects ramp-rate breaches only for commercial-scale policies', () => {
+    const commercialPolicy = buildPresetPowerPolicy(PowerProfilePreset.COMMERCIAL_3P_30KW);
+    const current = analysePowerReading(makeReading({
+      activePowerTotalKw: 15,
+      activePowerL1Kw: 5,
+      activePowerL2Kw: 5,
+      activePowerL3Kw: 5,
+      reactivePowerL1Kvar: 0,
+      reactivePowerL2Kvar: 0,
+      reactivePowerL3Kvar: 0,
+      apparentPowerTotalKva: 15,
+    }, '2026-03-27T10:01:00.000Z'));
+
+    const breaches = evaluatePowerPolicyBreaches(
+      current,
+      commercialPolicy,
+      new Date('2026-03-27T10:01:00.000Z'),
+      {
+        timestamp: new Date('2026-03-27T10:00:00.000Z'),
+        activePowerTotalKw: 3,
+      },
+    );
+
+    expect(breaches).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        metricName: 'ACTIVE_POWER_RAMP',
+        observedValue: 12,
+        severity: 'WARNING',
+      }),
+    ]));
+  });
+
+  it('does not flag phase imbalance for single-phase profiles', () => {
+    const singlePhasePolicy = buildPresetPowerPolicy(PowerProfilePreset.APARTMENT_1P_5KW);
+    const current = analysePowerReading(makeReading({
+      activePowerTotalKw: 4.4,
+      activePowerL1Kw: 4.4,
+      activePowerL2Kw: 0,
+      activePowerL3Kw: 0,
+      reactivePowerL1Kvar: 0,
+      reactivePowerL2Kvar: 0,
+      reactivePowerL3Kvar: 0,
+      apparentPowerTotalKva: 4.4,
+    }, '2026-03-27T10:01:00.000Z'));
+
+    const breaches = evaluatePowerPolicyBreaches(
+      current,
+      singlePhasePolicy,
+      new Date('2026-03-27T10:01:00.000Z'),
+    );
+
+    expect(breaches).toEqual([]);
+    expect(current.phaseImbalancePct).toBeGreaterThan(singlePhasePolicy.maxPhaseImbalancePct);
   });
 
   it('marks active power above warning threshold as warning', () => {

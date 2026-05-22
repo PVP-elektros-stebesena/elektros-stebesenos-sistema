@@ -241,10 +241,10 @@ All voltage endpoints query the database and accept an optional `deviceId` query
 
 ### ESO standards reference
 
-- Nominal voltage: **230 V ± 10 V** → acceptable range **[220 V, 240 V]**
+- Nominal voltage: **230 V +/- 10%** -> acceptable range **[207 V, 253 V]**
 - Measured in **10-minute RMS** intervals
-- Weekly compliance: **≥ 95%** of 10-min windows must be within bounds
-- Supply interruption: voltage below **10 V** (short ≤ 3 min, long > 3 min)
+- Weekly compliance: **>= 95%** of 10-min windows must be within bounds
+- Supply interruption: voltage below **10 V** (short <= 3 min, long > 3 min)
 
 ## API – Poller Status
 
@@ -282,7 +282,8 @@ Active power anomaly detection now uses a time-current style breaker curve inste
 
 - Short spikes above contract power can pass without opening an anomaly.
 - Sustained overload opens `POWER_SPIKE` with `CRITICAL` severity once curve allowance is exceeded.
-- Ramp-rate (`POWER_RAMP_RATE`) behavior is unchanged.
+- Low power-factor and ramp-rate (`POWER_RAMP_RATE`) alerts are limited to commercial-scale policies.
+- Phase-imbalance alerts use the selected power profile's threshold.
 
 
 ### P1 gateway format

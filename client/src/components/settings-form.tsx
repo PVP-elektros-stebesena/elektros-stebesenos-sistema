@@ -121,6 +121,7 @@ const POWER_PROFILE_OPTIONS: { value: PowerProfilePreset; label: string }[] = [
   { value: 'HOUSE_3P_11KW', label: '11 kW 3-Phase House (16 A)' },
   { value: 'HOUSE_3P_18KW', label: '18 kW 3-Phase House (25 A)' },
   { value: 'SOLAR_PROSUMER_3P_22KW', label: '22 kW Solar Prosumer (32 A)' },
+  { value: 'COMMERCIAL_3P_30KW', label: '30 kW Commercial 3-Phase (50 A)' },
 ]
 
 function defaultGridCapacityKw(profile: PowerProfilePreset): number {
@@ -130,9 +131,27 @@ function defaultGridCapacityKw(profile: PowerProfilePreset): number {
     HOUSE_3P_11KW: 11,
     HOUSE_3P_18KW: 18,
     SOLAR_PROSUMER_3P_22KW: 22,
+    COMMERCIAL_3P_30KW: 30,
   }
 
   return defaults[profile]
+}
+
+function minimumGridCapacityKw(profile: PowerProfilePreset): number {
+  return profile === 'COMMERCIAL_3P_30KW' ? 30 : 0
+}
+
+function resolveGridCapacityForProfile(
+  profile: PowerProfilePreset,
+  currentCapacityKw: number | null,
+): number {
+  const minimumCapacityKw = minimumGridCapacityKw(profile)
+
+  if (currentCapacityKw != null && currentCapacityKw >= minimumCapacityKw) {
+    return currentCapacityKw
+  }
+
+  return Math.max(defaultGridCapacityKw(profile), minimumCapacityKw)
 }
 
 function helpLabel(label: string, help: string) {
@@ -925,7 +944,17 @@ export function SettingsForm() {
             <Select
               label={language === 'lt' ? 'Įrenginio tipas' : 'Installation type'}
               value={s.power_profile}
-              onChange={(value) => setS({ ...s, power_profile: (value as PowerProfilePreset) ?? 'HOUSE_3P_11KW' })}
+              onChange={(value) => {
+                const nextProfile = (value as PowerProfilePreset) ?? 'HOUSE_3P_11KW'
+                setS({
+                  ...s,
+                  power_profile: nextProfile,
+                  max_grid_capacity_kw: resolveGridCapacityForProfile(
+                    nextProfile,
+                    s.max_grid_capacity_kw,
+                  ),
+                })
+              }}
               data={POWER_PROFILE_OPTIONS}
               styles={inputStyles}
             />
@@ -936,7 +965,7 @@ export function SettingsForm() {
             description={t('settings.maxGridCapacityKwDescription')}
             value={s.max_grid_capacity_kw ?? undefined}
             onChange={(v) => setS({ ...s, max_grid_capacity_kw: toNullableNumber(v) })}
-            min={0}
+            min={minimumGridCapacityKw(s.power_profile)}
             step={0.1}
             decimalScale={1}
             styles={inputStyles}

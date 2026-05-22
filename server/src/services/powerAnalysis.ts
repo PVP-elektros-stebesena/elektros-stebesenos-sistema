@@ -1,4 +1,5 @@
 import { getWindowEnd } from './voltageAnalysis.js';
+import { ESO } from '../config/eso.js';
 import type { EffectivePowerPolicy } from '../config/powerPolicy.js';
 
 export type PowerMetricName =
@@ -76,6 +77,11 @@ export interface PhaseImbalanceWindow {
 const EPS = 1e-6;
 const PHASE_IMBALANCE_THRESHOLD_PCT = 30;
 const MIN_PHASE_IMBALANCE_WINDOWS = 3;
+
+function isCommercialScalePolicy(policy: EffectivePowerPolicy): boolean {
+  return policy.category === 'COMMERCIAL' ||
+    policy.maxGridCapacityKw >= ESO.REACTIVE_PENALTY.ELIGIBLE_MIN_GRID_CAPACITY_KW;
+}
 
 function sumNullable(values: Array<number | null>): number | null {
   const filtered = values.filter((v): v is number => v != null);
@@ -270,7 +276,8 @@ export function evaluatePowerPolicyBreaches(
 
   if (
     metrics.powerFactor != null &&
-    metrics.powerFactor < policy.minPowerFactor
+    metrics.powerFactor < policy.minPowerFactor &&
+    isCommercialScalePolicy(policy)
   ) {
     breaches.push({
       metricName: 'POWER_FACTOR',
@@ -282,6 +289,7 @@ export function evaluatePowerPolicyBreaches(
   }
 
   if (
+    policy.phaseCount === 3 &&
     metrics.phaseImbalancePct != null &&
     metrics.phaseImbalancePct > policy.maxPhaseImbalancePct
   ) {
@@ -295,6 +303,7 @@ export function evaluatePowerPolicyBreaches(
   }
 
   if (
+    isCommercialScalePolicy(policy) &&
     previous?.activePowerTotalKw != null &&
     metrics.activePowerTotalKw != null
   ) {
@@ -394,12 +403,16 @@ export function aggregatePowerWindow(
 
 export function buildPhaseImbalanceRecommendations(
   windows: PhaseImbalanceWindow[],
+  policy?: Pick<EffectivePowerPolicy, 'phaseCount' | 'maxPhaseImbalancePct'> | null,
 ): string[] {
+  if (policy?.phaseCount != null && policy.phaseCount !== 3) return [];
+
   const withImbalance = windows.filter((window) => window.powerImbalancePct != null);
   if (withImbalance.length < MIN_PHASE_IMBALANCE_WINDOWS) return [];
 
+  const thresholdPct = policy?.maxPhaseImbalancePct ?? PHASE_IMBALANCE_THRESHOLD_PCT;
   const consistentlyImbalanced = withImbalance.every((window) =>
-    (window.powerImbalancePct ?? 0) > PHASE_IMBALANCE_THRESHOLD_PCT,
+    (window.powerImbalancePct ?? 0) > thresholdPct,
   );
 
   if (!consistentlyImbalanced) return [];

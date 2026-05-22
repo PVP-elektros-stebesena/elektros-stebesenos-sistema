@@ -16,6 +16,8 @@ const SEVERITY_MAP: Record<string, number> = {
   CRITICAL: 2,
 };
 
+type AnomalyPersistenceClient = Pick<typeof prisma, 'anomaly'>;
+
 export class AnomalyRepository {
   private notificationAdapter: NotificationEventAdapter;
 
@@ -30,32 +32,13 @@ export class AnomalyRepository {
   async persistVoltageAnomalies(deviceId: number, anomalies: DetectedAnomaly[]): Promise<void> {
     if (anomalies.length === 0) return;
 
-    const creates = anomalies.map((anomaly) => prisma.anomaly.create({
-      data: {
-        deviceId,
-        startsAt: anomaly.startedAt,
-        endsAt: anomaly.endedAt,
-        phase: anomaly.phase,
-        type: anomaly.type,
-        severity: SEVERITY_MAP[anomaly.severity] ?? 1,
-        minVoltage: anomaly.voltageMin,
-        maxVoltage: anomaly.voltageMax,
-        metricDomain: 'VOLTAGE',
-        metricName: anomaly.type === 'VOLTAGE_DEVIATION' ? 'VOLTAGE_RMS' : 'VOLTAGE_INTERRUPTION',
-        thresholdValue: null,
-        observedMin: anomaly.voltageMin,
-        observedMax: anomaly.voltageMax,
-        observedAvg:
-          anomaly.voltageMin != null && anomaly.voltageMax != null
-            ? (anomaly.voltageMin + anomaly.voltageMax) / 2
-            : null,
-        unit: 'V',
-        duration: anomaly.durationSeconds != null ? Math.round(anomaly.durationSeconds) : null,
-        description: `${anomaly.type} on phase ${anomaly.phase}`,
-      },
-    }));
-
-    const savedAnomalies = await this.executeBatch(creates);
+    const savedAnomalies = await this.executeAnomalyTransaction(async (client) => {
+      const saved: Awaited<ReturnType<AnomalyRepository['persistVoltageAnomaly']>>[] = [];
+      for (const anomaly of anomalies) {
+        saved.push(await this.persistVoltageAnomaly(client, deviceId, anomaly));
+      }
+      return saved;
+    });
 
     for (const saved of savedAnomalies) {
       await this.notificationAdapter.notifyAnomalyDetected({
@@ -78,35 +61,13 @@ export class AnomalyRepository {
   async persistPowerAnomalies(deviceId: number, anomalies: DetectedPowerAnomaly[]): Promise<void> {
     if (anomalies.length === 0) return;
 
-    const creates = anomalies.map((anomaly) => {
-      const durationSeconds = anomaly.endedAt
-        ? Math.max(0, Math.round((anomaly.endedAt.getTime() - anomaly.startedAt.getTime()) / 1000))
-        : null;
-
-      return prisma.anomaly.create({
-        data: {
-          deviceId,
-          startsAt: anomaly.startedAt,
-          endsAt: anomaly.endedAt,
-          phase: anomaly.phase,
-          type: anomaly.type,
-          severity: SEVERITY_MAP[anomaly.severity] ?? 1,
-          minVoltage: null,
-          maxVoltage: null,
-          metricDomain: 'POWER',
-          metricName: anomaly.metricName,
-          thresholdValue: anomaly.thresholdValue,
-          observedMin: anomaly.observedMin,
-          observedMax: anomaly.observedMax,
-          observedAvg: anomaly.observedAvg,
-          unit: anomaly.unit,
-          duration: durationSeconds,
-          description: anomaly.description,
-        },
-      });
+    const savedAnomalies = await this.executeAnomalyTransaction(async (client) => {
+      const saved: Awaited<ReturnType<AnomalyRepository['persistPowerAnomaly']>>[] = [];
+      for (const anomaly of anomalies) {
+        saved.push(await this.persistPowerAnomaly(client, deviceId, anomaly));
+      }
+      return saved;
     });
-
-    const savedAnomalies = await this.executeBatch(creates);
 
     for (const saved of savedAnomalies) {
       await this.notificationAdapter.notifyAnomalyDetected({
@@ -126,6 +87,111 @@ export class AnomalyRepository {
     }
   }
 
+  private async persistPowerAnomaly(
+    client: AnomalyPersistenceClient,
+    deviceId: number,
+    anomaly: DetectedPowerAnomaly,
+  ) {
+    const durationSeconds = anomaly.endedAt
+      ? Math.max(0, Math.round((anomaly.endedAt.getTime() - anomaly.startedAt.getTime()) / 1000))
+      : null;
+    const data = {
+      deviceId,
+      startsAt: anomaly.startedAt,
+      endsAt: anomaly.endedAt,
+      phase: anomaly.phase,
+      type: anomaly.type,
+      severity: SEVERITY_MAP[anomaly.severity] ?? 1,
+      minVoltage: null,
+      maxVoltage: null,
+      metricDomain: 'POWER',
+      metricName: anomaly.metricName,
+      thresholdValue: anomaly.thresholdValue,
+      observedMin: anomaly.observedMin,
+      observedMax: anomaly.observedMax,
+      observedAvg: anomaly.observedAvg,
+      unit: anomaly.unit,
+      duration: durationSeconds,
+      description: anomaly.description,
+    };
+
+    if (anomaly.endedAt) {
+      const active = await client.anomaly.findFirst({
+        where: {
+          deviceId,
+          metricDomain: 'POWER',
+          phase: anomaly.phase,
+          type: anomaly.type,
+          metricName: anomaly.metricName,
+          startsAt: anomaly.startedAt,
+          endsAt: null,
+        },
+        orderBy: { id: 'desc' },
+      });
+
+      if (active) {
+        return client.anomaly.update({
+          where: { id: active.id },
+          data,
+        });
+      }
+    }
+
+    return client.anomaly.create({ data });
+  }
+
+  private async persistVoltageAnomaly(
+    client: AnomalyPersistenceClient,
+    deviceId: number,
+    anomaly: DetectedAnomaly,
+  ) {
+    const data = {
+      deviceId,
+      startsAt: anomaly.startedAt,
+      endsAt: anomaly.endedAt,
+      phase: anomaly.phase,
+      type: anomaly.type,
+      severity: SEVERITY_MAP[anomaly.severity] ?? 1,
+      minVoltage: anomaly.voltageMin,
+      maxVoltage: anomaly.voltageMax,
+      metricDomain: 'VOLTAGE',
+      metricName: anomaly.type === 'VOLTAGE_DEVIATION' ? 'VOLTAGE_RMS' : 'VOLTAGE_INTERRUPTION',
+      thresholdValue: null,
+      observedMin: anomaly.voltageMin,
+      observedMax: anomaly.voltageMax,
+      observedAvg:
+        anomaly.voltageMin != null && anomaly.voltageMax != null
+          ? (anomaly.voltageMin + anomaly.voltageMax) / 2
+          : null,
+      unit: 'V',
+      duration: anomaly.durationSeconds != null ? Math.round(anomaly.durationSeconds) : null,
+      description: `${anomaly.type} on phase ${anomaly.phase}`,
+    };
+
+    if (anomaly.endedAt) {
+      const active = await client.anomaly.findFirst({
+        where: {
+          deviceId,
+          metricDomain: 'VOLTAGE',
+          phase: anomaly.phase,
+          type: anomaly.type,
+          startsAt: anomaly.startedAt,
+          endsAt: null,
+        },
+        orderBy: { id: 'desc' },
+      });
+
+      if (active) {
+        return client.anomaly.update({
+          where: { id: active.id },
+          data,
+        });
+      }
+    }
+
+    return client.anomaly.create({ data });
+  }
+
   async notifyExportOpportunity(input: {
     deviceId: number;
     startedAt: Date;
@@ -137,13 +203,17 @@ export class AnomalyRepository {
     await this.notificationAdapter.notifyExportOpportunity(input);
   }
 
-  private async executeBatch<T>(operations: Array<Promise<T>>): Promise<T[]> {
-    const transaction = (prisma as { $transaction?: (ops: Array<Promise<T>>) => Promise<T[]> }).$transaction;
+  private async executeAnomalyTransaction<T>(
+    callback: (client: AnomalyPersistenceClient) => Promise<T[]>,
+  ): Promise<T[]> {
+    const transaction = (prisma as {
+      $transaction?: <R>(fn: (client: AnomalyPersistenceClient) => Promise<R>) => Promise<R>;
+    }).$transaction;
 
     if (typeof transaction === 'function') {
-      return transaction.call(prisma, operations);
+      return transaction.call(prisma, callback) as Promise<T[]>;
     }
 
-    return Promise.all(operations);
+    return callback(prisma);
   }
 }

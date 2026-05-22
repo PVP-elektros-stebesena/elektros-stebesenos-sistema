@@ -3,12 +3,12 @@
  * Reference: https://www.eso.lt/verslui/elektra/elektros-planiniai-atjungimai-ir-itampos-svyravimai/itampos-svyravimai/4031
  *
  * Key rules:
- * - Nominal low voltage (1-phase): 230 V +- 10 V  -> [220, 240]
- * - Nominal low voltage (3-phase line-to-line): 400 V +- 10 V -> [390, 410]
+ * - Nominal low voltage (1-phase): 230 V +- 10%  -> [207, 253]
+ * - Nominal low voltage (3-phase line-to-line): 400 V +- 10% -> [360, 440]
  * - Measured in 10-minute RMS intervals
  * - 95% of weekly 10-min windows must be within bounds
  *
- * NOTE: The tolerance is +-10 V (absolute), NOT +-10%.
+ * NOTE: The tolerance is +-10% of nominal voltage.
  */
 
 export const ESO = {
@@ -18,16 +18,16 @@ export const ESO = {
   /** Nominal line-to-line voltage (V) — three-phase system */
   NOMINAL_VOLTAGE_3PH: 400,
 
-  /** Absolute voltage tolerance in volts (NOT percent) */
-  VOLTAGE_TOLERANCE: 10,
+  /** Voltage tolerance as a fraction of nominal voltage. */
+  VOLTAGE_TOLERANCE_PCT: 0.1,
 
-  /** Acceptable range for single-phase: 230 +- 10 */
-  VOLTAGE_MIN_1PH: 220,
-  VOLTAGE_MAX_1PH: 240,
+  /** Acceptable range for single-phase: 230 +- 10% */
+  VOLTAGE_MIN_1PH: 207,
+  VOLTAGE_MAX_1PH: 253,
 
-  /** Acceptable range for three-phase (line-to-line): 400 +- 10 */
-  VOLTAGE_MIN_3PH: 390,
-  VOLTAGE_MAX_3PH: 410,
+  /** Acceptable range for three-phase (line-to-line): 400 +- 10% */
+  VOLTAGE_MIN_3PH: 360,
+  VOLTAGE_MAX_3PH: 440,
 
   /** RMS aggregation window duration in minutes */
   WINDOW_MINUTES: 10,

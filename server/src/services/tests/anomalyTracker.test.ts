@@ -66,14 +66,14 @@ describe('AnomalyTracker', () => {
     const t1 = new Date('2025-01-15T14:00:10Z');
     const t2 = new Date('2025-01-15T14:00:20Z');
 
-    // Deviation starts (245V > 240V)
-    const a1 = tracker.processReading(makeReading(245, t0));
+    // Deviation starts (256V > 253V)
+    const a1 = tracker.processReading(makeReading(256, t0));
     expect(a1).toHaveLength(1);
     expect(a1[0].type).toBe('VOLTAGE_DEVIATION');
     expect(a1[0].endedAt).toBeNull();
 
     // Still out of bounds - no new anomaly
-    const a2 = tracker.processReading(makeReading(248, t1));
+    const a2 = tracker.processReading(makeReading(258, t1));
     expect(a2).toHaveLength(0);
 
     // Back in bounds - deviation resolved
@@ -81,8 +81,8 @@ describe('AnomalyTracker', () => {
     expect(a3).toHaveLength(1);
     expect(a3[0].type).toBe('VOLTAGE_DEVIATION');
     expect(a3[0].endedAt).toEqual(t2);
-    expect(a3[0].voltageMin).toBe(245);
-    expect(a3[0].voltageMax).toBe(248);
+    expect(a3[0].voltageMin).toBe(256);
+    expect(a3[0].voltageMax).toBe(258);
   });
 
   it('tracks multiple phases independently', () => {
@@ -94,7 +94,7 @@ describe('AnomalyTracker', () => {
       timestamp: t0,
       voltage_l1: 230,
       voltage_l2: 0,
-      voltage_l3: 250,
+      voltage_l3: 256,
     });
 
     // L3 should have a deviation
