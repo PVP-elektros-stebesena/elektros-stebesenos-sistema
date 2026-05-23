@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { ESO } from '../../config/eso.js';
 import prisma from '../../lib/prisma.js';
+import { ensureAccessibleDevice, ownedDeviceRelationFilter } from '../deviceAccess.js';
 import { parseDateOrDefault, parseOptionalDeviceId } from '../queryParsers.js';
 import { getWeekBounds, type DeviceQuery } from './shared.js';
 
@@ -18,11 +19,16 @@ export function registerVoltageComplianceRoute(fastify: FastifyInstance): void {
 
     const date = parsedDate.value;
     const deviceId = parsedDeviceId.value;
+    if (deviceId && !(await ensureAccessibleDevice(deviceId, req, reply))) {
+      return;
+    }
+
     const { weekStart, weekEnd } = getWeekBounds(date);
 
     const windows = await prisma.aggregatedData.findMany({
       where: {
         ...(deviceId ? { deviceId } : {}),
+        ...ownedDeviceRelationFilter(req),
         startsAt: { gte: weekStart, lt: weekEnd },
       },
     });

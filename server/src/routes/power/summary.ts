@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import prisma from '../../lib/prisma.js';
 import { buildPhaseImbalanceRecommendations } from '../../services/powerAnalysis.js';
 import { resolveEffectivePowerPolicy } from '../../services/powerPolicy.js';
+import { ensureAccessibleDevice, ownedDeviceRelationFilter } from '../deviceAccess.js';
 import { parseOptionalDeviceId } from '../queryParsers.js';
 import { RAW_READING_SELECT, type DeviceQuery, toPowerPayload } from './shared.js';
 
@@ -13,7 +14,14 @@ export function registerPowerSummaryRoute(fastify: FastifyInstance): void {
     }
 
     const deviceId = parsedDeviceId.value;
-    const where = deviceId ? { deviceId } : {};
+    if (deviceId && !(await ensureAccessibleDevice(deviceId, req, reply))) {
+      return;
+    }
+
+    const where = {
+      ...(deviceId ? { deviceId } : {}),
+      ...ownedDeviceRelationFilter(req),
+    };
 
     const now = new Date();
     const weekStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);

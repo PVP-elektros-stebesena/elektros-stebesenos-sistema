@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import prisma from '../../lib/prisma.js';
 import { evaluatePowerPolicyBreaches } from '../../services/powerAnalysis.js';
 import { resolveEffectivePowerPolicy } from '../../services/powerPolicy.js';
+import { ensureAccessibleDevice, ownedDeviceRelationFilter } from '../deviceAccess.js';
 import { parseOptionalDeviceId } from '../queryParsers.js';
 import { RAW_READING_SELECT, type DeviceQuery, toPowerPayload } from './shared.js';
 
@@ -12,9 +13,15 @@ export function registerPowerLatestRoute(fastify: FastifyInstance): void {
       return reply.code(parsedDeviceId.statusCode).send(parsedDeviceId.body);
     }
     const deviceId = parsedDeviceId.value;
+    if (deviceId && !(await ensureAccessibleDevice(deviceId, req, reply))) {
+      return;
+    }
 
     const latestRows = await prisma.reading.findMany({
-      where: deviceId ? { deviceId } : undefined,
+      where: {
+        ...(deviceId ? { deviceId } : {}),
+        ...ownedDeviceRelationFilter(req),
+      },
       orderBy: { timestamp: 'desc' },
       select: RAW_READING_SELECT,
       take: 2,

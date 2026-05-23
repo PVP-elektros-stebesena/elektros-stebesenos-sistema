@@ -50,8 +50,18 @@ export function CurrentDataPage() {
     let active = true
 
     const loadData = async () => {
+      if (!activeExportDeviceId) {
+        if (active) {
+          setData(null)
+          setError(devicesLoading ? null : t('current.errorSelectDevice'))
+          setLoading(devicesLoading)
+        }
+        return
+      }
+
       try {
-        const result = await apiFetch<LiveData>('/api/live/raw')
+        setLoading(true)
+        const result = await apiFetch<LiveData>(`/api/live/raw?deviceId=${activeExportDeviceId}`)
 
         if (active) {
           setData(result)
@@ -75,7 +85,7 @@ export function CurrentDataPage() {
       active = false
       clearInterval(interval)
     }
-  }, [t])
+  }, [activeExportDeviceId, devicesLoading, t])
 
   useEffect(() => {
     const today = new Date()

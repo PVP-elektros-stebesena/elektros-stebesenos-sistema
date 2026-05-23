@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import prisma from '../../lib/prisma.js';
+import { ensureAccessibleDevice, ownedDeviceRelationFilter } from '../deviceAccess.js';
 import {
   parseDateOrDefault,
   parseOptionalDeviceId,
@@ -29,6 +30,14 @@ export function registerPowerHistoryRoute(fastify: FastifyInstance): void {
     const from = parsedFrom.value;
     const to = parsedTo.value;
     const deviceId = parsedDeviceId.value;
+    if (deviceId && !(await ensureAccessibleDevice(deviceId, req, reply))) {
+      return;
+    }
+
+    const deviceScope = {
+      ...(deviceId ? { deviceId } : {}),
+      ...ownedDeviceRelationFilter(req),
+    };
     const maxPoints = Math.min(parseInt(req.query.points ?? '500', 10) || 500, 5000);
     const interval = req.query.interval ?? 'raw';
 
@@ -40,7 +49,7 @@ export function registerPowerHistoryRoute(fastify: FastifyInstance): void {
     if (interval === '10min') {
       const windows = await prisma.aggregatedData.findMany({
         where: {
-          ...(deviceId ? { deviceId } : {}),
+          ...deviceScope,
           startsAt: { gte: from },
           endsAt: { lte: to },
         },
@@ -78,7 +87,7 @@ export function registerPowerHistoryRoute(fastify: FastifyInstance): void {
 
     const rows = await prisma.reading.findMany({
       where: {
-        ...(deviceId ? { deviceId } : {}),
+        ...deviceScope,
         timestamp: { gte: from, lte: to },
       },
       orderBy: { timestamp: 'asc' },

@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import prisma from '../../lib/prisma.js';
+import { ownedDeviceRelationFilter } from '../deviceAccess.js';
 import {
   CONTEXT_PADDING_MS,
   downsampleContextPoints,
@@ -16,8 +17,11 @@ export function registerAnomalyContextRoute(fastify: FastifyInstance): void {
       return reply.code(400).send({ error: 'INVALID_ID', message: 'Anomaly ID must be a number' });
     }
 
-    const anomaly = await prisma.anomaly.findUnique({
-      where: { id },
+    const anomaly = await prisma.anomaly.findFirst({
+      where: {
+        id,
+        ...ownedDeviceRelationFilter(req),
+      },
       select: {
         id: true,
         deviceId: true,

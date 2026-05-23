@@ -1,5 +1,4 @@
 import type { FastifyInstance } from 'fastify';
-import prisma from '../../lib/prisma.js';
 import { notificationService } from '../../services/notificationService.js';
 import { buildReportInsights } from '../../services/reportInsights.js';
 import { buildPowerQualityAssessment } from '../../services/reportQuality.js';
@@ -12,6 +11,7 @@ import {
   type PeriodType,
   type ReportUse,
 } from '../../services/reportGenerator.js';
+import { ensureAccessibleDevice } from '../deviceAccess.js';
 import { parseDateOrDefault } from '../queryParsers.js';
 import { parseCustomRange, unavailableEstimatedCost } from './shared.js';
 
@@ -49,12 +49,8 @@ export function registerReportGenerateRoute(fastify: FastifyInstance): void {
       });
     }
 
-    const device = await prisma.device.findUnique({ where: { id: deviceId } });
-    if (!device) {
-      return reply.code(404).send({
-        error: 'DEVICE_NOT_FOUND',
-        message: `Device ${deviceId} not found`,
-      });
+    if (!(await ensureAccessibleDevice(deviceId, req, reply))) {
+      return;
     }
 
     const parsedTargetDate = parseDateOrDefault(dateStr, new Date(), 'date');

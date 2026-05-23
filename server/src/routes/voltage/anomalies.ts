@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import prisma from '../../lib/prisma.js';
+import { ensureAccessibleDevice, ownedDeviceRelationFilter } from '../deviceAccess.js';
 import {
   parseOptionalDate,
   parseOptionalDeviceId,
@@ -29,6 +30,10 @@ export function registerVoltageAnomalyRoutes(fastify: FastifyInstance): void {
     const from = parsedFrom.value;
     const to = parsedTo.value;
     const deviceId = parsedDeviceId.value;
+    if (deviceId && !(await ensureAccessibleDevice(deviceId, req, reply))) {
+      return;
+    }
+
     const limit = Math.min(parseInt(req.query.limit ?? '100', 10) || 100, 1000);
 
     const rangeFrom = from ?? new Date(0);
@@ -42,6 +47,7 @@ export function registerVoltageAnomalyRoutes(fastify: FastifyInstance): void {
       where: {
         metricDomain: 'VOLTAGE',
         ...(deviceId ? { deviceId } : {}),
+        ...ownedDeviceRelationFilter(req),
         ...(req.query.type ? { type: req.query.type } : {}),
         ...(req.query.phase ? { phase: req.query.phase } : {}),
         ...((from || to)
@@ -69,11 +75,15 @@ export function registerVoltageAnomalyRoutes(fastify: FastifyInstance): void {
       return reply.code(parsedDeviceId.statusCode).send(parsedDeviceId.body);
     }
     const deviceId = parsedDeviceId.value;
+    if (deviceId && !(await ensureAccessibleDevice(deviceId, req, reply))) {
+      return;
+    }
 
     const active = await prisma.anomaly.findMany({
       where: {
         metricDomain: 'VOLTAGE',
         ...(deviceId ? { deviceId } : {}),
+        ...ownedDeviceRelationFilter(req),
         endsAt: null,
       },
       orderBy: { startsAt: 'desc' },

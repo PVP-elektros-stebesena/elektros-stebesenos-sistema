@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { resolveEffectivePowerPolicy } from '../../services/powerPolicy.js';
+import { ensureAccessibleDevice } from '../deviceAccess.js';
 import { parseRequiredDeviceId } from '../queryParsers.js';
 import type { DeviceQuery } from './shared.js';
 
@@ -11,6 +12,10 @@ export function registerPowerPolicyRoute(fastify: FastifyInstance): void {
     }
 
     const deviceId = parsedDeviceId.value;
+    if (!(await ensureAccessibleDevice(deviceId, req, reply))) {
+      return;
+    }
+
     const policy = await resolveEffectivePowerPolicy(deviceId);
 
     return {

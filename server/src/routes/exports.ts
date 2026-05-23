@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import prisma from '../lib/prisma.js';
 import * as XLSX from 'xlsx';
+import { ownedDeviceFilter } from './deviceAccess.js';
 import {
   parseOptionalDate,
   parseRequiredDeviceId,
@@ -63,8 +64,11 @@ export async function exportRoutes(fastify: FastifyInstance): Promise<void> {
       });
     }
 
-    const device = await prisma.device.findUnique({
-      where: { id: deviceId },
+    const device = await prisma.device.findFirst({
+      where: {
+        id: deviceId,
+        ...ownedDeviceFilter(req),
+      },
       select: { id: true, name: true },
     });
 

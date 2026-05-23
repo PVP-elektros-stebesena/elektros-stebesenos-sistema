@@ -9,6 +9,22 @@ let app: FastifyInstance;
 
 beforeAll(async () => {
   app = Fastify();
+  app.addHook('onRequest', async (req) => {
+    const rawUserId = req.headers['x-test-user-id'];
+    if (typeof rawUserId !== 'string') return;
+
+    const userId = Number(rawUserId);
+    if (!Number.isSafeInteger(userId) || userId <= 0) return;
+
+    req.authUser = {
+      id: userId,
+      email: `report-user-${userId}@example.com`,
+      username: `report_user_${userId}`,
+      displayName: `Report User ${userId}`,
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      lastLoginAt: null,
+    };
+  });
   await app.register(reportRoutes);
   await app.ready();
 });
@@ -22,6 +38,7 @@ beforeEach(async () => {
   await prisma.billingPlan.deleteMany();
   await prisma.spotPrice.deleteMany();
   await prisma.device.deleteMany();
+  await prisma.user.deleteMany({ where: { email: { contains: 'report-scope-' } } });
 });
 
 afterAll(async () => {
@@ -32,6 +49,7 @@ afterAll(async () => {
   await prisma.billingPlan.deleteMany();
   await prisma.spotPrice.deleteMany();
   await prisma.device.deleteMany();
+  await prisma.user.deleteMany({ where: { email: { contains: 'report-scope-' } } });
   await prisma.$disconnect();
   await app.close();
 });
@@ -41,6 +59,90 @@ afterEach(() => {
 });
 
 describe('report routes estimatedCost', () => {
+  it('scopes report list, detail, and generation to the authenticated user devices', async () => {
+    const [owner, other] = await Promise.all([
+      prisma.user.create({
+        data: {
+          email: `report-scope-owner-${Date.now()}@example.com`,
+          passwordHash: 'test-hash',
+        },
+      }),
+      prisma.user.create({
+        data: {
+          email: `report-scope-other-${Date.now()}@example.com`,
+          passwordHash: 'test-hash',
+        },
+      }),
+    ]);
+
+    const [ownerDevice, otherDevice] = await Promise.all([
+      prisma.device.create({
+        data: { name: 'Owner report device', userId: owner.id, pollInterval: 10, isActive: true },
+      }),
+      prisma.device.create({
+        data: { name: 'Other report device', userId: other.id, pollInterval: 10, isActive: true },
+      }),
+    ]);
+
+    const reportPayload = {
+      reportUse: 'home',
+      periodType: 'daily',
+      startsAt: new Date('2026-04-01T00:00:00.000Z'),
+      endsAt: new Date('2026-04-02T00:00:00.000Z'),
+      totalWindows: 144,
+      compliantWindowsL1: 144,
+      compliantWindowsL2: 144,
+      compliantWindowsL3: 144,
+      compliancePctL1: 100,
+      compliancePctL2: 100,
+      compliancePctL3: 100,
+      overallCompliant: true,
+      healthScore: 'GREEN',
+      powerHealthScore: 'GREEN',
+      combinedHealthScore: 'GREEN',
+      anomalySummary: '[]',
+      totalAnomalies: 0,
+      criticalCount: 0,
+      warningCount: 0,
+    };
+
+    const [ownerReport, otherReport] = await Promise.all([
+      prisma.report.create({ data: { ...reportPayload, deviceId: ownerDevice.id } }),
+      prisma.report.create({ data: { ...reportPayload, deviceId: otherDevice.id } }),
+    ]);
+
+    const ownerHeaders = { 'x-test-user-id': String(owner.id) };
+    const listRes = await app.inject({
+      method: 'GET',
+      url: '/api/reports?limit=10',
+      headers: ownerHeaders,
+    });
+
+    expect(listRes.statusCode).toBe(200);
+    expect(listRes.json().data.map((item: { id: number }) => item.id)).toEqual([ownerReport.id]);
+
+    const otherDetailRes = await app.inject({
+      method: 'GET',
+      url: `/api/reports/${otherReport.id}`,
+      headers: ownerHeaders,
+    });
+    expect(otherDetailRes.statusCode).toBe(404);
+
+    const generateOtherRes = await app.inject({
+      method: 'POST',
+      url: '/api/reports/generate',
+      headers: ownerHeaders,
+      payload: {
+        deviceId: otherDevice.id,
+        reportUse: 'home',
+        periodType: 'custom',
+        startDate: '2026-04-01T00:00:00.000Z',
+        endDate: '2026-04-02T00:00:00.000Z',
+      },
+    });
+    expect(generateOtherRes.statusCode).toBe(404);
+  });
+
   it('includes estimatedCost on report list and detail responses', async () => {
     const device = await prisma.device.create({
       data: {
