@@ -176,7 +176,7 @@ export async function listBillingReports(
   const rows = await prisma.billingReport.findMany({
     where: {
       deviceId,
-      renterId: renterId !== undefined ? renterId : null,
+      ...(renterId === undefined ? {} : { renterId }),
     },
     orderBy: { generatedAt: 'desc' },
   });
