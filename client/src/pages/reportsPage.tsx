@@ -211,7 +211,30 @@ function formatDuration(seconds: number | null, language: Language): string {
 }
 
 function toDateInputValue(date: Date): string {
-  return date.toISOString().slice(0, 10);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function parseDateInputAsLocal(value: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const parsed = new Date(year, month - 1, day);
+
+  if (
+    parsed.getFullYear() !== year
+    || parsed.getMonth() !== month - 1
+    || parsed.getDate() !== day
+  ) {
+    return null;
+  }
+
+  return parsed;
 }
 
 function toChartDateLabel(date: string, language: Language): string {
@@ -1594,7 +1617,7 @@ export function ReportsPage() {
   const [genCustomEndDate, setGenCustomEndDate] = useState<string>(() => toDateInputValue(new Date()));
 
   const HOME_PERIOD_OPTIONS = [
- { value: 'daily', label: tr(language, '1 day', '1 diena') },
+    { value: 'daily', label: tr(language, '1 day', '1 diena') },
     { value: 'weekly', label: tr(language, '1 week', '1 savaitė') },
     { value: 'biweekly', label: tr(language, '2 weeks', '2 savaitės') },
     { value: 'monthly', label: tr(language, '1 month', '1 mėnuo') },
@@ -1610,7 +1633,7 @@ export function ReportsPage() {
   ];
 
   const SOLAR_PERIOD_OPTIONS = [
- { value: 'daily', label: tr(language, '1 day', '1 diena') },
+    { value: 'daily', label: tr(language, '1 day', '1 diena') },
     { value: 'weekly', label: tr(language, '1 week', '1 savaitė') },
     { value: 'biweekly', label: tr(language, '2 weeks', '2 savaitės') },
     { value: 'monthly', label: tr(language, '1 month', '1 mėnuo') },
@@ -1621,22 +1644,6 @@ export function ReportsPage() {
 
   useEffect(() => {
     setFormError(null);
-
-    if (reportUse === 'home') {
-      setGenPeriod((prev) =>
-        prev && ['daily', 'weekly', 'monthly'].includes(prev) ? prev : 'monthly',
-      );
-    } else if (reportUse === 'technical') {
-      setGenPeriod((prev) =>
-        prev && ['daily', 'weekly', 'biweekly', 'monthly', 'custom'].includes(prev)
-          ? prev
-          : 'weekly',
-      );
-    } else {
-      setGenPeriod((prev) =>
-        prev && ['daily', 'monthly'].includes(prev) ? prev : 'monthly',
-      );
-    }
   }, [reportUse]);
 
   const handleGenerate = useCallback(async () => {
@@ -1645,14 +1652,16 @@ export function ReportsPage() {
     setFormError(null);
 
     if (genPeriod === 'custom') {
-      const start = new Date(genCustomStartDate);
-      const end = new Date(genCustomEndDate);
-      const rangeDays = (end.getTime() - start.getTime()) / (24 * 3600_000);
+      const start = parseDateInputAsLocal(genCustomStartDate);
+      const end = parseDateInputAsLocal(genCustomEndDate);
 
-      if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      if (!start || !end) {
         setFormError(tr(language, 'Custom range requires valid start and end dates.', 'Pasirinktiniam intervalui būtinos teisingos pradžios ir pabaigos datos.'));
         return;
       }
+
+      const rangeDays = (end.getTime() - start.getTime()) / (24 * 3600_000);
+
       if (end <= start) {
         setFormError(tr(language, 'Custom range end date must be later than start date.', 'Pasirinktinio intervalo pabaigos data turi būti vėlesnė už pradžios datą.'));
         return;
@@ -1661,7 +1670,7 @@ export function ReportsPage() {
         setFormError(tr(language, 'Custom range can be at most 2 months (62 days).', 'Pasirinktinis intervalas gali būti daugiausia 2 mėn. (62 dienos).'));
         return;
       }
-      if (end.getTime() > Date.now()) {
+      if (genCustomEndDate > toDateInputValue(new Date())) {
         setFormError(tr(language, 'Custom range cannot end in the future.', 'Pasirinktinis intervalas negali baigtis ateityje.'));
         return;
       }
