@@ -29,7 +29,10 @@ export function registerVoltageComplianceRoute(fastify: FastifyInstance): void {
       where: {
         ...(deviceId ? { deviceId } : {}),
         ...ownedDeviceRelationFilter(req),
-        startsAt: { gte: weekStart, lt: weekEnd },
+        AND: [
+          { startsAt: { lt: weekEnd } },
+          { endsAt: { gte: weekStart } },
+        ],
       },
     });
 

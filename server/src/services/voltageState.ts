@@ -96,8 +96,14 @@ class VoltageState {
     const rows = await prisma.aggregatedData.findMany({
       where: {
         ...(opts?.deviceId ? { deviceId: opts.deviceId } : {}),
-        ...(opts?.from ? { startsAt: { gte: opts.from } } : {}),
-        ...(opts?.to ? { endsAt: { lte: opts.to } } : {}),
+        ...((opts?.from || opts?.to)
+          ? {
+              AND: [
+                ...(opts?.to ? [{ startsAt: { lte: opts.to } }] : []),
+                ...(opts?.from ? [{ endsAt: { gte: opts.from } }] : []),
+              ],
+            }
+          : {}),
       },
       orderBy: { startsAt: 'asc' },
     });
@@ -145,7 +151,7 @@ class VoltageState {
     const windows = await this.getWindows({
       deviceId,
       from: weekStart,
-      to: weekEnd,
+      to: new Date(weekEnd.getTime() - 1),
     });
 
     return calculateWeeklyCompliance(windows, weekStart);

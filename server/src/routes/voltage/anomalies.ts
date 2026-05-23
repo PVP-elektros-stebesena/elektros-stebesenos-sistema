@@ -52,10 +52,10 @@ export function registerVoltageAnomalyRoutes(fastify: FastifyInstance): void {
         ...(req.query.phase ? { phase: req.query.phase } : {}),
         ...((from || to)
           ? {
-              startsAt: {
-                ...(from ? { gte: from } : {}),
-                ...(to ? { lte: to } : {}),
-              },
+              AND: [
+                ...(to ? [{ startsAt: { lte: to } }] : []),
+                ...(from ? [{ OR: [{ endsAt: null }, { endsAt: { gte: from } }] }] : []),
+              ],
             }
           : {}),
       },

@@ -92,8 +92,10 @@ export function registerPowerGridComplianceRoute(fastify: FastifyInstance): void
       prisma.aggregatedData.findMany({
         where: {
           deviceId,
-          startsAt: { gte: from },
-          endsAt: { lte: to },
+          AND: [
+            { startsAt: { lte: to } },
+            { endsAt: { gte: from } },
+          ],
         },
         orderBy: { startsAt: 'asc' },
         select: {

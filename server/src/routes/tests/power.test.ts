@@ -194,6 +194,21 @@ describe('GET /api/power/history', () => {
     await prisma.aggregatedData.create({
       data: {
         deviceId: testDeviceId,
+        startsAt: new Date('2026-03-26T08:55:00Z'),
+        endsAt: new Date('2026-03-26T09:05:00Z'),
+        sampleCount: 60,
+        activePowerAvgTotal: 2.7,
+        activePowerMaxTotal: 3.8,
+        reactivePowerAvgTotal: 0.4,
+        powerFactorAvg: 0.91,
+        powerImbalancePct: 4.2,
+        powerPolicyBreached: false,
+      },
+    });
+
+    await prisma.aggregatedData.create({
+      data: {
+        deviceId: testDeviceId,
         startsAt: new Date('2026-03-26T09:00:00Z'),
         endsAt: new Date('2026-03-26T09:10:00Z'),
         sampleCount: 60,
@@ -213,9 +228,10 @@ describe('GET /api/power/history', () => {
 
     expect(res.statusCode).toBe(200);
     expect(body.interval).toBe('10min');
-    expect(body.count).toBe(1);
-    expect(body.data[0].activePowerAvgTotal).toBe(3.1);
-    expect(body.data[0].powerFactorAvg).toBe(0.94);
+    expect(body.count).toBe(2);
+    expect(body.data[0].activePowerAvgTotal).toBe(2.7);
+    expect(body.data[1].activePowerAvgTotal).toBe(3.1);
+    expect(body.data[1].powerFactorAvg).toBe(0.94);
   });
 
   it('respects the points limit in raw history downsampling', async () => {
@@ -273,6 +289,14 @@ describe('GET /api/power/grid-compliance', () => {
       data: [
         {
           deviceId: testDeviceId,
+          startsAt: new Date('2026-04-01T08:55:00.000Z'),
+          endsAt: new Date('2026-04-01T09:05:00.000Z'),
+          sampleCount: 60,
+          reactivePowerAvgTotal: 0.4,
+          powerFactorAvg: 0.97,
+        },
+        {
+          deviceId: testDeviceId,
           startsAt: new Date('2026-04-01T09:00:00.000Z'),
           endsAt: new Date('2026-04-01T09:10:00.000Z'),
           sampleCount: 60,
@@ -318,14 +342,20 @@ describe('GET /api/power/grid-compliance', () => {
     expect(body.penaltyEstimate.status).toBe('complete');
     expect(body.penaltyEstimate.reactiveReturnedKvarh).toBe(3);
     expect(body.summary.lowPowerFactorWindowCount).toBe(1);
-    expect(body.data).toHaveLength(2);
+    expect(body.data).toHaveLength(3);
     expect(body.data[0]).toMatchObject({
+      timestamp: '2026-04-01T08:55:00.000Z',
+      reactivePowerTotalKvar: 0.4,
+      powerFactor: 0.97,
+      lowPowerFactor: false,
+    });
+    expect(body.data[1]).toMatchObject({
       reactivePowerTotalKvar: 1.2,
       reactiveEnergyReturnedKvarh: 3,
       powerFactor: 0.94,
       lowPowerFactor: true,
     });
-    expect(body.data[1].lowPowerFactor).toBe(false);
+    expect(body.data[2].lowPowerFactor).toBe(false);
   });
 });
 
@@ -558,8 +588,11 @@ describe('GET /api/power/anomalies', () => {
     const body = res.json();
 
     expect(res.statusCode).toBe(200);
-    expect(body.count).toBe(1);
-    expect(body.data[0].startsAt).toBe('2026-03-26T08:30:00.000Z');
+    expect(body.count).toBe(2);
+    expect(body.data.map((item: { startsAt: string }) => item.startsAt)).toEqual([
+      '2026-03-26T08:30:00.000Z',
+      '2026-03-26T07:59:00.000Z',
+    ]);
   });
 });
 

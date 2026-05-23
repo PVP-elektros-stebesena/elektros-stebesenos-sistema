@@ -50,8 +50,10 @@ export function registerPowerHistoryRoute(fastify: FastifyInstance): void {
       const windows = await prisma.aggregatedData.findMany({
         where: {
           ...deviceScope,
-          startsAt: { gte: from },
-          endsAt: { lte: to },
+          AND: [
+            { startsAt: { lte: to } },
+            { endsAt: { gte: from } },
+          ],
         },
         orderBy: { startsAt: 'asc' },
       });

@@ -34,7 +34,13 @@ export function registerVoltageSummaryRoute(fastify: FastifyInstance): void {
     const { weekStart, weekEnd } = getWeekBounds(new Date());
 
     const weekWindows = await prisma.aggregatedData.findMany({
-      where: { ...where, startsAt: { gte: weekStart, lt: weekEnd } },
+      where: {
+        ...where,
+        AND: [
+          { startsAt: { lt: weekEnd } },
+          { endsAt: { gte: weekStart } },
+        ],
+      },
     });
 
     const total = weekWindows.length;

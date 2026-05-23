@@ -73,7 +73,10 @@ export function registerPowerSummaryRoute(fastify: FastifyInstance): void {
         prisma.aggregatedData.findMany({
           where: {
             ...where,
-            startsAt: { gte: weekStart, lte: now },
+            AND: [
+              { startsAt: { lte: now } },
+              { endsAt: { gte: weekStart } },
+            ],
           },
           select: {
             powerImbalancePct: true,
