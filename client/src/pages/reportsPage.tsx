@@ -1595,13 +1595,22 @@ export function ReportsPage() {
 
   const { devices } = useDeviceOptions(60);
 
-  const { data: reportList, refetch: refetchReports } = usePolling<ReportListResponse>(
+  const {
+    data: reportList,
+    isLoading: reportListLoading,
+    error: reportListError,
+    refetch: refetchReports,
+  } = usePolling<ReportListResponse>(
     ['reports', 'list'],
     '/api/reports?limit=50',
     { intervalSeconds: 30 },
   );
 
-  const { data: reportDetail } = usePolling<ReportDetail>(
+  const {
+    data: reportDetail,
+    isLoading: reportDetailLoading,
+    error: reportDetailError,
+  } = usePolling<ReportDetail>(
     ['reports', 'detail', String(selectedReportId)],
     selectedReportId != null ? `/api/reports/${selectedReportId}` : '',
     { intervalSeconds: 300, enabled: selectedReportId != null },
@@ -1641,6 +1650,8 @@ export function ReportsPage() {
   ];
 
   const activeGenDeviceId = resolveDeviceSelection(genDeviceId, devices);
+  const isReportDetailLoadingState = selectedReportId != null && reportDetailLoading;
+  const isReportDetailErrorState = selectedReportId != null && !reportDetailLoading && !reportDetail && Boolean(reportDetailError);
 
   useEffect(() => {
     setFormError(null);
@@ -1711,6 +1722,43 @@ export function ReportsPage() {
     reportUse,
     language,
   ]);
+
+  if (isReportDetailLoadingState) {
+    return (
+      <Stack p="lg" gap="md" style={{ width: '100%' }}>
+        <Button
+          variant="subtle"
+          onClick={() => setSelectedReportId(null)}
+          style={{ alignSelf: 'flex-start' }}
+        >
+          ← {tr(language, 'Back to reports', 'Grįžti į ataskaitas')}
+        </Button>
+        <Card p="xl" radius="md" withBorder>
+          <Group gap="sm">
+            <Loader size="sm" />
+            <Text>{tr(language, 'Loading report…', 'Kraunama ataskaita…')}</Text>
+          </Group>
+        </Card>
+      </Stack>
+    );
+  }
+
+  if (isReportDetailErrorState) {
+    return (
+      <Stack p="lg" gap="md" style={{ width: '100%' }}>
+        <Button
+          variant="subtle"
+          onClick={() => setSelectedReportId(null)}
+          style={{ alignSelf: 'flex-start' }}
+        >
+          ← {tr(language, 'Back to reports', 'Grįžti į ataskaitas')}
+        </Button>
+        <Alert color="red" title={tr(language, 'Failed to load report', 'Nepavyko įkelti ataskaitos')}>
+          {tr(language, 'Please go back and try opening the report again.', 'Grįžkite atgal ir bandykite ataskaitą atidaryti dar kartą.')}
+        </Alert>
+      </Stack>
+    );
+  }
 
   if (selectedReportId != null && reportDetail) {
     return (
@@ -1787,7 +1835,7 @@ export function ReportsPage() {
         <Button
           onClick={handleGenerate}
           loading={generating}
-          disabled={!activeGenDeviceId || !genPeriod}
+          disabled={!activeGenDeviceId || !genPeriod || reportListLoading}
         >
           {tr(language, 'Generate', 'Generuoti')}
         </Button>
@@ -1864,7 +1912,12 @@ export function ReportsPage() {
           {tr(language, 'Generated Reports', 'Sugeneruotos ataskaitos')} ({reportList?.count ?? 0})
         </Text>
 
-        {reportList && reportList.count > 0 ? (
+        {reportListLoading ? (
+          <Group justify="center" py="xl">
+            <Loader size="sm" />
+            <Text c="dimmed">{tr(language, 'Loading reports…', 'Kraunamos ataskaitos…')}</Text>
+          </Group>
+        ) : reportList && reportList.count > 0 ? (
           <Table.ScrollContainer minWidth={900}>
             <Table striped highlightOnHover>
               <Table.Thead>
@@ -1968,6 +2021,10 @@ export function ReportsPage() {
               </Table.Tbody>
             </Table>
           </Table.ScrollContainer>
+        ) : reportListError ? (
+          <Alert color="red" title={tr(language, 'Failed to load reports', 'Nepavyko įkelti ataskaitų')}>
+            {tr(language, 'Please try again in a moment.', 'Bandykite dar kartą po akimirkos.')}
+          </Alert>
         ) : (
           <Box py="xl">
             <Text c="dimmed" ta="center">
