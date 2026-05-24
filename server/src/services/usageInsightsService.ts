@@ -493,15 +493,29 @@ export class UsageInsightsService {
         userId: input.userId,
         deviceId: input.deviceId,
         scope: input.scope,
-        startsAt: input.startsAt,
+        startsAt: { lte: input.endsAt },
+        endsAt: { gte: input.startsAt },
       },
+      orderBy: [
+        { endsAt: 'desc' },
+        { startsAt: 'asc' },
+        { id: 'desc' },
+      ],
     });
+
+    const startsAt = existing
+      ? new Date(Math.min(existing.startsAt.getTime(), input.startsAt.getTime()))
+      : input.startsAt;
+    const endsAt = existing
+      ? new Date(Math.max(existing.endsAt.getTime(), input.endsAt.getTime()))
+      : input.endsAt;
 
     if (existing) {
       await prisma.usageAnomalyEvent.update({
         where: { id: existing.id },
         data: {
-          endsAt: input.endsAt,
+          startsAt,
+          endsAt,
           observedKwh: input.observedKwh,
           baselineKwh: input.baselineKwh,
           deltaPct: input.deltaPct,
@@ -512,7 +526,11 @@ export class UsageInsightsService {
     }
 
     await prisma.usageAnomalyEvent.create({
-      data: input,
+      data: {
+        ...input,
+        startsAt,
+        endsAt,
+      },
     });
   }
 }
