@@ -101,9 +101,11 @@ export default function App() {
                           size="sm"
                         />
                       )}
-                      <Text fw={500} c="dark.0">
-                        P1 Monitor
-                      </Text>
+                      {desktopNavHidden && (
+                        <Text fw={500} c="dark.0">
+                          P1 Monitor
+                        </Text>
+                      )}
                     </Group>
 
                     <Group gap="xs" wrap="nowrap">
