@@ -448,6 +448,11 @@ export function PowerPage() {
     [activeSelectedDeviceId],
   );
 
+  const handleDeviceChange = (value: string | null) => {
+    setSelectedDeviceId(value);
+    setSelectedUsageAnomaly(null);
+  };
+
   const { data: latest, isLoading: latestLoading, error: latestError } = usePolling<PowerLatest>(
     ['power', 'latest', activeSelectedDeviceId ?? 'none'],
     activeSelectedDeviceId ? `/api/power/latest${deviceQuery}` : '',
@@ -731,7 +736,7 @@ export function PowerPage() {
               label: device.name,
             }))}
             value={activeSelectedDeviceId}
-            onChange={setSelectedDeviceId}
+            onChange={handleDeviceChange}
             style={{ maxWidth: 320 }}
             disabled={devicesLoading || devices.length === 0}
           />
