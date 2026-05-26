@@ -15,6 +15,7 @@ import { I18nProvider } from '../i18n/i18n';
 import { AuthGate } from '../pages/AuthGate';
 import { useDisclosure } from '@mantine/hooks';
 import { WeatherTemperature } from '../components/weather-temperature';
+import { persistPage, readStoredPage } from '../utils/pageStorage';
 
 function IconUser({ size = 20, color = 'currentColor' }: { size?: number; color?: string }) {
   return (
@@ -36,9 +37,14 @@ function IconLogout({ size = 20, color = "currentColor" }: { size?: number; colo
 }
 
 export default function App() {
-  const [page, setPage] = useState<Page>('voltage');
+  const [page, setPage] = useState<Page>(() => readStoredPage());
   const [mobileNavOpened, { toggle: toggleMobileNav, close: closeMobileNav }] = useDisclosure(false);
   const [desktopNavHidden, setDesktopNavHidden] = useState(false);
+
+  const handleNavigate = (nextPage: Page) => {
+    setPage(nextPage)
+    persistPage(nextPage)
+  }
 
   return (
     <I18nProvider>
@@ -57,7 +63,7 @@ export default function App() {
                 <Navbar
                   page={page}
                   onNavigate={(nextPage) => {
-                    setPage(nextPage)
+                    handleNavigate(nextPage)
                     closeMobileNav()
                   }}
                 />
@@ -78,7 +84,7 @@ export default function App() {
                   >
                     <Navbar
                       page={page}
-                      onNavigate={setPage}
+                      onNavigate={handleNavigate}
                       onHide={() => setDesktopNavHidden(true)}
                     />
                   </Box>
@@ -118,7 +124,7 @@ export default function App() {
                           aria-label="Profile"
                           variant="subtle"
                           color="gray"
-                          onClick={() => setPage('profile')}
+                          onClick={() => handleNavigate('profile')}
                         >
                           <IconUser size={19} />
                         </ActionIcon>
@@ -164,7 +170,7 @@ export default function App() {
                           aria-label="Profile"
                           variant="subtle"
                           color="gray"
-                          onClick={() => setPage('profile')}
+                          onClick={() => handleNavigate('profile')}
                         >
                           <IconUser size={19} />
                         </ActionIcon>
