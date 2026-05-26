@@ -396,7 +396,7 @@ export class UsageInsightsService {
         input.settings.scope,
         streak,
       );
-      await this.persistEvent(event);
+      await this.persistEvent(event, input.settings);
       persisted += 1;
       streak = [];
     };
@@ -487,7 +487,74 @@ export class UsageInsightsService {
     };
   }
 
-  private async persistEvent(input: UsageEventInput): Promise<void> {
+  private async recomputeEventMetrics(input: {
+    deviceId: number;
+    startsAt: Date;
+    endsAt: Date;
+    settings: UsageAnomalySettingsPayload;
+    direction: UsageComparison['direction'];
+  }): Promise<Pick<UsageEventInput, 'observedKwh' | 'baselineKwh' | 'deltaPct' | 'explanation'> | null> {
+    const windows = await prisma.aggregatedData.findMany({
+      where: {
+        deviceId: input.deviceId,
+        startsAt: { gte: input.startsAt },
+        endsAt: { lte: input.endsAt },
+        activePowerAvgTotal: { not: null },
+        sampleCount: { gt: 0 },
+      },
+      orderBy: { startsAt: 'asc' },
+      select: {
+        startsAt: true,
+        endsAt: true,
+        activePowerAvgTotal: true,
+      },
+    });
+
+    const comparisons: UsageComparison[] = [];
+
+    for (const window of windows) {
+      const comparison = await this.compareWindow(
+        input.deviceId,
+        window,
+        input.settings.baselineWeeks,
+      );
+
+      if (!comparison) continue;
+      if (Math.abs(comparison.deltaPct) < input.settings.thresholdPct) continue;
+      if (comparison.direction !== input.direction) continue;
+
+      comparisons.push(comparison);
+    }
+
+    if (comparisons.length === 0) return null;
+
+    const observedKwh = comparisons.reduce((sum, item) => sum + item.observedKwh, 0);
+    const baselineKwh = comparisons.reduce((sum, item) => sum + item.baselineKwh, 0);
+    const deltaPct = baselineKwh > EPSILON_KWH
+      ? ((observedKwh - baselineKwh) / baselineKwh) * 100
+      : 0;
+
+    const roundedObserved = round(observedKwh);
+    const roundedBaseline = round(baselineKwh);
+    const roundedDelta = round(deltaPct, 2);
+
+    return {
+      observedKwh: roundedObserved,
+      baselineKwh: roundedBaseline,
+      deltaPct: roundedDelta,
+      explanation: explanationForEvent({
+        observedKwh: roundedObserved,
+        baselineKwh: roundedBaseline,
+        deltaPct: roundedDelta,
+        intervalCount: comparisons.length,
+      }),
+    };
+  }
+
+  private async persistEvent(
+    input: UsageEventInput,
+    settings: UsageAnomalySettingsPayload,
+  ): Promise<void> {
     const existing = await prisma.usageAnomalyEvent.findFirst({
       where: {
         userId: input.userId,
@@ -511,15 +578,23 @@ export class UsageInsightsService {
       : input.endsAt;
 
     if (existing) {
+      const recomputed = await this.recomputeEventMetrics({
+        deviceId: input.deviceId,
+        startsAt,
+        endsAt,
+        settings,
+        direction: input.deltaPct >= 0 ? 'HIGH' : 'LOW',
+      });
+
       await prisma.usageAnomalyEvent.update({
         where: { id: existing.id },
         data: {
           startsAt,
           endsAt,
-          observedKwh: input.observedKwh,
-          baselineKwh: input.baselineKwh,
-          deltaPct: input.deltaPct,
-          explanation: input.explanation,
+          observedKwh: recomputed?.observedKwh ?? input.observedKwh,
+          baselineKwh: recomputed?.baselineKwh ?? input.baselineKwh,
+          deltaPct: recomputed?.deltaPct ?? input.deltaPct,
+          explanation: recomputed?.explanation ?? input.explanation,
         },
       });
       return;
