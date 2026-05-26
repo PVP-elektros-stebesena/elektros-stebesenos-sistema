@@ -6,6 +6,7 @@ import { clearPowerPolicyCache } from '../../services/powerPolicy.js';
 
 let app: FastifyInstance;
 let testDeviceId: number;
+let extraDeviceIds: number[] = [];
 let ownerUserId: number;
 let otherUserId: number;
 
@@ -41,6 +42,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   clearPowerPolicyCache();
+  extraDeviceIds = [];
   const [owner, other] = await Promise.all([
     prisma.user.create({
       data: {
@@ -67,12 +69,13 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await prisma.standbyBaseline.deleteMany({ where: { deviceId: testDeviceId } });
-  await prisma.powerPolicyOverride.deleteMany({ where: { deviceId: testDeviceId } });
-  await prisma.anomaly.deleteMany({ where: { deviceId: testDeviceId } });
-  await prisma.aggregatedData.deleteMany({ where: { deviceId: testDeviceId } });
-  await prisma.reading.deleteMany({ where: { deviceId: testDeviceId } });
-  await prisma.device.deleteMany({ where: { id: testDeviceId } });
+  const deviceIds = [testDeviceId, ...extraDeviceIds];
+  await prisma.standbyBaseline.deleteMany({ where: { deviceId: { in: deviceIds } } });
+  await prisma.powerPolicyOverride.deleteMany({ where: { deviceId: { in: deviceIds } } });
+  await prisma.anomaly.deleteMany({ where: { deviceId: { in: deviceIds } } });
+  await prisma.aggregatedData.deleteMany({ where: { deviceId: { in: deviceIds } } });
+  await prisma.reading.deleteMany({ where: { deviceId: { in: deviceIds } } });
+  await prisma.device.deleteMany({ where: { id: { in: deviceIds } } });
   await prisma.user.deleteMany({ where: { id: { in: [ownerUserId, otherUserId] } } });
 });
 
@@ -85,6 +88,57 @@ describe('GET /api/power/latest', () => {
     const res = await injectGet(`/api/power/latest?deviceId=${testDeviceId}`);
     expect(res.statusCode).toBe(503);
     expect(res.json().error).toBe('NO_DATA');
+  });
+
+  it('scopes device access to the authenticated user', async () => {
+    await prisma.device.update({
+      where: { id: testDeviceId },
+      data: { userId: ownerUserId },
+    });
+    const otherDevice = await prisma.device.create({
+      data: {
+        name: 'PowerScopeOther',
+        userId: otherUserId,
+        pollInterval: 10,
+        isActive: true,
+      },
+    });
+    extraDeviceIds.push(otherDevice.id);
+
+    await prisma.reading.createMany({
+      data: [
+        {
+          deviceId: testDeviceId,
+          timestamp: new Date('2026-04-10T10:00:00Z'),
+          powerDeliveredTotal: 1.1,
+          activeInstantaneousPowerDeliveredL1: 0.4,
+          activeInstantaneousPowerDeliveredL2: 0.3,
+          activeInstantaneousPowerDeliveredL3: 0.4,
+          apparentInstantaneousPower: 1.3,
+        },
+        {
+          deviceId: otherDevice.id,
+          timestamp: new Date('2026-04-10T10:05:00Z'),
+          powerDeliveredTotal: 2.2,
+          activeInstantaneousPowerDeliveredL1: 0.7,
+          activeInstantaneousPowerDeliveredL2: 0.7,
+          activeInstantaneousPowerDeliveredL3: 0.8,
+          apparentInstantaneousPower: 2.5,
+        },
+      ],
+    });
+
+    const ownerHeaders = { 'x-test-user-id': String(ownerUserId) };
+    const otherHeaders = { 'x-test-user-id': String(otherUserId) };
+
+    const ownerRes = await injectGet(`/api/power/latest?deviceId=${testDeviceId}`, ownerHeaders);
+    expect(ownerRes.statusCode).toBe(200);
+
+    const otherRes = await injectGet(`/api/power/latest?deviceId=${testDeviceId}`, otherHeaders);
+    expect(otherRes.statusCode).toBe(404);
+
+    const ownerOtherRes = await injectGet(`/api/power/latest?deviceId=${otherDevice.id}`, ownerHeaders);
+    expect(ownerOtherRes.statusCode).toBe(404);
   });
 
   it('returns latest power metrics and policy', async () => {
