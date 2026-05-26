@@ -7,9 +7,26 @@ let app: FastifyInstance;
 
 // Each test gets its own device to avoid conflicts with parallel settings tests
 let testDeviceId: number;
+let extraDeviceIds: number[] = [];
 
 beforeAll(async () => {
   app = Fastify();
+  app.addHook('onRequest', async (req) => {
+    const rawUserId = req.headers['x-test-user-id'];
+    if (typeof rawUserId !== 'string') return;
+
+    const userId = Number(rawUserId);
+    if (!Number.isSafeInteger(userId) || userId <= 0) return;
+
+    req.authUser = {
+      id: userId,
+      email: `voltage-user-${userId}@example.com`,
+      username: `voltage_user_${userId}`,
+      displayName: `Voltage User ${userId}`,
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      lastLoginAt: null,
+    };
+  });
   app.register(voltageRoutes);
   await app.ready();
 });
@@ -20,6 +37,7 @@ afterAll(async () => {
 
 // Create a fresh device before each test so parallel deleteMany() in settings tests can't break us
 beforeEach(async () => {
+  extraDeviceIds = [];
   const device = await prisma.device.create({
     data: { name: 'VoltageTestDevice', pollInterval: 10, isActive: true },
   });
@@ -27,15 +45,17 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  const deviceIds = [testDeviceId, ...extraDeviceIds];
   // Clean up in correct order; use deleteMany to avoid "not found" errors
-  await prisma.anomaly.deleteMany({ where: { deviceId: testDeviceId } });
-  await prisma.aggregatedData.deleteMany({ where: { deviceId: testDeviceId } });
-  await prisma.reading.deleteMany({ where: { deviceId: testDeviceId } });
-  await prisma.device.deleteMany({ where: { id: testDeviceId } });
+  await prisma.anomaly.deleteMany({ where: { deviceId: { in: deviceIds } } });
+  await prisma.aggregatedData.deleteMany({ where: { deviceId: { in: deviceIds } } });
+  await prisma.reading.deleteMany({ where: { deviceId: { in: deviceIds } } });
+  await prisma.device.deleteMany({ where: { id: { in: deviceIds } } });
+  await prisma.user.deleteMany({ where: { email: { contains: 'voltage-scope-' } } });
 });
 
-function injectGet(url: string) {
-  return app.inject({ method: 'GET', url });
+function injectGet(url: string, headers?: Record<string, string>) {
+  return app.inject({ method: 'GET', url, headers });
 }
 
 describe('GET /api/voltage/latest', () => {
@@ -73,6 +93,58 @@ describe('GET /api/voltage/latest', () => {
     expect(body.bounds.nominal).toBe(230);
     expect(body.bounds.min).toBe(207);
     expect(body.bounds.max).toBe(253);
+  });
+});
+
+describe('GET /api/live/raw', () => {
+  it('scopes current raw readings to the authenticated user devices', async () => {
+    const [owner, other] = await Promise.all([
+      prisma.user.create({
+        data: {
+          email: `voltage-scope-owner-${Date.now()}@example.com`,
+          passwordHash: 'test-hash',
+        },
+      }),
+      prisma.user.create({
+        data: {
+          email: `voltage-scope-other-${Date.now()}@example.com`,
+          passwordHash: 'test-hash',
+        },
+      }),
+    ]);
+
+    const [ownerDevice, otherDevice] = await Promise.all([
+      prisma.device.create({
+        data: { name: 'LiveScopeOwner', userId: owner.id, pollInterval: 10, isActive: true },
+      }),
+      prisma.device.create({
+        data: { name: 'LiveScopeOther', userId: other.id, pollInterval: 10, isActive: true },
+      }),
+    ]);
+    extraDeviceIds.push(ownerDevice.id, otherDevice.id);
+
+    await prisma.reading.createMany({
+      data: [
+        {
+          deviceId: ownerDevice.id,
+          timestamp: new Date('2026-05-01T12:00:00.000Z'),
+          voltageL1: 231,
+        },
+        {
+          deviceId: otherDevice.id,
+          timestamp: new Date('2026-05-01T12:05:00.000Z'),
+          voltageL1: 245,
+        },
+      ],
+    });
+
+    const ownerHeaders = { 'x-test-user-id': String(owner.id) };
+    const latestRes = await injectGet('/api/live/raw', ownerHeaders);
+    expect(latestRes.statusCode).toBe(200);
+    expect(latestRes.json().deviceId).toBe(ownerDevice.id);
+
+    const otherDeviceRes = await injectGet(`/api/live/raw?deviceId=${otherDevice.id}`, ownerHeaders);
+    expect(otherDeviceRes.statusCode).toBe(404);
   });
 });
 
@@ -115,8 +187,28 @@ describe('GET /api/voltage/history', () => {
   });
 
   it('returns 10min aggregated windows', async () => {
+    const overlapStart = new Date('2025-06-01T12:55:00Z');
+    const overlapEnd = new Date('2025-06-01T13:05:00Z');
     const ws = new Date('2025-06-01T13:00:00Z');
     const we = new Date('2025-06-01T13:10:00Z');
+
+    await prisma.aggregatedData.create({
+      data: {
+        deviceId: testDeviceId,
+        startsAt: overlapStart,
+        endsAt: overlapEnd,
+        voltageL1: 232,
+        voltageL2: 230,
+        voltageL3: 229,
+        sampleCount: 60,
+        compliantL1: true,
+        compliantL2: true,
+        compliantL3: true,
+        outOfBoundsSecondsL1: 0,
+        outOfBoundsSecondsL2: 0,
+        outOfBoundsSecondsL3: 0,
+      },
+    });
 
     await prisma.aggregatedData.create({
       data: {
@@ -143,7 +235,7 @@ describe('GET /api/voltage/history', () => {
 
     expect(res.statusCode).toBe(200);
     expect(body.interval).toBe('10min');
-    expect(body.count).toBeGreaterThanOrEqual(1);
+  expect(body.count).toBe(2);
 
     const win = body.data[0];
     expect(win).toHaveProperty('voltage_l1');
@@ -249,7 +341,7 @@ describe('GET /api/voltage/anomalies', () => {
         {
           deviceId: testDeviceId,
           startsAt: new Date('2025-06-01T14:59:00Z'),
-          endsAt: new Date('2025-06-01T14:59:10Z'),
+          endsAt: new Date('2025-06-01T15:00:00Z'),
           phase: 'L1',
           type: 'VOLTAGE_DEVIATION',
           severity: 1,
@@ -279,8 +371,11 @@ describe('GET /api/voltage/anomalies', () => {
     const body = res.json();
 
     expect(res.statusCode).toBe(200);
-    expect(body.count).toBe(1);
-    expect(body.data[0].startsAt).toBe('2025-06-01T15:30:00.000Z');
+    expect(body.count).toBe(2);
+    expect(body.data.map((item: { startsAt: string }) => item.startsAt)).toEqual([
+      '2025-06-01T15:30:00.000Z',
+      '2025-06-01T14:59:00.000Z',
+    ]);
   });
 });
 
@@ -299,7 +394,25 @@ describe('GET /api/voltage/anomalies/active', () => {
 
 describe('GET /api/voltage/compliance/weekly', () => {
   it('returns weekly compliance report', async () => {
-    const res = await injectGet(`/api/voltage/compliance/weekly?deviceId=${testDeviceId}`);
+    await prisma.aggregatedData.create({
+      data: {
+        deviceId: testDeviceId,
+        startsAt: new Date('2025-01-12T23:55:00Z'),
+        endsAt: new Date('2025-01-13T00:05:00Z'),
+        sampleCount: 60,
+        voltageL1: 231,
+        voltageL2: 230,
+        voltageL3: 229,
+        compliantL1: true,
+        compliantL2: true,
+        compliantL3: true,
+        outOfBoundsSecondsL1: 0,
+        outOfBoundsSecondsL2: 0,
+        outOfBoundsSecondsL3: 0,
+      },
+    });
+
+    const res = await injectGet('/api/voltage/compliance/weekly?deviceId=' + testDeviceId + '&date=2025-01-15');
     const body = res.json();
 
     expect(res.statusCode).toBe(200);
@@ -310,6 +423,7 @@ describe('GET /api/voltage/compliance/weekly', () => {
     expect(body).toHaveProperty('overallCompliant');
     expect(body.eso_threshold_pct).toBe(95);
     expect(body.window_duration_minutes).toBe(10);
+    expect(body.totalWindows).toBe(1);
   });
 
   it('accepts date parameter', async () => {

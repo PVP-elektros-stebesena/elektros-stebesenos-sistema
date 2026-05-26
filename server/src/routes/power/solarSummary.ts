@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import prisma from '../../lib/prisma.js';
+import { ensureAccessibleDevice, ownedDeviceRelationFilter } from '../deviceAccess.js';
 import { parseOptionalDeviceId } from '../queryParsers.js';
 import { RAW_READING_SELECT, type DeviceQuery, toPowerPayload } from './shared.js';
 
@@ -43,11 +44,19 @@ export function registerPowerSolarSummaryRoute(fastify: FastifyInstance): void {
     const to = new Date();
     const from = new Date(to.getTime() - days * 24 * 60 * 60 * 1000);
     const deviceId = parsedDeviceId.value;
+    if (deviceId && !(await ensureAccessibleDevice(deviceId, req, reply))) {
+      return;
+    }
+
+    const deviceScope = {
+      ...(deviceId ? { deviceId } : {}),
+      ...ownedDeviceRelationFilter(req),
+    };
 
     const [readings, latest] = await Promise.all([
       prisma.reading.findMany({
         where: {
-          ...(deviceId ? { deviceId } : {}),
+          ...deviceScope,
           timestamp: { gte: from, lte: to },
           OR: [
             { energyDelivered: { not: null } },
@@ -62,7 +71,7 @@ export function registerPowerSolarSummaryRoute(fastify: FastifyInstance): void {
         },
       }),
       prisma.reading.findFirst({
-        where: deviceId ? { deviceId } : undefined,
+        where: deviceScope,
         orderBy: { timestamp: 'desc' },
         select: RAW_READING_SELECT,
       }),

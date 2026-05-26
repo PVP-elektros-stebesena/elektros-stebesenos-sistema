@@ -211,7 +211,30 @@ function formatDuration(seconds: number | null, language: Language): string {
 }
 
 function toDateInputValue(date: Date): string {
-  return date.toISOString().slice(0, 10);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function parseDateInputAsLocal(value: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const parsed = new Date(year, month - 1, day);
+
+  if (
+    parsed.getFullYear() !== year
+    || parsed.getMonth() !== month - 1
+    || parsed.getDate() !== day
+  ) {
+    return null;
+  }
+
+  return parsed;
 }
 
 function toChartDateLabel(date: string, language: Language): string {
@@ -1572,13 +1595,22 @@ export function ReportsPage() {
 
   const { devices } = useDeviceOptions(60);
 
-  const { data: reportList, refetch: refetchReports } = usePolling<ReportListResponse>(
+  const {
+    data: reportList,
+    isLoading: reportListLoading,
+    error: reportListError,
+    refetch: refetchReports,
+  } = usePolling<ReportListResponse>(
     ['reports', 'list'],
     '/api/reports?limit=50',
     { intervalSeconds: 30 },
   );
 
-  const { data: reportDetail } = usePolling<ReportDetail>(
+  const {
+    data: reportDetail,
+    isLoading: reportDetailLoading,
+    error: reportDetailError,
+  } = usePolling<ReportDetail>(
     ['reports', 'detail', String(selectedReportId)],
     selectedReportId != null ? `/api/reports/${selectedReportId}` : '',
     { intervalSeconds: 300, enabled: selectedReportId != null },
@@ -1594,7 +1626,7 @@ export function ReportsPage() {
   const [genCustomEndDate, setGenCustomEndDate] = useState<string>(() => toDateInputValue(new Date()));
 
   const HOME_PERIOD_OPTIONS = [
- { value: 'daily', label: tr(language, '1 day', '1 diena') },
+    { value: 'daily', label: tr(language, '1 day', '1 diena') },
     { value: 'weekly', label: tr(language, '1 week', '1 savaitė') },
     { value: 'biweekly', label: tr(language, '2 weeks', '2 savaitės') },
     { value: 'monthly', label: tr(language, '1 month', '1 mėnuo') },
@@ -1610,7 +1642,7 @@ export function ReportsPage() {
   ];
 
   const SOLAR_PERIOD_OPTIONS = [
- { value: 'daily', label: tr(language, '1 day', '1 diena') },
+    { value: 'daily', label: tr(language, '1 day', '1 diena') },
     { value: 'weekly', label: tr(language, '1 week', '1 savaitė') },
     { value: 'biweekly', label: tr(language, '2 weeks', '2 savaitės') },
     { value: 'monthly', label: tr(language, '1 month', '1 mėnuo') },
@@ -1618,25 +1650,11 @@ export function ReportsPage() {
   ];
 
   const activeGenDeviceId = resolveDeviceSelection(genDeviceId, devices);
+  const isReportDetailLoadingState = selectedReportId != null && reportDetailLoading;
+  const isReportDetailErrorState = selectedReportId != null && !reportDetailLoading && !reportDetail && Boolean(reportDetailError);
 
   useEffect(() => {
     setFormError(null);
-
-    if (reportUse === 'home') {
-      setGenPeriod((prev) =>
-        prev && ['daily', 'weekly', 'monthly'].includes(prev) ? prev : 'monthly',
-      );
-    } else if (reportUse === 'technical') {
-      setGenPeriod((prev) =>
-        prev && ['daily', 'weekly', 'biweekly', 'monthly', 'custom'].includes(prev)
-          ? prev
-          : 'weekly',
-      );
-    } else {
-      setGenPeriod((prev) =>
-        prev && ['daily', 'monthly'].includes(prev) ? prev : 'monthly',
-      );
-    }
   }, [reportUse]);
 
   const handleGenerate = useCallback(async () => {
@@ -1645,14 +1663,16 @@ export function ReportsPage() {
     setFormError(null);
 
     if (genPeriod === 'custom') {
-      const start = new Date(genCustomStartDate);
-      const end = new Date(genCustomEndDate);
-      const rangeDays = (end.getTime() - start.getTime()) / (24 * 3600_000);
+      const start = parseDateInputAsLocal(genCustomStartDate);
+      const end = parseDateInputAsLocal(genCustomEndDate);
 
-      if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      if (!start || !end) {
         setFormError(tr(language, 'Custom range requires valid start and end dates.', 'Pasirinktiniam intervalui būtinos teisingos pradžios ir pabaigos datos.'));
         return;
       }
+
+      const rangeDays = (end.getTime() - start.getTime()) / (24 * 3600_000);
+
       if (end <= start) {
         setFormError(tr(language, 'Custom range end date must be later than start date.', 'Pasirinktinio intervalo pabaigos data turi būti vėlesnė už pradžios datą.'));
         return;
@@ -1661,7 +1681,7 @@ export function ReportsPage() {
         setFormError(tr(language, 'Custom range can be at most 2 months (62 days).', 'Pasirinktinis intervalas gali būti daugiausia 2 mėn. (62 dienos).'));
         return;
       }
-      if (end.getTime() > Date.now()) {
+      if (genCustomEndDate > toDateInputValue(new Date())) {
         setFormError(tr(language, 'Custom range cannot end in the future.', 'Pasirinktinis intervalas negali baigtis ateityje.'));
         return;
       }
@@ -1702,6 +1722,43 @@ export function ReportsPage() {
     reportUse,
     language,
   ]);
+
+  if (isReportDetailLoadingState) {
+    return (
+      <Stack p="lg" gap="md" style={{ width: '100%' }}>
+        <Button
+          variant="subtle"
+          onClick={() => setSelectedReportId(null)}
+          style={{ alignSelf: 'flex-start' }}
+        >
+          ← {tr(language, 'Back to reports', 'Grįžti į ataskaitas')}
+        </Button>
+        <Card p="xl" radius="md" withBorder>
+          <Group gap="sm">
+            <Loader size="sm" />
+            <Text>{tr(language, 'Loading report…', 'Kraunama ataskaita…')}</Text>
+          </Group>
+        </Card>
+      </Stack>
+    );
+  }
+
+  if (isReportDetailErrorState) {
+    return (
+      <Stack p="lg" gap="md" style={{ width: '100%' }}>
+        <Button
+          variant="subtle"
+          onClick={() => setSelectedReportId(null)}
+          style={{ alignSelf: 'flex-start' }}
+        >
+          ← {tr(language, 'Back to reports', 'Grįžti į ataskaitas')}
+        </Button>
+        <Alert color="red" title={tr(language, 'Failed to load report', 'Nepavyko įkelti ataskaitos')}>
+          {tr(language, 'Please go back and try opening the report again.', 'Grįžkite atgal ir bandykite ataskaitą atidaryti dar kartą.')}
+        </Alert>
+      </Stack>
+    );
+  }
 
   if (selectedReportId != null && reportDetail) {
     return (
@@ -1778,7 +1835,7 @@ export function ReportsPage() {
         <Button
           onClick={handleGenerate}
           loading={generating}
-          disabled={!activeGenDeviceId || !genPeriod}
+          disabled={!activeGenDeviceId || !genPeriod || reportListLoading}
         >
           {tr(language, 'Generate', 'Generuoti')}
         </Button>
@@ -1855,7 +1912,12 @@ export function ReportsPage() {
           {tr(language, 'Generated Reports', 'Sugeneruotos ataskaitos')} ({reportList?.count ?? 0})
         </Text>
 
-        {reportList && reportList.count > 0 ? (
+        {reportListLoading ? (
+          <Group justify="center" py="xl">
+            <Loader size="sm" />
+            <Text c="dimmed">{tr(language, 'Loading reports…', 'Kraunamos ataskaitos…')}</Text>
+          </Group>
+        ) : reportList && reportList.count > 0 ? (
           <Table.ScrollContainer minWidth={900}>
             <Table striped highlightOnHover>
               <Table.Thead>
@@ -1959,6 +2021,10 @@ export function ReportsPage() {
               </Table.Tbody>
             </Table>
           </Table.ScrollContainer>
+        ) : reportListError ? (
+          <Alert color="red" title={tr(language, 'Failed to load reports', 'Nepavyko įkelti ataskaitų')}>
+            {tr(language, 'Please try again in a moment.', 'Bandykite dar kartą po akimirkos.')}
+          </Alert>
         ) : (
           <Box py="xl">
             <Text c="dimmed" ta="center">

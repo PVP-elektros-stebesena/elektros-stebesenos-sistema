@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { ESO } from '../../config/eso.js';
 import prisma from '../../lib/prisma.js';
 import { analyseVoltage } from '../../services/voltageAnalysis.js';
+import { ensureAccessibleDevice, ownedDeviceRelationFilter } from '../deviceAccess.js';
 import { parseOptionalDeviceId } from '../queryParsers.js';
 import type { DeviceQuery } from './shared.js';
 
@@ -12,9 +13,15 @@ export function registerVoltageLatestRoute(fastify: FastifyInstance): void {
       return reply.code(parsedDeviceId.statusCode).send(parsedDeviceId.body);
     }
     const deviceId = parsedDeviceId.value;
+    if (deviceId && !(await ensureAccessibleDevice(deviceId, req, reply))) {
+      return;
+    }
 
     const reading = await prisma.reading.findFirst({
-      where: deviceId ? { deviceId } : undefined,
+      where: {
+        ...(deviceId ? { deviceId } : {}),
+        ...ownedDeviceRelationFilter(req),
+      },
       orderBy: { timestamp: 'desc' },
     });
 

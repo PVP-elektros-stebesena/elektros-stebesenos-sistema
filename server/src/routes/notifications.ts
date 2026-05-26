@@ -7,6 +7,7 @@ import {
   listNotificationSettings,
   setNotificationSetting,
 } from '../services/notificationSettingsRepository.js';
+import { ensureAccessibleDevice } from './deviceAccess.js';
 import { parseOptionalDeviceId } from './queryParsers.js';
 
 function isNotificationEventType(value: string): value is NotificationEventType {
@@ -21,6 +22,9 @@ export async function notificationRoutes(fastify: FastifyInstance): Promise<void
     }
 
     const deviceId = parsedDeviceId.value;
+    if (deviceId && !(await ensureAccessibleDevice(deviceId, req, reply))) {
+      return;
+    }
 
     const settings = await listNotificationSettings(deviceId);
     return {
@@ -57,6 +61,10 @@ export async function notificationRoutes(fastify: FastifyInstance): Promise<void
         error: 'INVALID_DEVICE_ID',
         message: 'deviceId must be a positive integer or null',
       });
+    }
+
+    if (req.body.deviceId != null && !(await ensureAccessibleDevice(req.body.deviceId, req, reply))) {
+      return;
     }
 
     const updated = await setNotificationSetting({

@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import prisma from '../../lib/prisma.js';
+import { ensureAccessibleDevice, ownedDeviceRelationFilter } from '../deviceAccess.js';
 import {
   parseOptionalDate,
   parseOptionalDeviceId,
@@ -29,6 +30,10 @@ export function registerPowerAnomaliesRoute(fastify: FastifyInstance): void {
     const from = parsedFrom.value;
     const to = parsedTo.value;
     const deviceId = parsedDeviceId.value;
+    if (deviceId && !(await ensureAccessibleDevice(deviceId, req, reply))) {
+      return;
+    }
+
     const limit = Math.min(parseInt(req.query.limit ?? '100', 10) || 100, 1000);
 
     const rangeFrom = from ?? new Date(0);
@@ -42,15 +47,16 @@ export function registerPowerAnomaliesRoute(fastify: FastifyInstance): void {
       where: {
         metricDomain: 'POWER',
         ...(deviceId ? { deviceId } : {}),
+        ...ownedDeviceRelationFilter(req),
         ...(req.query.type ? { type: req.query.type } : {}),
         ...(req.query.metricName ? { metricName: req.query.metricName } : {}),
         ...(req.query.phase ? { phase: req.query.phase } : {}),
         ...((from || to)
           ? {
-              startsAt: {
-                ...(from ? { gte: from } : {}),
-                ...(to ? { lte: to } : {}),
-              },
+              AND: [
+                ...(to ? [{ startsAt: { lte: to } }] : []),
+                ...(from ? [{ OR: [{ endsAt: null }, { endsAt: { gte: from } }] }] : []),
+              ],
             }
           : {}),
       },

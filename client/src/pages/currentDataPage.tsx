@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Alert, Button, Card, Group, Loader, Select, Stack, Table, Text, TextInput } from '@mantine/core'
 import type { LiveData } from '../types/energy'
 import { apiDownload, apiFetch, getApiErrorMessage } from '../services/apiClient'
@@ -31,6 +31,7 @@ function KeyValueTable<T extends object>({ data }: { data: T }) {
 export function CurrentDataPage() {
   const { t } = useI18n()
   const [data, setData] = useState<LiveData | null>(null)
+  const dataRef = useRef<LiveData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -50,11 +51,23 @@ export function CurrentDataPage() {
     let active = true
 
     const loadData = async () => {
+      if (!activeExportDeviceId) {
+        if (active) {
+          setData(null)
+          dataRef.current = null
+          setError(devicesLoading ? null : t('current.errorSelectDevice'))
+          setLoading(devicesLoading)
+        }
+        return
+      }
+
       try {
-        const result = await apiFetch<LiveData>('/api/live/raw')
+        if (!dataRef.current) setLoading(true)
+        const result = await apiFetch<LiveData>(`/api/live/raw?deviceId=${activeExportDeviceId}`)
 
         if (active) {
           setData(result)
+          dataRef.current = result
           setError(null)
         }
       } catch (err) {
@@ -75,7 +88,7 @@ export function CurrentDataPage() {
       active = false
       clearInterval(interval)
     }
-  }, [t])
+  }, [activeExportDeviceId, devicesLoading, t])
 
   useEffect(() => {
     const today = new Date()

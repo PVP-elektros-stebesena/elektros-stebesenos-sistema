@@ -6,6 +6,7 @@ import { clearPowerPolicyCache } from '../../services/powerPolicy.js';
 
 let app: FastifyInstance;
 let testDeviceId: number;
+let extraDeviceIds: number[] = [];
 let ownerUserId: number;
 let otherUserId: number;
 
@@ -41,6 +42,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   clearPowerPolicyCache();
+  extraDeviceIds = [];
   const [owner, other] = await Promise.all([
     prisma.user.create({
       data: {
@@ -67,12 +69,13 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await prisma.standbyBaseline.deleteMany({ where: { deviceId: testDeviceId } });
-  await prisma.powerPolicyOverride.deleteMany({ where: { deviceId: testDeviceId } });
-  await prisma.anomaly.deleteMany({ where: { deviceId: testDeviceId } });
-  await prisma.aggregatedData.deleteMany({ where: { deviceId: testDeviceId } });
-  await prisma.reading.deleteMany({ where: { deviceId: testDeviceId } });
-  await prisma.device.deleteMany({ where: { id: testDeviceId } });
+  const deviceIds = [testDeviceId, ...extraDeviceIds];
+  await prisma.standbyBaseline.deleteMany({ where: { deviceId: { in: deviceIds } } });
+  await prisma.powerPolicyOverride.deleteMany({ where: { deviceId: { in: deviceIds } } });
+  await prisma.anomaly.deleteMany({ where: { deviceId: { in: deviceIds } } });
+  await prisma.aggregatedData.deleteMany({ where: { deviceId: { in: deviceIds } } });
+  await prisma.reading.deleteMany({ where: { deviceId: { in: deviceIds } } });
+  await prisma.device.deleteMany({ where: { id: { in: deviceIds } } });
   await prisma.user.deleteMany({ where: { id: { in: [ownerUserId, otherUserId] } } });
 });
 
@@ -85,6 +88,57 @@ describe('GET /api/power/latest', () => {
     const res = await injectGet(`/api/power/latest?deviceId=${testDeviceId}`);
     expect(res.statusCode).toBe(503);
     expect(res.json().error).toBe('NO_DATA');
+  });
+
+  it('scopes device access to the authenticated user', async () => {
+    await prisma.device.update({
+      where: { id: testDeviceId },
+      data: { userId: ownerUserId },
+    });
+    const otherDevice = await prisma.device.create({
+      data: {
+        name: 'PowerScopeOther',
+        userId: otherUserId,
+        pollInterval: 10,
+        isActive: true,
+      },
+    });
+    extraDeviceIds.push(otherDevice.id);
+
+    await prisma.reading.createMany({
+      data: [
+        {
+          deviceId: testDeviceId,
+          timestamp: new Date('2026-04-10T10:00:00Z'),
+          powerDeliveredTotal: 1.1,
+          activeInstantaneousPowerDeliveredL1: 0.4,
+          activeInstantaneousPowerDeliveredL2: 0.3,
+          activeInstantaneousPowerDeliveredL3: 0.4,
+          apparentInstantaneousPower: 1.3,
+        },
+        {
+          deviceId: otherDevice.id,
+          timestamp: new Date('2026-04-10T10:05:00Z'),
+          powerDeliveredTotal: 2.2,
+          activeInstantaneousPowerDeliveredL1: 0.7,
+          activeInstantaneousPowerDeliveredL2: 0.7,
+          activeInstantaneousPowerDeliveredL3: 0.8,
+          apparentInstantaneousPower: 2.5,
+        },
+      ],
+    });
+
+    const ownerHeaders = { 'x-test-user-id': String(ownerUserId) };
+    const otherHeaders = { 'x-test-user-id': String(otherUserId) };
+
+    const ownerRes = await injectGet(`/api/power/latest?deviceId=${testDeviceId}`, ownerHeaders);
+    expect(ownerRes.statusCode).toBe(200);
+
+    const otherRes = await injectGet(`/api/power/latest?deviceId=${testDeviceId}`, otherHeaders);
+    expect(otherRes.statusCode).toBe(404);
+
+    const ownerOtherRes = await injectGet(`/api/power/latest?deviceId=${otherDevice.id}`, ownerHeaders);
+    expect(ownerOtherRes.statusCode).toBe(404);
   });
 
   it('returns latest power metrics and policy', async () => {
@@ -194,6 +248,21 @@ describe('GET /api/power/history', () => {
     await prisma.aggregatedData.create({
       data: {
         deviceId: testDeviceId,
+        startsAt: new Date('2026-03-26T08:55:00Z'),
+        endsAt: new Date('2026-03-26T09:05:00Z'),
+        sampleCount: 60,
+        activePowerAvgTotal: 2.7,
+        activePowerMaxTotal: 3.8,
+        reactivePowerAvgTotal: 0.4,
+        powerFactorAvg: 0.91,
+        powerImbalancePct: 4.2,
+        powerPolicyBreached: false,
+      },
+    });
+
+    await prisma.aggregatedData.create({
+      data: {
+        deviceId: testDeviceId,
         startsAt: new Date('2026-03-26T09:00:00Z'),
         endsAt: new Date('2026-03-26T09:10:00Z'),
         sampleCount: 60,
@@ -213,9 +282,10 @@ describe('GET /api/power/history', () => {
 
     expect(res.statusCode).toBe(200);
     expect(body.interval).toBe('10min');
-    expect(body.count).toBe(1);
-    expect(body.data[0].activePowerAvgTotal).toBe(3.1);
-    expect(body.data[0].powerFactorAvg).toBe(0.94);
+    expect(body.count).toBe(2);
+    expect(body.data[0].activePowerAvgTotal).toBe(2.7);
+    expect(body.data[1].activePowerAvgTotal).toBe(3.1);
+    expect(body.data[1].powerFactorAvg).toBe(0.94);
   });
 
   it('respects the points limit in raw history downsampling', async () => {
@@ -273,6 +343,14 @@ describe('GET /api/power/grid-compliance', () => {
       data: [
         {
           deviceId: testDeviceId,
+          startsAt: new Date('2026-04-01T08:55:00.000Z'),
+          endsAt: new Date('2026-04-01T09:05:00.000Z'),
+          sampleCount: 60,
+          reactivePowerAvgTotal: 0.4,
+          powerFactorAvg: 0.97,
+        },
+        {
+          deviceId: testDeviceId,
           startsAt: new Date('2026-04-01T09:00:00.000Z'),
           endsAt: new Date('2026-04-01T09:10:00.000Z'),
           sampleCount: 60,
@@ -318,14 +396,20 @@ describe('GET /api/power/grid-compliance', () => {
     expect(body.penaltyEstimate.status).toBe('complete');
     expect(body.penaltyEstimate.reactiveReturnedKvarh).toBe(3);
     expect(body.summary.lowPowerFactorWindowCount).toBe(1);
-    expect(body.data).toHaveLength(2);
+    expect(body.data).toHaveLength(3);
     expect(body.data[0]).toMatchObject({
+      timestamp: '2026-04-01T08:55:00.000Z',
+      reactivePowerTotalKvar: 0.4,
+      powerFactor: 0.97,
+      lowPowerFactor: false,
+    });
+    expect(body.data[1]).toMatchObject({
       reactivePowerTotalKvar: 1.2,
       reactiveEnergyReturnedKvarh: 3,
       powerFactor: 0.94,
       lowPowerFactor: true,
     });
-    expect(body.data[1].lowPowerFactor).toBe(false);
+    expect(body.data[2].lowPowerFactor).toBe(false);
   });
 });
 
@@ -558,8 +642,11 @@ describe('GET /api/power/anomalies', () => {
     const body = res.json();
 
     expect(res.statusCode).toBe(200);
-    expect(body.count).toBe(1);
-    expect(body.data[0].startsAt).toBe('2026-03-26T08:30:00.000Z');
+    expect(body.count).toBe(2);
+    expect(body.data.map((item: { startsAt: string }) => item.startsAt)).toEqual([
+      '2026-03-26T08:30:00.000Z',
+      '2026-03-26T07:59:00.000Z',
+    ]);
   });
 });
 

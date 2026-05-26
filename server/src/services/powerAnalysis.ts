@@ -179,7 +179,7 @@ function phaseActivePowerTotalKw(metrics: PowerMetrics): number | null {
 }
 
 function phaseImbalanceAlertLoadKw(metrics: PowerMetrics, policy: EffectivePowerPolicy): number | null {
-  if (policy.category === 'HOME' && metrics.activePowerTotalKw != null) {
+  if ((policy.category === 'HOME' || policy.category === 'SOLAR') && metrics.activePowerTotalKw != null) {
     return Math.abs(metrics.activePowerTotalKw);
   }
 
@@ -188,7 +188,7 @@ function phaseImbalanceAlertLoadKw(metrics: PowerMetrics, policy: EffectivePower
 }
 
 function phaseImbalanceMinAlertLoadKw(policy: EffectivePowerPolicy): number {
-  if (policy.category !== 'HOME') return MIN_PHASE_IMBALANCE_TOTAL_ACTIVE_POWER_KW;
+  if (policy.category !== 'HOME' && policy.category !== 'SOLAR') return MIN_PHASE_IMBALANCE_TOTAL_ACTIVE_POWER_KW;
 
   return Math.max(
     MIN_PHASE_IMBALANCE_TOTAL_ACTIVE_POWER_KW,

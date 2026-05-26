@@ -18,9 +18,12 @@ type AnomalySeverity = 'WARNING' | 'CRITICAL';
 const OVER_CAPACITY_WARNING_THRESHOLD_RATIO = 0.95;
 const OVER_CAPACITY_WARNING_DURATION_MS = 3 * 60 * 1000;
 const OVER_CAPACITY_WARNING_TYPE = 'OVER_CAPACITY_WARNING';
+const HOME_PHASE_IMBALANCE_WARNING_DURATION_MS = 60 * 1000;
+const COMMERCIAL_PHASE_IMBALANCE_WARNING_DURATION_MS = 30 * 1000;
 
 interface OngoingState {
   ongoing: boolean;
+  triggered: boolean;
   startedAt: Date | null;
   severity: AnomalySeverity | null;
   thresholdValue: number | null;
@@ -30,9 +33,7 @@ interface OngoingState {
   sampleCount: number;
 }
 
-interface OverCapacityState extends OngoingState {
-  triggered: boolean;
-}
+type OverCapacityState = OngoingState;
 
 export interface DetectedPowerAnomaly {
   startedAt: Date;
@@ -95,6 +96,12 @@ function metricValue(metrics: PowerMetrics, metricName: ContinuousMetricName): n
   return metrics.phaseImbalancePct;
 }
 
+function phaseImbalanceWarningDurationMs(policy: EffectivePowerPolicy): number {
+  return policy.category === 'COMMERCIAL'
+    ? COMMERCIAL_PHASE_IMBALANCE_WARNING_DURATION_MS
+    : HOME_PHASE_IMBALANCE_WARNING_DURATION_MS;
+}
+
 function round(value: number | null, decimals: number = 4): number | null {
   if (value == null) return null;
   const m = 10 ** decimals;
@@ -104,6 +111,7 @@ function round(value: number | null, decimals: number = 4): number | null {
 function createInitialState(): OngoingState {
   return {
     ongoing: false,
+    triggered: false,
     startedAt: null,
     severity: null,
     thresholdValue: null,
@@ -137,6 +145,7 @@ export class PowerTracker {
   };
 
   private pendingExportOpportunities: DetectedExportOpportunity[] = [];
+  private phaseImbalanceSamples: Array<{ t: number; v: number }> = [];
 
   processReading(reading: PowerReading, policy: EffectivePowerPolicy): DetectedPowerAnomaly[] {
     const metrics = analysePowerReading(reading);
@@ -155,45 +164,69 @@ export class PowerTracker {
     for (const metricName of Object.keys(CONTINUOUS_METRICS) as ContinuousMetricName[]) {
       const cfg = CONTINUOUS_METRICS[metricName];
       const state = this.states[metricName];
-      const currentValue = metricValue(metrics, metricName);
+      let currentValue = metricValue(metrics, metricName);
+      if (metricName === 'PHASE_IMBALANCE') {
+        currentValue = this.getSmoothedPhaseImbalance(metrics.phaseImbalancePct, reading.timestamp, policy);
+      }
       const breach = breachByMetric.get(metricName);
       const nextSeverity = breach?.severity ?? cfg.defaultSeverity;
+      const debounceMs = this.continuousMetricDebounceMs(metricName, policy);
 
       if (breach && currentValue != null) {
         if (!state.ongoing) {
-          this.startState(state, reading.timestamp, breach.thresholdValue, nextSeverity, currentValue);
-
-          anomalies.push(this.createAnomaly({
-            metricName,
-            startedAt: reading.timestamp,
-            endedAt: null,
-            cfg,
+          this.startState(
             state,
-            description: `${cfg.type} started`,
-          }));
+            reading.timestamp,
+            breach.thresholdValue,
+            nextSeverity,
+            currentValue,
+            debounceMs === 0,
+          );
+
+          if (state.triggered) {
+            anomalies.push(this.createAnomaly({
+              metricName,
+              startedAt: reading.timestamp,
+              endedAt: null,
+              cfg,
+              state,
+              description: `${cfg.type} started`,
+            }));
+          }
           continue;
         }
 
         if (state.severity !== nextSeverity) {
-          anomalies.push(this.createAnomaly({
-            metricName,
-            startedAt: state.startedAt ?? reading.timestamp,
-            endedAt: reading.timestamp,
-            cfg,
-            state,
-            description: `${cfg.type} resolved`,
-          }));
+          if (state.triggered) {
+            anomalies.push(this.createAnomaly({
+              metricName,
+              startedAt: state.startedAt ?? reading.timestamp,
+              endedAt: reading.timestamp,
+              cfg,
+              state,
+              description: `${cfg.type} resolved`,
+            }));
+          }
 
-          this.startState(state, reading.timestamp, breach.thresholdValue, nextSeverity, currentValue);
-
-          anomalies.push(this.createAnomaly({
-            metricName,
-            startedAt: reading.timestamp,
-            endedAt: null,
-            cfg,
+          this.startState(
             state,
-            description: `${cfg.type} started`,
-          }));
+            reading.timestamp,
+            breach.thresholdValue,
+            nextSeverity,
+            currentValue,
+            debounceMs === 0,
+          );
+
+          if (state.triggered) {
+            anomalies.push(this.createAnomaly({
+              metricName,
+              startedAt: reading.timestamp,
+              endedAt: null,
+              cfg,
+              state,
+              description: `${cfg.type} started`,
+            }));
+          }
           continue;
         }
 
@@ -201,10 +234,26 @@ export class PowerTracker {
         state.observedMax = Math.max(state.observedMax, currentValue);
         state.observedSum += currentValue;
         state.sampleCount += 1;
+
+        if (
+          !state.triggered &&
+          state.startedAt &&
+          reading.timestamp.getTime() - state.startedAt.getTime() >= debounceMs
+        ) {
+          state.triggered = true;
+          anomalies.push(this.createAnomaly({
+            metricName,
+            startedAt: state.startedAt,
+            endedAt: null,
+            cfg,
+            state,
+            description: `${cfg.type} started`,
+          }));
+        }
         continue;
       }
 
-      if (state.ongoing && state.startedAt) {
+      if (state.ongoing && state.startedAt && state.triggered) {
         anomalies.push(this.createAnomaly({
           metricName,
           startedAt: state.startedAt,
@@ -244,6 +293,37 @@ export class PowerTracker {
     return anomalies;
   }
 
+  private smoothingWindowMs(policy: EffectivePowerPolicy): number {
+    return policy.category === 'COMMERCIAL' ? 15_000 : 30_000;
+  }
+
+  private getSmoothedPhaseImbalance(
+    sampleValue: number | null,
+    timestamp: Date,
+    policy: EffectivePowerPolicy,
+  ): number | null {
+    const t = timestamp.getTime();
+    const windowMs = this.smoothingWindowMs(policy);
+
+    if (sampleValue != null) {
+      this.phaseImbalanceSamples.push({ t, v: sampleValue });
+    }
+
+    // drop old samples
+    const cutoff = t - windowMs;
+    while (this.phaseImbalanceSamples.length > 0 && this.phaseImbalanceSamples[0].t < cutoff) {
+      this.phaseImbalanceSamples.shift();
+    }
+
+    const values = this.phaseImbalanceSamples.map((s) => s.v).filter((v): v is number => v != null);
+    if (values.length === 0) return null;
+
+    values.sort((a, b) => a - b);
+    const mid = Math.floor(values.length / 2);
+    if (values.length % 2 === 1) return values[mid];
+    return (values[mid - 1] + values[mid]) / 2;
+  }
+
   drainExportOpportunities(): DetectedExportOpportunity[] {
     const opportunities = this.pendingExportOpportunities;
     this.pendingExportOpportunities = [];
@@ -256,6 +336,7 @@ export class PowerTracker {
     }
     this.overCapacityState = this.createInitialOverCapacityState();
     this.previous = null;
+    this.phaseImbalanceSamples = [];
     this.exportOpportunity = {
       startedAt: null,
       notified: false,
@@ -311,6 +392,16 @@ export class PowerTracker {
     };
   }
 
+  private continuousMetricDebounceMs(
+    metricName: ContinuousMetricName,
+    policy: EffectivePowerPolicy,
+  ): number {
+    if (metricName === 'PHASE_IMBALANCE') {
+      return phaseImbalanceWarningDurationMs(policy);
+    }
+    return 0;
+  }
+
   private processOverCapacityWarning(
     activePowerTotalKw: number | null,
     timestamp: Date,
@@ -346,7 +437,7 @@ export class PowerTracker {
     }
 
     if (!state.ongoing) {
-      this.startState(state, timestamp, thresholdValue, 'WARNING', activePowerTotalKw);
+      this.startState(state, timestamp, thresholdValue, 'WARNING', activePowerTotalKw, false);
       this.overCapacityState = state;
       return [];
     }
@@ -388,8 +479,10 @@ export class PowerTracker {
     thresholdValue: number,
     severity: AnomalySeverity,
     currentValue: number,
+    triggered: boolean = true,
   ): void {
     state.ongoing = true;
+    state.triggered = triggered;
     state.startedAt = timestamp;
     state.severity = severity;
     state.thresholdValue = thresholdValue;

@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import prisma from '../../lib/prisma.js';
+import { ensureAccessibleDevice, ownedDeviceRelationFilter } from '../deviceAccess.js';
 import { parseOptionalDeviceId } from '../queryParsers.js';
 import type { DeviceQuery } from './shared.js';
 
@@ -11,8 +12,15 @@ export function registerVoltageLiveRoute(fastify: FastifyInstance): void {
     }
 
     const deviceId = parsedDeviceId.value;
+    if (deviceId && !(await ensureAccessibleDevice(deviceId, req, reply))) {
+      return;
+    }
+
     const reading = await prisma.reading.findFirst({
-      where: deviceId ? { deviceId } : undefined,
+      where: {
+        ...(deviceId ? { deviceId } : {}),
+        ...ownedDeviceRelationFilter(req),
+      },
       orderBy: { timestamp: 'desc' },
     });
 

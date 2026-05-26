@@ -125,6 +125,68 @@ describe('evaluatePowerPolicyBreaches', () => {
     expect(breaches.some((breach) => breach.metricName === 'ACTIVE_POWER_RAMP')).toBe(false);
   });
 
+  it('uses a higher phase-imbalance load gate for household and prosumer profiles', () => {
+    const current = analysePowerReading(makeReading({
+      activePowerTotalKw: 1.3,
+      activePowerL1Kw: 1.1,
+      activePowerL2Kw: 0.1,
+      activePowerL3Kw: 0.1,
+      reactivePowerL1Kvar: 0,
+      reactivePowerL2Kvar: 0,
+      reactivePowerL3Kvar: 0,
+      apparentPowerTotalKva: 1.3,
+    }, '2026-03-27T10:01:00.000Z'));
+
+    expect(current.phaseImbalancePct).toBeGreaterThan(DEFAULT_POWER_POLICY.maxPhaseImbalancePct);
+    expect(evaluatePowerPolicyBreaches(
+      current,
+      DEFAULT_POWER_POLICY,
+      new Date('2026-03-27T10:01:00.000Z'),
+    )).toEqual([]);
+
+    const commercialPolicy = buildPresetPowerPolicy(PowerProfilePreset.COMMERCIAL_3P_30KW);
+    expect(evaluatePowerPolicyBreaches(
+      current,
+      commercialPolicy,
+      new Date('2026-03-27T10:01:00.000Z'),
+    )).toEqual([
+      expect.objectContaining({
+        metricName: 'PHASE_IMBALANCE',
+        severity: 'WARNING',
+      }),
+    ]);
+  });
+
+  it('does not flag borderline prosumer export imbalance under the solar profile threshold', () => {
+    const current = analysePowerReading(makeReading({
+      activePowerTotalKw: -3.919,
+      activePowerL1Kw: -1.495,
+      activePowerL2Kw: -1.521,
+      activePowerL3Kw: -0.903,
+      reactivePowerL1Kvar: 0,
+      reactivePowerL2Kvar: 0,
+      reactivePowerL3Kvar: 0,
+      apparentPowerTotalKva: 4,
+    }, '2026-05-23T08:17:29.000Z'));
+
+    const homeBreaches = evaluatePowerPolicyBreaches(
+      current,
+      DEFAULT_POWER_POLICY,
+      new Date('2026-05-23T08:17:29.000Z'),
+    );
+    const solarBreaches = evaluatePowerPolicyBreaches(
+      current,
+      buildPresetPowerPolicy(PowerProfilePreset.SOLAR_PROSUMER_3P_22KW),
+      new Date('2026-05-23T08:17:29.000Z'),
+    );
+
+    expect(current.phaseImbalancePct).toBeCloseTo(30.8752, 4);
+    expect(homeBreaches).toEqual([
+      expect.objectContaining({ metricName: 'PHASE_IMBALANCE' }),
+    ]);
+    expect(solarBreaches).toEqual([]);
+  });
+
   it('does not flag normal home phase imbalance below one phase share of the contract', () => {
     const current = analysePowerReading(makeReading({
       activePowerTotalKw: 3,

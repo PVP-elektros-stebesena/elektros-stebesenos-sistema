@@ -116,7 +116,16 @@ export async function billingReportRoutes(fastify: FastifyInstance): Promise<voi
     }
 
     const renterIdRaw = req.query.renterId;
-    const renterId = renterIdRaw != null ? parseInt(renterIdRaw, 10) : undefined;
+    let renterId: number | undefined;
+    if (renterIdRaw != null) {
+      const parsedRenterId = parseInt(renterIdRaw, 10);
+      if (!Number.isInteger(parsedRenterId) || parsedRenterId < 1) {
+        return reply.code(400).send({ error: 'VALIDATION', message: 'renterId must be a positive integer.' });
+      }
+
+      renterId = parsedRenterId;
+    }
+
     const reports = await listBillingReports(deviceId, renterId);
     return reply.send(reports);
   });

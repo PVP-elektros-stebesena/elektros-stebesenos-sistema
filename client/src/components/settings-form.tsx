@@ -1,5 +1,5 @@
-import { Button, Card, Stack, TextInput, NumberInput, Switch, Text, Select, MultiSelect, Group, SimpleGrid, Badge, Tooltip } from '@mantine/core'
-import { useState, useEffect, useCallback } from 'react'
+import { Alert, Button, Card, Stack, TextInput, NumberInput, Switch, Text, Select, MultiSelect, Group, SimpleGrid, Badge, Tooltip, Loader } from '@mantine/core'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import type { AppSettings, BillingPlan, PowerProfilePreset, PricingMode } from '../types/energy'
 import { apiDelete, apiFetch, apiPost, apiPatch, apiPut, getApiErrorMessage } from '../services/apiClient'
@@ -279,10 +279,13 @@ export function SettingsForm() {
   const { t, language } = useI18n()
   const queryClient = useQueryClient()
   const defaultDeviceName = t('settings.defaultDeviceName')
+  const settingsLoadRequestId = useRef(0)
   const [s, setS] = useState<AppSettings>(EMPTY_DEVICE_SETTINGS)
   const [devices, setDevices] = useState<Device[]>([])
   const [deviceName, setDeviceName] = useState(defaultDeviceName)
   const [deviceId, setDeviceId] = useState<number | null>(null)
+  const [settingsLoading, setSettingsLoading] = useState(true)
+  const [settingsLoadError, setSettingsLoadError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [selectedEvents, setSelectedEvents] = useState<NotificationEventType[]>(DEFAULT_SELECTED_EVENTS)
@@ -301,7 +304,26 @@ export function SettingsForm() {
     }))
   }, [])
 
-  const applyDeviceToForm = useCallback((device: Device) => {
+  const resetFormForNewDevice = useCallback(() => {
+    setDeviceId(null)
+    setDeviceName(defaultDeviceName)
+    setS(EMPTY_DEVICE_SETTINGS)
+    setSelectedEvents(DEFAULT_SELECTED_EVENTS)
+    setActiveBillingPlan(null)
+  }, [defaultDeviceName])
+
+  const loadDeviceSettings = useCallback(async (device: Device | null) => {
+    const requestId = ++settingsLoadRequestId.current
+    setSettingsLoading(true)
+    setSettingsLoadError(null)
+    setMessage(null)
+
+    if (!device) {
+      resetFormForNewDevice()
+      setSettingsLoading(false)
+      return
+    }
+
     setDeviceId(device.id)
     setDeviceName(device.name)
     setS((prev) => ({
@@ -316,51 +338,47 @@ export function SettingsForm() {
       notification_channel: device.notificationChannel || 'email',
       notification_target: device.notificationTarget || '',
       notify_solar_export_opportunity: device.notifySolarExportOpportunity,
-      ...billingPlanToSettings(device.billingPlan ?? null),
+      ...billingPlanToSettings(null),
     }))
-    setActiveBillingPlan(device.billingPlan ?? null)
-  }, [])
-
-  const resetFormForNewDevice = useCallback(() => {
-    setDeviceId(null)
-    setDeviceName(defaultDeviceName)
-    setS(EMPTY_DEVICE_SETTINGS)
-    setSelectedEvents(DEFAULT_SELECTED_EVENTS)
+    setSelectedEvents([])
     setActiveBillingPlan(null)
-  }, [defaultDeviceName])
 
-  const loadNotificationSettings = useCallback(async (id: number) => {
     try {
-      const notificationSettings = await apiFetch<NotificationSettingsResponse>(
-        `/api/settings/${id}/notifications`,
-      )
+      const [notificationSettings, billingPlanResponse] = await Promise.all([
+        apiFetch<NotificationSettingsResponse>(`/api/settings/${device.id}/notifications`),
+        apiFetch<BillingPlanResponse>(`/api/settings/${device.id}/billing-plan`),
+      ])
+
+      if (settingsLoadRequestId.current !== requestId) {
+        return
+      }
 
       setS((prev) => ({
         ...prev,
         notifications_enabled: notificationSettings.notificationsEnabled,
+        ...billingPlanToSettings(billingPlanResponse.activePlan),
       }))
-
       setSelectedEvents(
         notificationSettings.selectedEvents?.length
           ? notificationSettings.selectedEvents
           : [],
       )
-    } catch (notificationErr) {
-      console.error('Failed to load notification settings:', notificationErr)
-    }
-  }, [])
+      setActiveBillingPlan(billingPlanResponse.activePlan)
+    } catch (err) {
+      if (settingsLoadRequestId.current !== requestId) {
+        return
+      }
 
-  const loadBillingPlan = useCallback(async (id: number) => {
-    try {
-      const billingPlanResponse = await apiFetch<BillingPlanResponse>(
-        `/api/settings/${id}/billing-plan`,
-      )
-      applyBillingPlanToForm(billingPlanResponse.activePlan)
-    } catch (billingPlanErr) {
-      console.error('Failed to load billing plan:', billingPlanErr)
-      applyBillingPlanToForm(null)
+      console.error('Failed to load device settings:', err)
+      setSelectedEvents([])
+      setActiveBillingPlan(null)
+      setSettingsLoadError(getApiErrorMessage(err, t('settings.loadSettingsFailed')))
+    } finally {
+      if (settingsLoadRequestId.current === requestId) {
+        setSettingsLoading(false)
+      }
     }
-  }, [applyBillingPlanToForm])
+  }, [resetFormForNewDevice, t])
 
   const loadUsageAnomalySettings = useCallback(async () => {
     try {
@@ -385,17 +403,15 @@ export function SettingsForm() {
 
         if (loadedDevices.length === 0) {
           resetFormForNewDevice()
+          setSettingsLoading(false)
           return
         }
 
-        const device = loadedDevices[0]
-        applyDeviceToForm(device)
-        await Promise.all([
-          loadNotificationSettings(device.id),
-          loadBillingPlan(device.id),
-        ])
+          await loadDeviceSettings(loadedDevices[0])
       } catch (err) {
         console.error('Failed to load settings:', err)
+        setSettingsLoadError(getApiErrorMessage(err, t('settings.loadSettingsFailed')))
+        setSettingsLoading(false)
       }
     }
 
@@ -416,16 +432,14 @@ export function SettingsForm() {
       return
     }
 
-    setMessage(null)
-    applyDeviceToForm(nextDevice)
-    await Promise.all([
-      loadNotificationSettings(nextDevice.id),
-      loadBillingPlan(nextDevice.id),
-    ])
+    await loadDeviceSettings(nextDevice)
   }
 
   const handleCreateNewDevice = () => {
+    settingsLoadRequestId.current += 1
     setMessage(null)
+    setSettingsLoadError(null)
+    setSettingsLoading(false)
     resetFormForNewDevice()
   }
 
@@ -497,12 +511,7 @@ export function SettingsForm() {
       setDevices(remainingDevices)
 
       if (remainingDevices.length > 0) {
-        const nextDevice = remainingDevices[0]
-        applyDeviceToForm(nextDevice)
-        await Promise.all([
-          loadNotificationSettings(nextDevice.id),
-          loadBillingPlan(nextDevice.id),
-        ])
+        await loadDeviceSettings(remainingDevices[0])
       } else {
         resetFormForNewDevice()
       }
@@ -519,6 +528,11 @@ export function SettingsForm() {
 
   const handleSave = async () => {
     setMessage(null)
+
+    if (settingsLoading || settingsLoadError) {
+      setMessage({ type: 'error', text: settingsLoadError ?? t('settings.loadSettingsFailed') })
+      return
+    }
 
     if (!deviceName.trim()) {
       setMessage({ type: 'error', text: t('settings.errorDeviceNameRequired') })
@@ -820,11 +834,12 @@ export function SettingsForm() {
               data={devices.map((d) => ({ value: String(d.id), label: d.name }))}
               styles={inputStyles}
               style={{ flex: 1 }}
+              disabled={loading || settingsLoading || devices.length === 0}
             />
             <Button
               radius="xl"
               onClick={handleCreateNewDevice}
-              disabled={loading || isNewDevice}
+              disabled={loading || settingsLoading || isNewDevice}
               styles={{
                 root: {
                   backgroundColor: isNewDevice ? '#404040' : '#FFCC59',
@@ -855,7 +870,7 @@ export function SettingsForm() {
                   size="xs"
                   radius="xl"
                   onClick={handleToggleConnection}
-                  disabled={loading}
+                  disabled={loading || settingsLoading}
                   styles={ghostButtonStyle}
                 >
                   {selectedDevice.isActive ? t('settings.disconnect') : t('settings.connect')}
@@ -864,7 +879,7 @@ export function SettingsForm() {
                   size="xs"
                   radius="xl"
                   onClick={() => { void handleRemoveDevice() }}
-                  disabled={loading}
+                  disabled={loading || settingsLoading}
                   styles={dangerButtonStyle}
                 >
                   {t('settings.remove')}
@@ -874,6 +889,26 @@ export function SettingsForm() {
           )}
         </Stack>
       </Card>
+
+      {settingsLoading ? (
+        <Card p="md" radius="lg" style={cardStyle}>
+          <Group justify="center" py="xl">
+            <Loader size="sm" />
+            <Text size="sm" c="#999999">{t('settings.loadingDeviceSettings')}</Text>
+          </Group>
+        </Card>
+      ) : (
+        <>
+          {settingsLoadError && (
+            <Alert color="red" title={t('settings.loadSettingsFailed')}>
+              {settingsLoadError}
+            </Alert>
+          )}
+
+          <fieldset
+            style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}
+          >
+          <Stack gap="md">
 
       {/* ── 2. Device configuration ──────────────────────────────────── */}
       <Card p="md" radius="lg" style={cardStyle}>
@@ -1053,9 +1088,6 @@ export function SettingsForm() {
           <Text fw={400} c="#EBEBEB">
             {t('settings.usageAnomaliesTitle')}
           </Text>
-          <Badge variant="light" color={usageAnomalySettings.enabled ? 'green' : 'gray'} size="sm">
-            {t(usageAnomalySettings.enabled ? 'common.enabled' : 'common.disabled')}
-          </Badge>
         </Group>
 
         <Stack gap="sm">
@@ -1286,6 +1318,10 @@ export function SettingsForm() {
           </Text>
         </Card>
       )}
+          </Stack>
+        </fieldset>
+      </>
+    )}
     </Stack>
   )
 }

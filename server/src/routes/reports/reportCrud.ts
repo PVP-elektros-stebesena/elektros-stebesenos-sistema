@@ -14,6 +14,7 @@ import {
 } from '../../services/reactivePenaltyEstimator.js';
 import type { ReactivePenaltyEstimate } from '../../services/reactivePenaltyEstimator.js';
 import type { HealthScore, PeriodType, ReportUse } from '../../services/reportGenerator.js';
+import { ensureAccessibleDevice, ownedDeviceRelationFilter } from '../deviceAccess.js';
 import { parseOptionalDeviceId } from '../queryParsers.js';
 import {
   toSeverityLabel,
@@ -31,6 +32,10 @@ export function registerReportCrudRoutes(fastify: FastifyInstance): void {
     }
 
     const deviceId = parsedDeviceId.value;
+    if (deviceId && !(await ensureAccessibleDevice(deviceId, req, reply))) {
+      return;
+    }
+
     const periodType = req.query.periodType as PeriodType | undefined;
     const reportUse = req.query.reportUse as ReportUse | undefined;
     const limit = Math.min(parseInt(req.query.limit ?? '20', 10) || 20, 100);
@@ -38,6 +43,7 @@ export function registerReportCrudRoutes(fastify: FastifyInstance): void {
     const reports = await prisma.report.findMany({
       where: {
         ...(deviceId ? { deviceId } : {}),
+        ...ownedDeviceRelationFilter(req),
         ...(periodType ? { periodType } : {}),
         ...(reportUse ? { reportUse } : {}),
       },
@@ -125,8 +131,11 @@ export function registerReportCrudRoutes(fastify: FastifyInstance): void {
       return reply.code(400).send({ error: 'INVALID_ID', message: 'Report ID must be a number' });
     }
 
-    const report = await prisma.report.findUnique({
-      where: { id },
+    const report = await prisma.report.findFirst({
+      where: {
+        id,
+        ...ownedDeviceRelationFilter(req),
+      },
       include: { device: { select: { id: true, name: true } } },
     });
 

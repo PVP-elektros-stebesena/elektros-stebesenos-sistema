@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { buildPresetPowerPolicy } from '../../config/powerPolicy.js';
+import { PowerProfilePreset, buildPresetPowerPolicy } from '../../config/powerPolicy.js';
 import { PowerTracker } from '../powerTracker.js';
 import type { PowerReading } from '../powerAnalysis.js';
 
@@ -20,6 +20,29 @@ function makeReading(activePowerTotalKw: number | null, timestamp: Date): PowerR
   };
 }
 
+function makePhaseReading(
+  activePowerL1Kw: number,
+  activePowerL2Kw: number,
+  activePowerL3Kw: number,
+  timestamp: Date,
+): PowerReading {
+  const activePowerTotalKw = activePowerL1Kw + activePowerL2Kw + activePowerL3Kw;
+  return {
+    timestamp,
+    activePowerTotalKw,
+    activePowerL1Kw,
+    activePowerL2Kw,
+    activePowerL3Kw,
+    reactivePowerL1Kvar: 0,
+    reactivePowerL2Kvar: 0,
+    reactivePowerL3Kvar: 0,
+    apparentPowerTotalKva: Math.abs(activePowerTotalKw),
+    apparentPowerL1Kva: Math.abs(activePowerL1Kw),
+    apparentPowerL2Kva: Math.abs(activePowerL2Kw),
+    apparentPowerL3Kva: Math.abs(activePowerL3Kw),
+  };
+}
+
 describe('PowerTracker breaker curve handling', () => {
   let tracker: PowerTracker;
   const policy = buildPresetPowerPolicy('HOUSE_3P_11KW');
@@ -34,6 +57,10 @@ describe('PowerTracker breaker curve handling', () => {
 
   function getOverCapacityWarnings(readingsAnomalies: ReturnType<PowerTracker['processReading']>) {
     return readingsAnomalies.filter((anomaly) => anomaly.type === 'OVER_CAPACITY_WARNING');
+  }
+
+  function getPhaseImbalanceWarnings(readingsAnomalies: ReturnType<PowerTracker['processReading']>) {
+    return readingsAnomalies.filter((anomaly) => anomaly.type === 'PHASE_IMBALANCE');
   }
 
   it('starts warning anomaly when active power exceeds warning threshold', () => {
@@ -149,5 +176,95 @@ describe('PowerTracker breaker curve handling', () => {
       startedAt: t0,
       endedAt: t4,
     }));
+  });
+
+  it('debounces phase imbalance warnings for household profiles', () => {
+    const t0 = new Date('2026-04-12T10:00:00Z');
+    const t1 = new Date('2026-04-12T10:00:30Z');
+    const t2 = new Date('2026-04-12T10:01:00Z');
+    const t3 = new Date('2026-04-12T10:01:10Z');
+
+    expect(getPhaseImbalanceWarnings(
+      tracker.processReading(makePhaseReading(4, 0.2, 0.2, t0), policy),
+    )).toHaveLength(0);
+    expect(getPhaseImbalanceWarnings(
+      tracker.processReading(makePhaseReading(4, 0.2, 0.2, t1), policy),
+    )).toHaveLength(0);
+
+    const started = getPhaseImbalanceWarnings(
+      tracker.processReading(makePhaseReading(4, 0.2, 0.2, t2), policy),
+    );
+    expect(started).toHaveLength(1);
+    expect(started[0]).toEqual(expect.objectContaining({
+      type: 'PHASE_IMBALANCE',
+      severity: 'WARNING',
+      metricName: 'PHASE_IMBALANCE',
+      startedAt: t0,
+      endedAt: null,
+    }));
+
+    const resolved = getPhaseImbalanceWarnings(
+      tracker.processReading(makePhaseReading(1, 1, 1, t3), policy),
+    );
+    expect(resolved).toHaveLength(1);
+    expect(resolved[0]).toEqual(expect.objectContaining({
+      type: 'PHASE_IMBALANCE',
+      startedAt: t0,
+      endedAt: t3,
+    }));
+  });
+
+  it('does not emit phase imbalance if household load normalizes before debounce', () => {
+    const t0 = new Date('2026-04-12T10:00:00Z');
+    const t1 = new Date('2026-04-12T10:00:30Z');
+
+    expect(getPhaseImbalanceWarnings(
+      tracker.processReading(makePhaseReading(4, 0.2, 0.2, t0), policy),
+    )).toHaveLength(0);
+    expect(getPhaseImbalanceWarnings(
+      tracker.processReading(makePhaseReading(1, 1, 1, t1), policy),
+    )).toHaveLength(0);
+  });
+
+  it('uses a shorter phase imbalance debounce for commercial profiles', () => {
+    const commercialPolicy = buildPresetPowerPolicy(PowerProfilePreset.COMMERCIAL_3P_30KW);
+    const t0 = new Date('2026-04-12T10:00:00Z');
+    const t1 = new Date('2026-04-12T10:00:29Z');
+    const t2 = new Date('2026-04-12T10:00:30Z');
+
+    expect(getPhaseImbalanceWarnings(
+      tracker.processReading(makePhaseReading(4, 0.2, 0.2, t0), commercialPolicy),
+    )).toHaveLength(0);
+    expect(getPhaseImbalanceWarnings(
+      tracker.processReading(makePhaseReading(4, 0.2, 0.2, t1), commercialPolicy),
+    )).toHaveLength(0);
+
+    const started = getPhaseImbalanceWarnings(
+      tracker.processReading(makePhaseReading(4, 0.2, 0.2, t2), commercialPolicy),
+    );
+    expect(started).toHaveLength(1);
+    expect(started[0]).toEqual(expect.objectContaining({
+      type: 'PHASE_IMBALANCE',
+      startedAt: t0,
+      endedAt: null,
+    }));
+  });
+
+  it('does not emit false phase-imbalance start when an out-of-order normal sample arrives', () => {
+    const t0 = new Date('2026-04-12T10:00:00Z');
+    const t1 = new Date('2026-04-12T10:00:40Z');
+    const tLate = new Date('2026-04-12T10:00:20Z');
+
+    expect(getPhaseImbalanceWarnings(
+      tracker.processReading(makePhaseReading(4, 0.2, 0.2, t0), policy),
+    )).toHaveLength(0);
+    expect(getPhaseImbalanceWarnings(
+      tracker.processReading(makePhaseReading(4, 0.2, 0.2, t1), policy),
+    )).toHaveLength(0);
+
+    const outOfOrderNormal = getPhaseImbalanceWarnings(
+      tracker.processReading(makePhaseReading(1, 1, 1, tLate), policy),
+    );
+    expect(outOfOrderNormal).toHaveLength(0);
   });
 });

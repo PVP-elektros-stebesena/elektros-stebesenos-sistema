@@ -434,6 +434,17 @@ function AllocationSection({ devices, renters }: AllocationSectionProps) {
     else setAllocations([])
   }, [activeDeviceId, loadAllocations])
 
+  useEffect(() => {
+    setNewRenterId(null)
+    setNewStartsAt('')
+    setNewEndsAt('')
+    setAddError(null)
+    setEditId(null)
+    setEditStartsAt('')
+    setEditEndsAt('')
+    setEditSaving(false)
+  }, [activeDeviceId])
+
   async function handleAdd() {
     if (!activeDeviceId || !newRenterId || !newStartsAt) {
       setAddError('Device, renter, and start date are required.')
@@ -635,6 +646,12 @@ function ReportSection({ devices }: ReportSectionProps) {
   const [exporting, setExporting] = useState<'csv' | 'xlsx' | null>(null)
   const [exportError, setExportError] = useState<string | null>(null)
   const activeDeviceId = resolveDeviceSelection(deviceId, devices)
+
+  useEffect(() => {
+    setCurrentReport(null)
+    setExportError(null)
+    setGenerateError(null)
+  }, [activeDeviceId])
 
   useEffect(() => {
     if (!activeDeviceId) { setHistoricalReports([]); setCurrentReport(null); return }

@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { ESO } from '../../config/eso.js';
 import prisma from '../../lib/prisma.js';
+import { ensureAccessibleDevice, ownedDeviceRelationFilter } from '../deviceAccess.js';
 import { parseOptionalDeviceId } from '../queryParsers.js';
 import { getWeekBounds, type DeviceQuery } from './shared.js';
 
@@ -12,7 +13,14 @@ export function registerVoltageSummaryRoute(fastify: FastifyInstance): void {
     }
 
     const deviceId = parsedDeviceId.value;
-    const where = deviceId ? { deviceId } : {};
+    if (deviceId && !(await ensureAccessibleDevice(deviceId, req, reply))) {
+      return;
+    }
+
+    const where = {
+      ...(deviceId ? { deviceId } : {}),
+      ...ownedDeviceRelationFilter(req),
+    };
 
     const [latestReading, readingCount, windowCount, anomalyCount, activeAnomalyCount] =
       await Promise.all([
@@ -26,7 +34,13 @@ export function registerVoltageSummaryRoute(fastify: FastifyInstance): void {
     const { weekStart, weekEnd } = getWeekBounds(new Date());
 
     const weekWindows = await prisma.aggregatedData.findMany({
-      where: { ...where, startsAt: { gte: weekStart, lt: weekEnd } },
+      where: {
+        ...where,
+        AND: [
+          { startsAt: { lt: weekEnd } },
+          { endsAt: { gte: weekStart } },
+        ],
+      },
     });
 
     const total = weekWindows.length;

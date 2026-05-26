@@ -253,6 +253,54 @@ describe('UsageInsightsService detection', () => {
     expect(events[0]?.explanation).toContain('higher');
   });
 
+  it('updates an existing rolling anomaly instead of creating a new 10-minute shifted row', async () => {
+    const intervalMs = 10 * 60_000;
+    const firstReference = new Date('2026-05-24T02:30:00.000Z');
+    const firstWindowStart = new Date(firstReference.getTime() - 24 * 60 * 60_000);
+
+    for (let index = 0; index < 144; index += 1) {
+      const windowStart = new Date(firstWindowStart.getTime() + index * intervalMs);
+      await seedBaselineFor(windowStart, 1);
+      await seedWindow(windowStart, 6);
+    }
+
+    const firstPersisted = await usageInsightsService.detectForDevice({
+      userId,
+      deviceId,
+      settings: settings({
+        baselineWeeks: 1,
+        thresholdPct: 50,
+        sustainedIntervals: 3,
+      }),
+      reference: firstReference,
+    });
+
+    await seedBaselineFor(firstReference, 1);
+    await seedWindow(firstReference, 6);
+
+    const secondPersisted = await usageInsightsService.detectForDevice({
+      userId,
+      deviceId,
+      settings: settings({
+        baselineWeeks: 1,
+        thresholdPct: 50,
+        sustainedIntervals: 3,
+      }),
+      reference: new Date(firstReference.getTime() + intervalMs),
+    });
+
+    const events = await prisma.usageAnomalyEvent.findMany({
+      where: { userId, deviceId },
+      orderBy: { startsAt: 'asc' },
+    });
+
+    expect(firstPersisted).toBe(1);
+    expect(secondPersisted).toBe(1);
+    expect(events).toHaveLength(1);
+    expect(events[0]?.startsAt.toISOString()).toBe(firstWindowStart.toISOString());
+    expect(events[0]?.endsAt.toISOString()).toBe(new Date(firstReference.getTime() + intervalMs).toISOString());
+  });
+
   it('persists lower-usage anomaly explanations for sustained negative deltas', async () => {
     const startsAt = new Date('2026-05-11T10:00:00.000Z');
     const nextStartsAt = new Date(startsAt.getTime() + 10 * 60_000);

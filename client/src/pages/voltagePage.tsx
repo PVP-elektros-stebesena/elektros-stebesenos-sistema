@@ -4,6 +4,7 @@ import {
   Badge,
   Card,
   Group,
+  Loader,
   Progress,
   RingProgress,
   Select,
@@ -253,31 +254,31 @@ export function VoltagePage() {
     [activeSelectedDeviceId],
   );
 
-  const { data: latest } = usePolling<VoltageLatest>(
+  const { data: latest, isLoading: latestLoading } = usePolling<VoltageLatest>(
     ['voltage', 'latest', activeSelectedDeviceId ?? 'none'],
     activeSelectedDeviceId ? `/api/voltage/latest${deviceQuery}` : '',
     { intervalSeconds: 5 },
   );
 
-  const { data: summary } = usePolling<VoltageSummary>(
+  const { data: summary, isLoading: summaryLoading } = usePolling<VoltageSummary>(
     ['voltage', 'summary', activeSelectedDeviceId ?? 'none'],
     activeSelectedDeviceId ? `/api/voltage/summary${deviceQuery}` : '',
     { intervalSeconds: 10 },
   );
 
-  const { data: compliance } = usePolling<ComplianceWeekly>(
+  const { data: compliance, isLoading: complianceLoading } = usePolling<ComplianceWeekly>(
     ['voltage', 'compliance', activeSelectedDeviceId ?? 'none'],
     activeSelectedDeviceId ? `/api/voltage/compliance/weekly${deviceQuery}` : '',
     { intervalSeconds: 30 },
   );
 
-  const { data: activeAnomalies } = usePolling<AnomalyResponse>(
+  const { data: activeAnomalies, isLoading: activeAnomaliesLoading } = usePolling<AnomalyResponse>(
     ['voltage', 'anomalies', 'active', activeSelectedDeviceId ?? 'none'],
     activeSelectedDeviceId ? `/api/voltage/anomalies/active${deviceQuery}` : '',
     { intervalSeconds: 5 },
   );
 
-  const { data: recentAnomalies } = usePolling<AnomalyResponse>(
+  const { data: recentAnomalies, isLoading: recentAnomaliesLoading } = usePolling<AnomalyResponse>(
     ['voltage', 'anomalies', 'recent', activeSelectedDeviceId ?? 'none'],
     activeSelectedDeviceId ? anomaliesQuery : '',
     { intervalSeconds: 10 },
@@ -354,6 +355,10 @@ export function VoltagePage() {
       ).toFixed(1)
     : 0;
 
+  const isVoltageLoading =
+    !!activeSelectedDeviceId &&
+    (latestLoading || summaryLoading || complianceLoading || activeAnomaliesLoading || recentAnomaliesLoading);
+
   return (
     <Stack p="lg" gap="md" style={{ width: '100%' }}>
       <Title order={2}>{t('voltage.title')}</Title>
@@ -395,7 +400,14 @@ export function VoltagePage() {
         )}
       </Card>
 
-      {activeSelectedDeviceId && (
+      {activeSelectedDeviceId && isVoltageLoading ? (
+        <Group justify="center" py="xl">
+          <Loader size="sm" />
+          <Text size="sm" c="dimmed">
+            {t('voltage.loadingData')}
+          </Text>
+        </Group>
+      ) : activeSelectedDeviceId ? (
         <>
           <SimpleGrid cols={{ base: 2, sm: 4 }}>
             <BigStat
@@ -420,7 +432,7 @@ export function VoltagePage() {
             />
           </SimpleGrid>
 
-          {latest && (
+          {latest ? (
             <SimpleGrid cols={{ base: 1, sm: 3 }}>
               {latest.phases.map((p) => (
                 <PhaseCard
@@ -434,84 +446,92 @@ export function VoltagePage() {
                 />
               ))}
             </SimpleGrid>
+          ) : (
+            <Group justify="center" py="md">
+              <Text c="dimmed">—</Text>
+            </Group>
           )}
 
           <Card p="md" radius="md">
             <Group justify="space-between" mb="sm">
               <Text fw={700}>{t('voltage.liveVoltage')}</Text>
-              {latest && (
+              {latest ? (
                 <Text size="sm" c="dimmed">
                   {new Date(latest.timestamp).toLocaleTimeString()}
                 </Text>
+              ) : (
+                <Text size="sm" c="dimmed">—</Text>
               )}
             </Group>
 
-            <ResponsiveContainer width="100%" height={280}>
-              <LineChart data={voltageHistory}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="time" interval="preserveStartEnd" tick={{ fontSize: 11 }} />
-                <YAxis domain={[200, 260]} unit=" V" tick={{ fontSize: 11 }} />
-                <Tooltip />
-                <Legend />
+            {latest ? (
+              <ResponsiveContainer width="100%" height={280}>
+                <LineChart data={voltageHistory}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="time" interval="preserveStartEnd" tick={{ fontSize: 11 }} />
+                  <YAxis domain={[200, 260]} unit=" V" tick={{ fontSize: 11 }} />
+                  <Tooltip />
+                  <Legend />
 
-                {latest && (
-                  <>
-                    <ReferenceLine
-                      y={latest.bounds.max}
-                      stroke="#DB3C3C"
-                      strokeDasharray="6 3"
-                      label={{
-                        value: `${latest.bounds.max}V`,
-                        position: 'right',
-                        fontSize: 10,
-                        fill: '#DB3C3C',
-                      }}
-                    />
-                    <ReferenceLine
-                      y={latest.bounds.min}
-                      stroke="#DB3C3C"
-                      strokeDasharray="6 3"
-                      label={{
-                        value: `${latest.bounds.min}V`,
-                        position: 'right',
-                        fontSize: 10,
-                        fill: '#DB3C3C',
-                      }}
-                    />
-                    <ReferenceLine
-                      y={latest.bounds.nominal}
-                      stroke="#656565"
-                      strokeDasharray="3 3"
-                    />
-                  </>
-                )}
+                  <ReferenceLine
+                    y={latest.bounds.max}
+                    stroke="#DB3C3C"
+                    strokeDasharray="6 3"
+                    label={{
+                      value: `${latest.bounds.max}V`,
+                      position: 'right',
+                      fontSize: 10,
+                      fill: '#DB3C3C',
+                    }}
+                  />
+                  <ReferenceLine
+                    y={latest.bounds.min}
+                    stroke="#DB3C3C"
+                    strokeDasharray="6 3"
+                    label={{
+                      value: `${latest.bounds.min}V`,
+                      position: 'right',
+                      fontSize: 10,
+                      fill: '#DB3C3C',
+                    }}
+                  />
+                  <ReferenceLine
+                    y={latest.bounds.nominal}
+                    stroke="#656565"
+                    strokeDasharray="3 3"
+                  />
 
-                <Line
-                  dataKey="L1"
-                  stroke="#FFCC59"
-                  dot={false}
-                  strokeWidth={2}
-                  name="L1"
-                  isAnimationActive={false}
-                />
-                <Line
-                  dataKey="L2"
-                  stroke="#8ACDEA"
-                  dot={false}
-                  strokeWidth={2}
-                  name="L2"
-                  isAnimationActive={false}
-                />
-                <Line
-                  dataKey="L3"
-                  stroke="#DB3C3C"
-                  dot={false}
-                  strokeWidth={2}
-                  name="L3"
-                  isAnimationActive={false}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+                  <Line
+                    dataKey="L1"
+                    stroke="#FFCC59"
+                    dot={false}
+                    strokeWidth={2}
+                    name="L1"
+                    isAnimationActive={false}
+                  />
+                  <Line
+                    dataKey="L2"
+                    stroke="#8ACDEA"
+                    dot={false}
+                    strokeWidth={2}
+                    name="L2"
+                    isAnimationActive={false}
+                  />
+                  <Line
+                    dataKey="L3"
+                    stroke="#DB3C3C"
+                    dot={false}
+                    strokeWidth={2}
+                    name="L3"
+                    isAnimationActive={false}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <Group justify="center" py="md">
+                <Text c="dimmed">—</Text>
+              </Group>
+            )}
           </Card>
 
           <SimpleGrid cols={{ base: 1, sm: 2 }}>
@@ -586,9 +606,9 @@ export function VoltagePage() {
                   </Text>
                 </Stack>
               ) : (
-                <Text c="dimmed" ta="center">
-                  {t('voltage.loading')}
-                </Text>
+                <Group justify="center" py="md">
+                  <Text c="dimmed">—</Text>
+                </Group>
               )}
             </Card>
 
@@ -699,7 +719,7 @@ export function VoltagePage() {
             )}
           </Card>
         </>
-      )}
+      ) : null}
     </Stack>
   );
 }
