@@ -336,6 +336,7 @@ export class PowerTracker {
     }
     this.overCapacityState = this.createInitialOverCapacityState();
     this.previous = null;
+    this.phaseImbalanceSamples = [];
     this.exportOpportunity = {
       startedAt: null,
       notified: false,
