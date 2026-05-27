@@ -3,7 +3,7 @@ import {
   Accordion,
   Alert,
   Badge, Button, Card, Group, Progress,
-  RingProgress, SimpleGrid, Stack, Table, Switch,
+  RingProgress, SimpleGrid, Stack, Table,
   Text, Title, Select, Box, TextInput, Loader, Tabs,
 } from '@mantine/core';
 import {
@@ -25,7 +25,7 @@ import {
 import { usePolling } from '../hooks/usePolling';
 import { apiFetch, apiPost } from '../services/apiClient';
 import { useI18n, type Language } from '../i18n/i18n';
-import type { EstimatedCost, ReactivePenaltyEstimate } from '../types/energy';
+import type { EstimatedCost, GhostLoadOverview, ReactivePenaltyEstimate } from '../types/energy';
 import { resolveDeviceSelection, useDeviceOptions } from '../hooks/useDeviceOptions';
 
 /* ── API response types ─────────────────────────────────────────── */
@@ -131,6 +131,21 @@ interface ReportDetail {
   createdAt: string;
   estimatedCost: EstimatedCost;
   reactivePenalty: ReactivePenaltyEstimate;
+  ghostLoad?: GhostLoadOverview | null;
+  usageAnomalies?: {
+    count: number;
+    maxAbsDeltaPct: number | null;
+    events: {
+      id: number;
+      startsAt: string;
+      endsAt: string;
+      observedKwh: number;
+      baselineKwh: number;
+      deltaPct: number;
+      explanation: string;
+      scope: string;
+    }[];
+  };
 }
 
 interface ReportListResponse {
@@ -332,6 +347,30 @@ function anomalyTypeDescription(type: string, language: Language): string {
       'Voltage deviated from nominal operating range; trend monitoring is recommended to assess recurrence and duration.',
       'Įtampa nukrypo nuo nominalaus darbo diapazono; rekomenduojama stebėti tendencijas, kad būtų įvertintas pasikartojimas ir trukmė.',
     ),
+    LOW_POWER_FACTOR: tr(language,
+      'Power factor dropped below target, indicating inefficient apparent power usage and elevated reactive demand.',
+      'Galios koeficientas nukrito žemiau tikslo, rodydamas neefektyvų tariamosios galios naudojimą ir padidėjusią reaktyviąją apkrovą.',
+    ),
+    POWER_SPIKE: tr(language,
+      'Active power rose above the configured limit, indicating short-term overload or surge behavior.',
+      'Aktyvioji galia pakilo virš nustatytos ribos, rodydama trumpalaikę perkrovą arba šuolinį režimą.',
+    ),
+    OVER_CAPACITY_WARNING: tr(language,
+      'Active power stayed close to or above configured grid capacity for a sustained period.',
+      'Aktyvioji galia išliko arti arba virš nustatytos tinklo galios ribos ilgesnį laiką.',
+    ),
+    REACTIVE_POWER_SPIKE: tr(language,
+      'Reactive power exceeded configured thresholds, suggesting elevated inductive or capacitive demand.',
+      'Reaktyvioji galia viršijo nustatytas ribas, rodydama padidėjusią induktyvinę arba talpinę apkrovą.',
+    ),
+    PHASE_IMBALANCE: tr(language,
+      'Power loading became uneven across phases, which can reduce efficiency and increase stress on equipment.',
+      'Galių apkrova tapo netolygi tarp fazių, kas gali mažinti efektyvumą ir didinti įrangos apkrovą.',
+    ),
+    POWER_RAMP_RATE: tr(language,
+      'Power changed too quickly in a short interval, indicating abrupt load dynamics.',
+      'Galia per trumpą intervalą kito per staigiai, rodydama staigią apkrovos dinamiką.',
+    ),
   };
 
   return descriptions[type] ?? tr(
@@ -348,6 +387,12 @@ function anomalyTypeLabel(type: string, language: Language): string {
     OVER_VOLTAGE: tr(language, 'Over-voltage', 'Viršįtampis'),
     UNDER_VOLTAGE: tr(language, 'Under-voltage', 'Žema įtampa'),
     VOLTAGE_DEVIATION: tr(language, 'Voltage deviation', 'Įtampos nuokrypis'),
+    LOW_POWER_FACTOR: tr(language, 'Low power factor', 'Žemas galios koeficientas'),
+    POWER_SPIKE: tr(language, 'Power spike', 'Galios šuolis'),
+    OVER_CAPACITY_WARNING: tr(language, 'Over capacity warning', 'Galios ribos įspėjimas'),
+    REACTIVE_POWER_SPIKE: tr(language, 'Reactive power spike', 'Reaktyviosios galios šuolis'),
+    PHASE_IMBALANCE: tr(language, 'Phase imbalance', 'Fazių disbalansas'),
+    POWER_RAMP_RATE: tr(language, 'Power ramp rate', 'Galios kitimo šuolis'),
   };
   return labels[type] ?? type;
 }
@@ -423,7 +468,6 @@ function pricingModeLabel(
 function ReportPrintView({ report }: { report: ReportDetail }) {
   const { language } = useI18n();
   const printRef = useRef<HTMLDivElement>(null);
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const [openedAnomalyKey, setOpenedAnomalyKey] = useState<string | null>(null);
   const [loadingAnomalyId, setLoadingAnomalyId] = useState<number | null>(null);
   const [contextByAnomalyId, setContextByAnomalyId] =
@@ -566,7 +610,6 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
     setLoadingAnomalyId(null);
     setContextByAnomalyId({});
     setContextErrorByAnomalyId({});
-    setShowAdvanced(false);
   }, [report.id]);
 
   const loadAnomalyContext = useCallback(async (itemIndex: number) => {
@@ -762,7 +805,7 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
 
         <div class="footer">
           ${tr(language, 'Generated', 'Sugeneruota')}: ${new Date().toLocaleString(localeForLanguage(language))} &middot;
-          ${tr(language, 'Standard', 'Standartas')}: LST EN 50160 — ≥95% ${tr(language, 'of 10-min RMS windows within 230V ±10V', '10 min RMS langų turi būti 230V ±10V ribose')}
+          ${tr(language, 'Standard', 'Standartas')}: LST EN 50160 — ≥95% ${tr(language, 'of 10-min RMS windows within 230V +10%', '10 min RMS langų turi būti 230V +10% ribose')}
         </div>
       </body>
       </html>
@@ -847,13 +890,6 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
                   </Group>
 
                   <Group gap="sm" wrap="wrap" justify="flex-end">
-                    {isTechnicalReport && (
-                      <Switch
-                        label={tr(language, 'Advanced details', 'Išplėstinė informacija')}
-                        checked={showAdvanced}
-                        onChange={(event) => setShowAdvanced(event.currentTarget.checked)}
-                      />
-                    )}
                     <Button variant="light" onClick={handlePrint}>
                       {tr(language, 'Print / PDF', 'Spausdinti / PDF')}
                     </Button>
@@ -863,6 +899,9 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
             </Card>
 
             {!isSolarReport && (
+            <>
+            <Card p="md" radius="md" withBorder>
+              <Text fw={700} mb="md">{tr(language, 'Compliance overview', 'Atitikties apžvalga')}</Text>
               <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }}>
                 <Card p="md" radius="md" withBorder>
                   <Stack justify="space-between" style={{ height: '100%' }}>
@@ -917,18 +956,15 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
                   </Stack>
                 </Card>
               </SimpleGrid>
-            )}
+            </Card>
 
-            {!isSolarReport && (
               <Card p="md" radius="md" withBorder>
                 <Stack gap="sm">
                   <Group justify="space-between" align="flex-start" wrap="wrap">
                     <div>
                       <Text fw={700}>{tr(language, 'Power Quality Snapshot', 'Galios kokybės apžvalga')}</Text>
                       <Text size="sm" c="dimmed" mt={4}>
-                        {isTechnicalReport
-                          ? tr(language, 'Detailed quality metrics, energy trends, and appendices are available in Advanced details.', 'Išsamios kokybės metrikos, energijos tendencijos ir priedai pateikiami skiltyje „Išplėstinė informacija“.')
-                          : tr(language, 'This summary highlights the overall supply quality during the report period.', 'Ši santrauka parodo bendrą tiekimo kokybę ataskaitos laikotarpiu.')}
+                        {tr(language, 'This summary highlights the overall supply quality during the report period.', 'Ši santrauka parodo bendrą tiekimo kokybę ataskaitos laikotarpiu.')}
                       </Text>
                     </div>
                     <Badge color={quality.pass ? 'green' : 'red'} variant="light">
@@ -938,9 +974,10 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
                   <Text size="sm">{quality.assessmentText}</Text>
                 </Stack>
               </Card>
+            </>
             )}
 
-            {isTechnicalReport && showAdvanced && (
+            {isTechnicalReport && (
               <>
                 <Card p="md" radius="md" withBorder>
                   <Text fw={700} mb="md">{tr(language, 'Per-Phase Compliance', 'Atitikimas pagal fazes')}</Text>
@@ -1088,6 +1125,40 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
               </Stack>
             </Card>
 
+            {isHomeReport && (
+              <Card p="md" radius="md" withBorder>
+                <Text fw={700} mb="md">{tr(language, 'Home efficiency highlights', 'Namų efektyvumo akcentai')}</Text>
+                <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }}>
+                  <Card p="sm" withBorder>
+                    <Text size="xs" c="dimmed">{tr(language, 'Ghost load', 'Foninė apkrova')}</Text>
+                    <Text fw={700} fz="xl">
+                      {report.ghostLoad?.baselinePowerWatts != null ? `${report.ghostLoad.baselinePowerWatts} W` : '—'}
+                    </Text>
+                  </Card>
+                  <Card p="sm" withBorder>
+                    <Text size="xs" c="dimmed">{tr(language, 'Monthly standby cost', 'Mėnesio budėjimo kaina')}</Text>
+                    <Text fw={700} fz="xl">
+                      {report.ghostLoad?.projectedMonthlyCostEur != null
+                        ? formatCurrency(report.ghostLoad.projectedMonthlyCostEur, language)
+                        : '—'}
+                    </Text>
+                  </Card>
+                  <Card p="sm" withBorder>
+                    <Text size="xs" c="dimmed">{tr(language, 'Usage anomalies', 'Naudojimo anomalijos')}</Text>
+                    <Text fw={700} fz="xl">{report.usageAnomalies?.count ?? 0}</Text>
+                  </Card>
+                  <Card p="sm" withBorder>
+                    <Text size="xs" c="dimmed">{tr(language, 'Largest usage deviation', 'Didžiausias vartojimo nuokrypis')}</Text>
+                    <Text fw={700} fz="xl">
+                      {report.usageAnomalies?.maxAbsDeltaPct != null
+                        ? `${report.usageAnomalies.maxAbsDeltaPct.toFixed(1)}%`
+                        : '—'}
+                    </Text>
+                  </Card>
+                </SimpleGrid>
+              </Card>
+            )}
+
             <Card p="md" radius="md" withBorder>
               <Group justify="space-between" align="flex-start" wrap="wrap" mb="md">
                 <div>
@@ -1149,6 +1220,102 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
                 </Table.ScrollContainer>
               )}
             </Card>
+
+            {isTechnicalReport && (
+              <Card p="md" radius="md" withBorder>
+                <Text fw={700} mb="md">{tr(language, 'Usage anomaly details', 'Naudojimo anomalijų detalės')}</Text>
+                {report.usageAnomalies && report.usageAnomalies.count > 0 ? (
+                  <Table.ScrollContainer minWidth={760} mb="md">
+                    <Table>
+                      <Table.Thead>
+                        <Table.Tr>
+                          <Table.Th>{tr(language, 'Start', 'Pradžia')}</Table.Th>
+                          <Table.Th>{tr(language, 'End', 'Pabaiga')}</Table.Th>
+                          <Table.Th>{tr(language, 'Observed', 'Stebėta')}</Table.Th>
+                          <Table.Th>{tr(language, 'Baseline', 'Bazė')}</Table.Th>
+                          <Table.Th>{tr(language, 'Delta', 'Nuokrypis')}</Table.Th>
+                        </Table.Tr>
+                      </Table.Thead>
+                      <Table.Tbody>
+                        {report.usageAnomalies.events.map((event) => (
+                          <Table.Tr key={event.id}>
+                            <Table.Td>{formatDate(event.startsAt, language)}</Table.Td>
+                            <Table.Td>{formatDate(event.endsAt, language)}</Table.Td>
+                            <Table.Td>{event.observedKwh.toFixed(3)} kWh</Table.Td>
+                            <Table.Td>{event.baselineKwh.toFixed(3)} kWh</Table.Td>
+                            <Table.Td>
+                              <Badge color={Math.abs(event.deltaPct) >= 25 ? 'red' : 'yellow'} variant="light">
+                                {event.deltaPct >= 0 ? '+' : ''}{event.deltaPct.toFixed(1)}%
+                              </Badge>
+                            </Table.Td>
+                          </Table.Tr>
+                        ))}
+                      </Table.Tbody>
+                    </Table>
+                  </Table.ScrollContainer>
+                ) : (
+                  <Text size="sm" c="dimmed" mb="md">
+                    {tr(language, 'No usage anomalies were detected in this report window.', 'Šiame ataskaitos intervale naudojimo anomalijų neaptikta.')}
+                  </Text>
+                )}
+              </Card>
+            )}
+
+            {isTechnicalReport && (
+              <Card p="md" radius="md" withBorder>
+                <Group justify="space-between" align="flex-start" wrap="wrap" mb="md">
+                  <div>
+                    <Text fw={700}>{tr(language, 'Ghost load baseline', 'Foninės apkrovos bazė')}</Text>
+                    <Text size="sm" c="dimmed" mt={4}>
+                      {report.ghostLoad?.baselineDate
+                        ? tr(language, `Baseline date: ${report.ghostLoad.baselineDate}`, `Bazės data: ${report.ghostLoad.baselineDate}`)
+                        : tr(language, 'No standby baseline available for this report context.', 'Šiam ataskaitos kontekstui budėjimo bazė nepasiekiama.')}
+                    </Text>
+                  </div>
+                  <Badge
+                    color={
+                      report.ghostLoad?.status === 'complete'
+                        ? 'green'
+                        : report.ghostLoad?.status === 'partial'
+                          ? 'yellow'
+                          : 'gray'
+                    }
+                    variant="light"
+                  >
+                    {report.ghostLoad?.status ?? 'unavailable'}
+                  </Badge>
+                </Group>
+
+                <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }}>
+                  <Card p="sm" withBorder>
+                    <Text size="xs" c="dimmed">{tr(language, 'Baseline draw', 'Bazinė galia')}</Text>
+                    <Text fw={700} fz="xl">
+                      {report.ghostLoad?.baselinePowerWatts != null ? `${report.ghostLoad.baselinePowerWatts} W` : '—'}
+                    </Text>
+                  </Card>
+                  <Card p="sm" withBorder>
+                    <Text size="xs" c="dimmed">{tr(language, 'Projected monthly standby', 'Prognozuojamas mėnesio budėjimas')}</Text>
+                    <Text fw={700} fz="xl">
+                      {report.ghostLoad?.projectedMonthlyKwh != null ? `${report.ghostLoad.projectedMonthlyKwh.toFixed(1)} kWh` : '—'}
+                    </Text>
+                  </Card>
+                  <Card p="sm" withBorder>
+                    <Text size="xs" c="dimmed">{tr(language, 'Current standby rate', 'Dabartinis budėjimo tarifas')}</Text>
+                    <Text fw={700} fz="xl">
+                      {report.ghostLoad?.currentRateEurPerKwh != null ? `${report.ghostLoad.currentRateEurPerKwh.toFixed(3)} €/kWh` : '—'}
+                    </Text>
+                  </Card>
+                  <Card p="sm" withBorder>
+                    <Text size="xs" c="dimmed">{tr(language, 'Projected monthly standby cost', 'Prognozuojama mėnesio budėjimo kaina')}</Text>
+                    <Text fw={700} fz="xl">
+                      {report.ghostLoad?.projectedMonthlyCostEur != null
+                        ? formatCurrency(report.ghostLoad.projectedMonthlyCostEur, language)
+                        : '—'}
+                    </Text>
+                  </Card>
+                </SimpleGrid>
+              </Card>
+            )}
 
             {isTechnicalReport && (
               <Card p="md" radius="md" withBorder>
@@ -1329,7 +1496,7 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
               </Text>
             )}
 
-            {isTechnicalReport && showAdvanced && insights.anomalyTypeDistribution.length > 0 && (
+            {isTechnicalReport && insights.anomalyTypeDistribution.length > 0 && (
               <SimpleGrid cols={{ base: 1, lg: 2 }}>
                 <Card p="md" radius="md" withBorder>
                   <Text fw={700} mb="md">{tr(language, 'Anomaly type distribution', 'Anomalijų tipų pasiskirstymas')}</Text>
@@ -1376,7 +1543,7 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
               </SimpleGrid>
             )}
 
-            {isTechnicalReport && showAdvanced && (
+            {isTechnicalReport && (
               <Card p="md" radius="md" withBorder>
                 <Text fw={700} mb="xs">Anomaly analysis (60-minute context)</Text>
                 <Text size="sm" c="dimmed" mb="md">
@@ -1575,7 +1742,7 @@ function ReportPrintView({ report }: { report: ReportDetail }) {
             )}
 
             <Text size="xs" c="dimmed" ta="center">
-              {tr(language, 'Standard', 'Standartas')}: LST EN 50160 — ≥95% {tr(language, 'of 10-min RMS windows must be within 230V ±10V', '10 min RMS langų turi būti 230V ±10V ribose')}
+              {tr(language, 'Standard', 'Standartas')}: LST EN 50160 — ≥95% {tr(language, 'of 10-min RMS windows must be within 230V +10%', '10 min RMS langų turi būti 230V +10% ribose')}
             </Text>
           </>
         );

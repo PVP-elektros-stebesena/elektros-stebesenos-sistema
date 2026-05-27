@@ -12,6 +12,7 @@ import {
   reactivePenaltyEstimatorService,
   unavailableReactivePenaltyEstimate,
 } from '../../services/reactivePenaltyEstimator.js';
+import { standbyPowerService } from '../../services/standbyPowerService.js';
 import type { ReactivePenaltyEstimate } from '../../services/reactivePenaltyEstimator.js';
 import type { HealthScore, PeriodType, ReportUse } from '../../services/reportGenerator.js';
 import { ensureAccessibleDevice, ownedDeviceRelationFilter } from '../deviceAccess.js';
@@ -205,6 +206,29 @@ export function registerReportCrudRoutes(fastify: FastifyInstance): void {
       report.endsAt,
       enrichedAnomalySummary,
     );
+    const usageAnomalies = req.authUser
+      ? await prisma.usageAnomalyEvent.findMany({
+          where: {
+            userId: req.authUser.id,
+            deviceId: report.deviceId,
+            startsAt: { lte: report.endsAt },
+            endsAt: { gte: report.startsAt },
+          },
+          orderBy: { startsAt: 'desc' },
+          take: 50,
+          select: {
+            id: true,
+            startsAt: true,
+            endsAt: true,
+            observedKwh: true,
+            baselineKwh: true,
+            deltaPct: true,
+            explanation: true,
+            scope: true,
+          },
+        })
+      : [];
+    const ghostLoad = await standbyPowerService.getGhostLoadOverview(report.deviceId, report.endsAt);
 
     const powerQuality = buildPowerQualityAssessment(
       {
@@ -294,6 +318,23 @@ export function registerReportCrudRoutes(fastify: FastifyInstance): void {
       createdAt: report.createdAt,
       estimatedCost,
       reactivePenalty,
+      ghostLoad,
+      usageAnomalies: {
+        count: usageAnomalies.length,
+        maxAbsDeltaPct: usageAnomalies.length > 0
+          ? Math.max(...usageAnomalies.map((item) => Math.abs(item.deltaPct)))
+          : null,
+        events: usageAnomalies.map((item) => ({
+          id: item.id,
+          startsAt: item.startsAt,
+          endsAt: item.endsAt,
+          observedKwh: item.observedKwh,
+          baselineKwh: item.baselineKwh,
+          deltaPct: item.deltaPct,
+          explanation: item.explanation,
+          scope: item.scope,
+        })),
+      },
     };
   });
 }
