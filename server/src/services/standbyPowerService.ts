@@ -362,8 +362,12 @@ export class StandbyPowerService {
     deviceId: number,
     at = new Date(),
   ): Promise<GhostLoadOverview> {
+    const latestCompletedBaselineDate = getLatestCompletedBillingDate(at);
     const baseline = await prisma.standbyBaseline.findFirst({
-      where: { deviceId },
+      where: {
+        deviceId,
+        baselineDate: { lte: latestCompletedBaselineDate },
+      },
       orderBy: [
         { baselineDate: 'desc' },
         { computedAt: 'desc' },

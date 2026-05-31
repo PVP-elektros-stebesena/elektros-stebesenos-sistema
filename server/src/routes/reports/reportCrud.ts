@@ -206,28 +206,45 @@ export function registerReportCrudRoutes(fastify: FastifyInstance): void {
       report.endsAt,
       enrichedAnomalySummary,
     );
-    const usageAnomalies = req.authUser
-      ? await prisma.usageAnomalyEvent.findMany({
-          where: {
-            userId: req.authUser.id,
-            deviceId: report.deviceId,
-            startsAt: { lte: report.endsAt },
-            endsAt: { gte: report.startsAt },
-          },
-          orderBy: { startsAt: 'desc' },
-          take: 50,
-          select: {
-            id: true,
-            startsAt: true,
-            endsAt: true,
-            observedKwh: true,
-            baselineKwh: true,
-            deltaPct: true,
-            explanation: true,
-            scope: true,
-          },
-        })
-      : [];
+    const usageAnomalyWhere = req.authUser
+      ? {
+          userId: req.authUser.id,
+          deviceId: report.deviceId,
+          startsAt: { lte: report.endsAt },
+          endsAt: { gte: report.startsAt },
+        }
+      : null;
+    const [usageAnomalies, usageAnomalyCount, usageAnomalyDeltaBounds] = usageAnomalyWhere
+      ? await Promise.all([
+          prisma.usageAnomalyEvent.findMany({
+            where: usageAnomalyWhere,
+            orderBy: { startsAt: 'desc' },
+            take: 50,
+            select: {
+              id: true,
+              startsAt: true,
+              endsAt: true,
+              observedKwh: true,
+              baselineKwh: true,
+              deltaPct: true,
+              explanation: true,
+              scope: true,
+            },
+          }),
+          prisma.usageAnomalyEvent.count({ where: usageAnomalyWhere }),
+          prisma.usageAnomalyEvent.aggregate({
+            where: usageAnomalyWhere,
+            _max: { deltaPct: true },
+            _min: { deltaPct: true },
+          }),
+        ])
+      : [[], 0, null];
+    const maxAbsUsageAnomalyDeltaPct = usageAnomalyCount > 0 && usageAnomalyDeltaBounds
+      ? Math.max(
+          Math.abs(usageAnomalyDeltaBounds._max.deltaPct ?? 0),
+          Math.abs(usageAnomalyDeltaBounds._min.deltaPct ?? 0),
+        )
+      : null;
     const ghostLoad = await standbyPowerService.getGhostLoadOverview(report.deviceId, report.endsAt);
 
     const powerQuality = buildPowerQualityAssessment(
@@ -320,10 +337,8 @@ export function registerReportCrudRoutes(fastify: FastifyInstance): void {
       reactivePenalty,
       ghostLoad,
       usageAnomalies: {
-        count: usageAnomalies.length,
-        maxAbsDeltaPct: usageAnomalies.length > 0
-          ? Math.max(...usageAnomalies.map((item) => Math.abs(item.deltaPct)))
-          : null,
+        count: usageAnomalyCount,
+        maxAbsDeltaPct: maxAbsUsageAnomalyDeltaPct,
         events: usageAnomalies.map((item) => ({
           id: item.id,
           startsAt: item.startsAt,

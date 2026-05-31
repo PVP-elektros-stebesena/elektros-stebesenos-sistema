@@ -370,6 +370,56 @@ describe('StandbyPowerService', () => {
     expect(overview.projectedMonthlyCostEur).toBeGreaterThan(0);
   });
 
+  it('does not use standby baselines after the overview reference time', async () => {
+    await prisma.standbyBaseline.createMany({
+      data: [
+        {
+          deviceId: testDeviceId,
+          baselineDate: '2026-04-06',
+          baselinePowerKw: 0.2,
+          windowStartsAt: new Date('2026-04-06T23:00:00.000Z'),
+          windowEndsAt: new Date('2026-04-06T23:10:00.000Z'),
+          sampleCount: 60,
+        },
+        {
+          deviceId: testDeviceId,
+          baselineDate: '2026-04-08',
+          baselinePowerKw: 0.9,
+          windowStartsAt: new Date('2026-04-08T23:00:00.000Z'),
+          windowEndsAt: new Date('2026-04-08T23:10:00.000Z'),
+          sampleCount: 60,
+        },
+      ],
+    });
+
+    await prisma.billingPlan.create({
+      data: {
+        deviceId: testDeviceId,
+        pricingMode: 'FIXED',
+        effectiveFrom: new Date('2026-04-01T00:00:00.000Z'),
+        rateT1: 0.2,
+        monthlyFixedFeeEur: null,
+      },
+    });
+
+    await prisma.reading.create({
+      data: {
+        deviceId: testDeviceId,
+        timestamp: new Date('2026-04-07T06:00:00.000Z'),
+        electricityTariff: 1,
+      },
+    });
+
+    const overview = await standbyPowerService.getGhostLoadOverview(
+      testDeviceId,
+      new Date('2026-04-07T06:00:00.000Z'),
+    );
+
+    expect(overview.status).toBe('complete');
+    expect(overview.baselineDate).toBe('2026-04-06');
+    expect(overview.baselinePowerWatts).toBe(200);
+  });
+
   it('returns a partial ghost-load overview when dynamic pricing is active but the current spot rate is unavailable', async () => {
     await prisma.standbyBaseline.create({
       data: {

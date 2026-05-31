@@ -31,8 +31,10 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   clearPowerPolicyCache();
+  await prisma.usageAnomalyEvent.deleteMany();
   await prisma.report.deleteMany();
   await prisma.anomaly.deleteMany();
+  await prisma.standbyBaseline.deleteMany();
   await prisma.aggregatedData.deleteMany();
   await prisma.reading.deleteMany();
   await prisma.billingPlan.deleteMany();
@@ -42,8 +44,10 @@ beforeEach(async () => {
 });
 
 afterAll(async () => {
+  await prisma.usageAnomalyEvent.deleteMany();
   await prisma.report.deleteMany();
   await prisma.anomaly.deleteMany();
+  await prisma.standbyBaseline.deleteMany();
   await prisma.aggregatedData.deleteMany();
   await prisma.reading.deleteMany();
   await prisma.billingPlan.deleteMany();
@@ -230,6 +234,80 @@ describe('report routes estimatedCost', () => {
     expect(detailRes.json().reactivePenalty.status).toBe('complete');
     expect(detailRes.json().reactivePenalty.totalEur).toBeCloseTo(0.11, 6);
     expect(detailRes.json().reactivePenalty.chargeableReactiveReturnedKvarh).toBe(2);
+  });
+
+  it('reports total usage anomaly count and max delta beyond the 50-row preview', async () => {
+    const user = await prisma.user.create({
+      data: {
+        email: `report-scope-usage-${Date.now()}@example.com`,
+        passwordHash: 'test-hash',
+      },
+    });
+    const device = await prisma.device.create({
+      data: {
+        name: 'Report usage anomaly summary device',
+        userId: user.id,
+        pollInterval: 10,
+        isActive: true,
+      },
+    });
+    const startsAt = new Date('2026-05-01T00:00:00.000Z');
+    const endsAt = new Date('2026-05-02T00:00:00.000Z');
+
+    const report = await prisma.report.create({
+      data: {
+        deviceId: device.id,
+        reportUse: 'technical',
+        periodType: 'daily',
+        startsAt,
+        endsAt,
+        totalWindows: 144,
+        compliantWindowsL1: 144,
+        compliantWindowsL2: 144,
+        compliantWindowsL3: 144,
+        compliancePctL1: 100,
+        compliancePctL2: 100,
+        compliancePctL3: 100,
+        overallCompliant: true,
+        healthScore: 'GREEN',
+        powerHealthScore: 'GREEN',
+        combinedHealthScore: 'GREEN',
+        anomalySummary: '[]',
+        totalAnomalies: 0,
+        criticalCount: 0,
+        warningCount: 0,
+      },
+    });
+
+    await prisma.usageAnomalyEvent.createMany({
+      data: Array.from({ length: 51 }, (_, index) => {
+        const eventStartsAt = new Date(startsAt.getTime() + index * 10 * 60_000);
+        return {
+          userId: user.id,
+          deviceId: device.id,
+          startsAt: eventStartsAt,
+          endsAt: new Date(eventStartsAt.getTime() + 5 * 60_000),
+          observedKwh: 2,
+          baselineKwh: 1,
+          deltaPct: index === 0 ? 500 : 10,
+          explanation: `Usage anomaly ${index}`,
+          scope: 'PER_DEVICE',
+        };
+      }),
+    });
+
+    const detailRes = await app.inject({
+      method: 'GET',
+      url: `/api/reports/${report.id}`,
+      headers: { 'x-test-user-id': String(user.id) },
+    });
+    const body = detailRes.json();
+
+    expect(detailRes.statusCode).toBe(200);
+    expect(body.usageAnomalies.count).toBe(51);
+    expect(body.usageAnomalies.events).toHaveLength(50);
+    expect(body.usageAnomalies.maxAbsDeltaPct).toBe(500);
+    expect(body.usageAnomalies.events.some((event: { deltaPct: number }) => event.deltaPct === 500)).toBe(false);
   });
 
   it('returns unavailable estimatedCost in list and detail when calculation fails', async () => {
