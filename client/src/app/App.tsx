@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { MantineProvider, Box, Burger, Drawer, Flex, Group, Text, Tooltip, ActionIcon } from '@mantine/core';
 import '@mantine/core/styles.css';
 import { theme } from '../components/theme';
@@ -15,7 +15,7 @@ import { I18nProvider } from '../i18n/i18n';
 import { AuthGate } from '../pages/AuthGate';
 import { useDisclosure } from '@mantine/hooks';
 import { WeatherTemperature } from '../components/weather-temperature';
-import { persistPage, readStoredPage } from '../utils/pageStorage';
+import { clearStoredPage, DEFAULT_PAGE, persistPage, readStoredPage } from '../utils/pageStorage';
 
 function IconUser({ size = 20, color = 'currentColor' }: { size?: number; color?: string }) {
   return (
@@ -37,14 +37,54 @@ function IconLogout({ size = 20, color = "currentColor" }: { size?: number; colo
 }
 
 export default function App() {
-  const [page, setPage] = useState<Page>(() => readStoredPage());
+  const [page, setPage] = useState<Page>(DEFAULT_PAGE);
+  const pageStorageLoadedRef = useRef(false);
+  const skipNextPagePersistRef = useRef(false);
   const [mobileNavOpened, { toggle: toggleMobileNav, close: closeMobileNav }] = useDisclosure(false);
   const [desktopNavHidden, setDesktopNavHidden] = useState(false);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    queueMicrotask(() => {
+      if (cancelled) {
+        return;
+      }
+
+      pageStorageLoadedRef.current = true;
+      setPage(readStoredPage());
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!pageStorageLoadedRef.current) {
+      return;
+    }
+
+    if (skipNextPagePersistRef.current) {
+      skipNextPagePersistRef.current = false;
+      return;
+    }
+
+    persistPage(page);
+  }, [page]);
+
   const handleNavigate = (nextPage: Page) => {
     setPage(nextPage)
-    persistPage(nextPage)
   }
+
+  const handleLogout = async (onLogout: () => Promise<void>) => {
+    clearStoredPage();
+    if (page !== DEFAULT_PAGE) {
+      skipNextPagePersistRef.current = true;
+      setPage(DEFAULT_PAGE);
+    }
+    await onLogout();
+  };
 
   return (
     <I18nProvider>
@@ -135,7 +175,7 @@ export default function App() {
                             aria-label="Log out"
                             variant="subtle"
                             color="gray"
-                            onClick={onLogout}
+                            onClick={() => handleLogout(onLogout)}
                           >
                             <IconLogout size={19} />
                           </ActionIcon>
@@ -181,7 +221,7 @@ export default function App() {
                             aria-label="Log out"
                             variant="subtle"
                             color="gray"
-                            onClick={onLogout}
+                            onClick={() => handleLogout(onLogout)}
                           >
                             <IconLogout size={19} />
                           </ActionIcon>

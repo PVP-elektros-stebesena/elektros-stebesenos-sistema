@@ -1,7 +1,7 @@
 import type { Page } from '../types/energy';
 
 const STORAGE_KEY = 'app-last-page';
-const DEFAULT_PAGE: Page = 'voltage';
+export const DEFAULT_PAGE: Page = 'voltage';
 const VALID_PAGES: ReadonlySet<Page> = new Set([
   'currentData',
   'voltage',
@@ -16,14 +16,31 @@ function isValidPage(value: string): value is Page {
   return VALID_PAGES.has(value as Page);
 }
 
-export function readStoredPage(): Page {
+function getPageStorage(): Storage | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
   try {
-    const stored = localStorage.getItem(STORAGE_KEY);
+    return window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+export function readStoredPage(): Page {
+  const storage = getPageStorage();
+  if (!storage) {
+    return DEFAULT_PAGE;
+  }
+
+  try {
+    const stored = storage.getItem(STORAGE_KEY);
     if (stored && isValidPage(stored)) {
       return stored;
     }
     if (stored) {
-      localStorage.removeItem(STORAGE_KEY);
+      storage.removeItem(STORAGE_KEY);
     }
   } catch {
     // Ignore storage access errors and fall back to default.
@@ -33,8 +50,26 @@ export function readStoredPage(): Page {
 }
 
 export function persistPage(page: Page): void {
+  const storage = getPageStorage();
+  if (!storage) {
+    return;
+  }
+
   try {
-    localStorage.setItem(STORAGE_KEY, page);
+    storage.setItem(STORAGE_KEY, page);
+  } catch {
+    // Ignore storage access errors.
+  }
+}
+
+export function clearStoredPage(): void {
+  const storage = getPageStorage();
+  if (!storage) {
+    return;
+  }
+
+  try {
+    storage.removeItem(STORAGE_KEY);
   } catch {
     // Ignore storage access errors.
   }
