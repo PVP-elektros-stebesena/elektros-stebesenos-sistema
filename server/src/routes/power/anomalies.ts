@@ -6,7 +6,7 @@ import {
   parseOptionalDeviceId,
   validateAscendingRange,
 } from '../queryParsers.js';
-import type { AnomalyQuery } from './shared.js';
+import type { AnomalyQuery, DeviceQuery } from './shared.js';
 
 export function registerPowerAnomaliesRoute(fastify: FastifyInstance): void {
   fastify.get<{ Querystring: AnomalyQuery }>('/api/power/anomalies', async (req, reply) => {
@@ -67,6 +67,33 @@ export function registerPowerAnomaliesRoute(fastify: FastifyInstance): void {
     return {
       count: anomalies.length,
       data: anomalies,
+    };
+  });
+
+  fastify.get<{ Querystring: DeviceQuery }>('/api/power/anomalies/active', async (req, reply) => {
+    const parsedDeviceId = parseOptionalDeviceId(req.query.deviceId);
+    if (!parsedDeviceId.ok) {
+      return reply.code(parsedDeviceId.statusCode).send(parsedDeviceId.body);
+    }
+
+    const deviceId = parsedDeviceId.value;
+    if (deviceId && !(await ensureAccessibleDevice(deviceId, req, reply))) {
+      return;
+    }
+
+    const active = await prisma.anomaly.findMany({
+      where: {
+        metricDomain: 'POWER',
+        ...(deviceId ? { deviceId } : {}),
+        ...ownedDeviceRelationFilter(req),
+        endsAt: null,
+      },
+      orderBy: { startsAt: 'desc' },
+    });
+
+    return {
+      count: active.length,
+      data: active,
     };
   });
 }

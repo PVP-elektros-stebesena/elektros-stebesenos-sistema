@@ -603,6 +603,38 @@ describe('GET /api/power/anomalies', () => {
     expect(body.data[0].metricDomain).toBe('POWER');
   });
 
+  it('returns active power anomalies', async () => {
+    await prisma.anomaly.createMany({
+      data: [
+        {
+          deviceId: testDeviceId,
+          startsAt: new Date('2026-03-26T08:00:00Z'),
+          endsAt: null,
+          phase: 'ALL',
+          type: 'POWER_SPIKE',
+          severity: 2,
+          metricDomain: 'POWER',
+        },
+        {
+          deviceId: testDeviceId,
+          startsAt: new Date('2026-03-26T09:00:00Z'),
+          endsAt: new Date('2026-03-26T09:01:00Z'),
+          phase: 'ALL',
+          type: 'POWER_SPIKE',
+          severity: 2,
+          metricDomain: 'POWER',
+        },
+      ],
+    });
+
+    const res = await injectGet(`/api/power/anomalies/active?deviceId=${testDeviceId}`);
+    const body = res.json();
+
+    expect(res.statusCode).toBe(200);
+    expect(body.count).toBe(1);
+    expect(body.data[0].endsAt).toBeNull();
+  });
+
   it('applies both from and to bounds together', async () => {
     await prisma.anomaly.createMany({
       data: [

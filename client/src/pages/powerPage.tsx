@@ -489,6 +489,16 @@ export function PowerPage() {
   );
 
   const {
+    data: activeAnomaliesResponse,
+    isLoading: activeAnomaliesLoading,
+    error: activeAnomaliesError,
+  } = usePolling<PowerAnomalyResponse>(
+    ['power', 'active-anomalies', activeSelectedDeviceId ?? 'none'],
+    activeSelectedDeviceId ? `/api/power/anomalies/active${deviceQuery}` : '',
+    { intervalSeconds: 10, enabled: activeSelectedDeviceId != null },
+  );
+
+  const {
     data: usageAnomalies,
     isLoading: usageAnomaliesLoading,
     error: usageAnomaliesError,
@@ -620,10 +630,7 @@ export function PowerPage() {
     [anomalyDistribution, language],
   );
 
-  const activeAnomalies = useMemo(
-    () => (anomalies?.data ?? []).filter((item) => item.endsAt == null),
-    [anomalies],
-  );
+  const activeAnomalies = activeAnomaliesResponse?.data ?? [];
 
   const topPowerAnomaly = reportDetail?.insights.powerAnomalyTypeDistribution?.[0] ?? null;
 
@@ -781,11 +788,11 @@ export function PowerPage() {
             </Badge>
           </Group>
 
-          {anomaliesError ? (
+          {activeAnomaliesError ? (
             <Alert color="red" title={t('power.failedAnomaliesTitle')}>
               {t('power.failedAnomaliesDescription')}
             </Alert>
-          ) : anomaliesLoading ? (
+          ) : activeAnomaliesLoading ? (
             <Group justify="center" py="md"><Loader size="sm" /></Group>
           ) : activeAnomalies.length === 0 ? (
             <Text c="dimmed" ta="center">{t('power.noActiveAnomalies')}</Text>
@@ -1028,12 +1035,7 @@ export function PowerPage() {
     </Stack>
   );
 
-  const powerQualityPanel = showCommercialLock ? (
-    <LockedPanel
-      title={t('power.lockedCommercialTitle')}
-      description={t('power.lockedCommercialDescription')}
-    />
-  ) : (
+  const powerQualityPanel = (
     <Stack gap="md">
       <Card p="md" radius="md">
         <Text fw={700} mb="sm">{t('power.pfImbalance')}</Text>
